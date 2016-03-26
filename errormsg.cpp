@@ -2,15 +2,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+namespace Error {
+
 static int linenumber = 1;
 
-void Err_newline()
+void newline()
 {
     linenumber++;
 }
 
-void Err_error(const std::string &message)
+void error(const std::string &message)
 {
     printf("Error, line %d: %s\n", linenumber, message.c_str());
 	exit(1);
+}
+
 }

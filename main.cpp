@@ -3,10 +3,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-#include <parser.hpp>
+#include <syntaxtree.h>
 
 extern "C" {
 extern FILE *yyin;
+}
+
+void ProcessTree(Syntax::Tree tree)
+{
+	tree->print();
 }
 
 int main(int argc, char **argv) {

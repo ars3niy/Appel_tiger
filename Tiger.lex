@@ -1,13 +1,15 @@
 %{
-#include <parser.hpp>
+#include <syntaxtree.h>
 #include <errormsg.h>
+
 #include <stdlib.h>
 #include <string>
 
-int ivalue;
-double fvalue;
-std::string svalue;
+#include <parser.hpp>
+
 int comment_nesting;
+std::string svalue;
+extern YYSTYPE yylval;
 
 %}
 
@@ -25,7 +27,7 @@ int comment_nesting;
 
 %%
 " " 	{}
-\n  	{Err_newline();}
+\n  	{Error::newline();}
 \t  	{}
 "," 	{return SYM_COMMA;}
 ":" 	{return SYM_COLON;}
@@ -70,7 +72,7 @@ to   	{return SYM_TO;}
 break	{return SYM_BREAK;}
 
 \"          	{svalue = ""; BEGIN(STRING);}
-<STRING>\"  	{BEGIN(INITIAL); return SYM_STRING;}
+<STRING>\"  	{yylval = new Syntax::StringValue(svalue); BEGIN(INITIAL); return SYM_STRING;}
 <STRING>\\n 	{svalue += "\n";}
 <STRING>\\t 	{svalue += "\t";}
 <STRING>\\[0-9]{3}	{svalue.append(1, (char)atoi(yytext+1));}
@@ -78,20 +80,20 @@ break	{return SYM_BREAK;}
 <STRING>\\\\	{svalue += "\\";}
 <STRING>\\  	{BEGIN(STRINGIGNORE);}
 <STRING>.   	{svalue += yytext;}
-<STRING>\n  	{Err_error("Unescaped end-of-line inside string constant");}
-<STRING><<EOF>>	{Err_error("Unterminated string constant");}
+<STRING>\n  	{Error::error("Unescaped end-of-line inside string constant");}
+<STRING><<EOF>>	{Error::error("Unterminated string constant");}
 <STRINGIGNORE>[ \t\r]	{}
-<STRINGIGNORE>\n     	{Err_newline();}
+<STRINGIGNORE>\n     	{Error::newline();}
 <STRINGIGNORE>\\       	{BEGIN(STRING);}
-<STRINGIGNORE><<EOF>>	{Err_error("Unterminated string constant");}
-<STRINGIGNORE>.      	{Err_error("Backslash followed by other than valid escape sequence or white space and a backslash");}
+<STRINGIGNORE><<EOF>>	{Error::error("Unterminated string constant");}
+<STRINGIGNORE>.      	{Error::error("Backslash followed by other than valid escape sequence or white space and a backslash");}
 
 "/*"	{comment_nesting = 1; BEGIN(COMMENT);}
 <COMMENT>"/*"	{comment_nesting++;}
 <COMMENT>"*/"	{comment_nesting--; if (comment_nesting == 0) {BEGIN(INITIAL);}}
-<COMMENT>\n  	{Err_newline();}
+<COMMENT>\n  	{Error::newline();}
 <COMMENT>.   	{}
 
-[a-zA-Z][a-zA-Z0-9_]*	{svalue = yytext; return SYM_ID;}
-[0-9]+	{ivalue = atoi(yytext); return SYM_INT;}
-.	{Err_error(std::string("Illegal character: ") + yytext);}
+[a-zA-Z][a-zA-Z0-9_]*	{yylval = new Syntax::Identifier(yytext); return SYM_ID;}
+[0-9]+	{yylval = new Syntax::IntValue(atoi(yytext)); return SYM_INT;}
+.	{Error::error(std::string("Illegal character: ") + yytext);}
