@@ -73,9 +73,7 @@ int yylex();
 %%
 program:	expression
 
-expression: SYM_ID {printf("Identifier\n");}
-          | expression SYM_DOT SYM_ID {printf("Record field\n");}
-          | index_expression
+expression: lvalue
           | SYM_NIL {printf("nil\n");}
           | SYM_OPENPAREN sequence_2plus SYM_CLOSEPAREN {printf("Sequence\n");}
           | SYM_INT {printf("Integer %d\n", ivalue);}
@@ -106,7 +104,11 @@ expression: SYM_ID {printf("Identifier\n");}
           | SYM_LET declarations SYM_IN sequence SYM_END {printf("Scope\n");}
           | SYM_OPENPAREN expression SYM_CLOSEPAREN
 
-index_expression: expression SYM_OPENBRACKET expression SYM_CLOSEBRACKET {printf("Array index\n");}
+lvalue: SYM_ID {printf("Identifier\n");}
+      | lvalue SYM_DOT SYM_ID {printf("Record field\n");}
+      | index_expression
+
+index_expression: lvalue SYM_OPENBRACKET expression SYM_CLOSEBRACKET {printf("Array index\n");}
 
 sequence_2plus: expression SYM_SEMICOLON expression
               | expression SYM_SEMICOLON sequence_2plus
