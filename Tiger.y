@@ -56,18 +56,31 @@ int yylex();
 %token SYM_INT
 %token SYM_ID
 
+%nonassoc SYM_ASSIGN
+%left  SYM_WHILE SYM_DO SYM_FOR SYM_TO SYM_OF
+%right SYM_IF SYM_THEN SYM_ELSE
+%left SYM_OR
+%left SYM_AND
+%nonassoc SYM_EQUAL SYM_NONEQUAL SYM_LESS SYM_LESSEQUAL SYM_GREATER SYM_GREATEQUAL
+%left SYM_PLUS SYM_MINUS
+%left SYM_ASTERISK SYM_SLASH
+%left UNARYMINUS
+%left SYM_DOT SYM_OPENBRACKET
+
 %start program
+%error-verbose
 
 %%
 program:	expression
 
 expression: SYM_ID {printf("Identifier\n");}
-          | lvalue
+          | expression SYM_DOT SYM_ID {printf("Record field\n");}
+          | index_expression
           | SYM_NIL {printf("nil\n");}
-          | SYM_OPENPAREN sequence SYM_CLOSEPAREN {printf("Sequence\n");}
+          | SYM_OPENPAREN sequence_2plus SYM_CLOSEPAREN {printf("Sequence\n");}
           | SYM_INT {printf("Integer %d\n", ivalue);}
           | SYM_STRING {printf("String %s\n", svalue.c_str());}
-          | SYM_MINUS expression {printf("Negated\n");}
+          | SYM_MINUS expression {printf("Negated\n");} %prec UNARYMINUS
           | call
           //| SYM_ID SYM_OPENPAREN arguments SYM_CLOSEPAREN {printf("Call to function %s\n", svalue.c_str());}
           | expression SYM_PLUS expression {printf("Addition\n");}
@@ -83,7 +96,7 @@ expression: SYM_ID {printf("Identifier\n");}
           | expression SYM_AND expression {printf("Conqunction\n");}
           | expression SYM_OR expression {printf("Disjunction\n");}
           | record_value
-          | array_value
+          | index_expression SYM_OF expression {printf("Instance of array %s\n", svalue.c_str());}
           | expression SYM_ASSIGN expression {printf("Assignment\n");}
           | SYM_IF expression SYM_THEN expression {printf("If, no else\n");}
           | SYM_IF expression SYM_THEN expression SYM_ELSE expression {printf("If, with else\n");}
@@ -93,16 +106,17 @@ expression: SYM_ID {printf("Identifier\n");}
           | SYM_LET declarations SYM_IN sequence SYM_END {printf("Scope\n");}
           | SYM_OPENPAREN expression SYM_CLOSEPAREN
 
-lvalue: SYM_ID {printf("Identifier %s\n", svalue.c_str());}
-      | lvalue SYM_DOT SYM_ID {printf("Record field\n");}
-      | lvalue SYM_OPENBRACKET expression SYM_CLOSEBRACKET {printf("Array index\n");}
+index_expression: expression SYM_OPENBRACKET expression SYM_CLOSEBRACKET {printf("Array index\n");}
 
-sequence: 
+sequence_2plus: expression SYM_SEMICOLON expression
+              | expression SYM_SEMICOLON sequence_2plus
+
+sequence:
         | sequence_nonempty
 
 sequence_nonempty: expression
-                 | expression SYM_SEMICOLON sequence
-
+                 | expression SYM_SEMICOLON sequence_nonempty
+              
 call: SYM_ID SYM_OPENPAREN commasequence SYM_CLOSEPAREN {printf("Function call %s\n", svalue.c_str());}
 
 commasequence:
@@ -118,8 +132,6 @@ fieldlist:
 
 fieldlist_nonempty: SYM_ID SYM_EQUAL expression
                   | SYM_ID SYM_EQUAL expression SYM_COMMA fieldlist_nonempty
-
-array_value: SYM_ID SYM_OPENBRACKET expression SYM_CLOSEBRACKET SYM_OF expression {printf("Instance of array %s\n", svalue.c_str());}
 
 declarations:
             | declaration declarations
@@ -143,8 +155,8 @@ fieldsdec_nonempty: SYM_ID SYM_COLON SYM_ID
 vardec: SYM_VAR SYM_ID SYM_ASSIGN expression
       | SYM_VAR SYM_ID SYM_COLON SYM_ID SYM_ASSIGN expression
 
-funcdec: SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN
-       | SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_COLON SYM_ID 
+funcdec: SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_EQUAL expression
+       | SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_COLON SYM_ID SYM_EQUAL expression
 
 %%
 int yyerror(char *s)

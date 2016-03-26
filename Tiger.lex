@@ -1,5 +1,5 @@
 %{
-#include <tokens.h>
+#include <parser.hpp>
 #include <errormsg.h>
 #include <stdlib.h>
 #include <string>
@@ -92,6 +92,6 @@ break	{return SYM_BREAK;}
 <COMMENT>\n  	{Err_newline();}
 <COMMENT>.   	{}
 
-[a-z][a-z0-9_]*	{svalue = yytext; return SYM_ID;}
+[a-zA-Z][a-zA-Z0-9_]*	{svalue = yytext; return SYM_ID;}
 [0-9]+	{ivalue = atoi(yytext); return SYM_INT;}
 .	{Err_error(std::string("Illegal character: ") + yytext);}
