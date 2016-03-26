@@ -11,7 +11,7 @@ extern FILE *yyin;
 
 void ProcessTree(Syntax::Tree tree)
 {
-	tree->print();
+	//tree->print();
 }
 
 int main(int argc, char **argv) {

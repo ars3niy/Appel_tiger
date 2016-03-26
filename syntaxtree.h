@@ -9,10 +9,13 @@ namespace Syntax {
 typedef Syntax::Tree YYSTYPE;
 #include <parser.hpp>
 
+#include <errormsg.h>
+
 #include <string>
 #include <list>
 #include <assert.h>
 #include <stdio.h>
+
 
 namespace Syntax {
 
@@ -59,18 +62,20 @@ protected:
 			case SYM_NONEQUAL: return "nonequal";
 			case SYM_AND: return "and";
 			case SYM_OR: return "or";
+			case SYM_ASSIGN: return "assign";
 			case UNARYMINUS: return "minus";
 			default: return "WTF";
 		}
 	}
 public:
 	NodeType type;
-	Node(NodeType _type) : type(_type) {}
+	int linenumber;
+	Node(NodeType _type) : type(_type), linenumber(Error::getLineNumber()) {}
 	
 	void preprint(int indent, const char *prefix = "")
 	{
 		for (int i = 0; i < indent; i++) fputc(' ', stdout);
-		printf("%s", prefix);
+		printf("[%d] %s", linenumber, prefix);
 	}
 	
 	virtual void print(int indent = 0, const char *prefix = "")

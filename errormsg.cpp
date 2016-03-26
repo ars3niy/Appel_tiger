@@ -6,6 +6,11 @@ namespace Error {
 
 static int linenumber = 1;
 
+int getLineNumber()
+{
+	return linenumber;
+}
+
 void newline()
 {
     linenumber++;

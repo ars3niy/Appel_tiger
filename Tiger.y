@@ -111,6 +111,7 @@ expression: lvalue
           | SYM_BREAK {$$ = new Syntax::Node(Syntax::BREAK);}
           | SYM_LET declarations SYM_IN sequence SYM_END {$$ = new Syntax::Scope($2, $4);}
           | SYM_OPENPAREN expression SYM_CLOSEPAREN {$$ = $2;}
+          | SYM_OPENPAREN SYM_CLOSEPAREN {$$ = new Syntax::Sequence(new Syntax::ExpressionList());}
 
 lvalue: SYM_ID {$$ = $1;}
       | lvalue SYM_DOT SYM_ID {$$ = new Syntax::RecordField($1, $3);}
