@@ -1,6 +1,6 @@
 %{
-#include "tokens.h"
-#include "errormsg.h"
+#include <tokens.h>
+#include <errormsg.h>
 #include <stdlib.h>
 #include <string>
 
@@ -9,7 +9,6 @@ double fvalue;
 std::string svalue;
 int comment_nesting;
 
-const TokenValue *token_value = NULL;
 %}
 
 /*
@@ -22,7 +21,7 @@ const TokenValue *token_value = NULL;
 \<whatever space>\ ignore
 */
 
-%x COMMENT STRING
+%x COMMENT STRING STRINGIGNORE
 
 %%
 " " 	{}
@@ -31,7 +30,7 @@ const TokenValue *token_value = NULL;
 "," 	{return SYM_COMMA;}
 ":" 	{return SYM_COLON;}
 "{" 	{return SYM_OPENBRACE;}
-"}" 	{return SYM_CLOSBRACE;}
+"}" 	{return SYM_CLOSEBRACE;}
 "=" 	{return SYM_EQUAL;}
 ":="	{return SYM_ASSIGN;}
 "." 	{return SYM_DOT;}
@@ -47,7 +46,7 @@ const TokenValue *token_value = NULL;
 "<" 	{return SYM_LESS;}
 ">" 	{return SYM_GREATER;}
 "<="	{return SYM_LESSEQUAL;}
-">="	{return SYM_GREATEQEAL;}
+">="	{return SYM_GREATEQUAL;}
 "<>"	{return SYM_NONEQUAL;}
 "&" 	{return SYM_AND;}
 "|" 	{return SYM_OR;}
@@ -74,7 +73,7 @@ break	{return SYM_BREAK;}
 <STRING>\"  	{BEGIN(INITIAL); return SYM_STRING;}
 <STRING>\\n 	{svalue += "\n";}
 <STRING>\\t 	{svalue += "\t";}
-<STRING>\\[0-9]{3}	{svalue += std::string((char)atoi(yytext+1));}
+<STRING>\\[0-9]{3}	{svalue.append(1, (char)atoi(yytext+1));}
 <STRING>\\\"	{svalue += "\"";}
 <STRING>\\\\	{svalue += "\\";}
 <STRING>\\  	{BEGIN(STRINGIGNORE);}
@@ -89,7 +88,7 @@ break	{return SYM_BREAK;}
 
 "/*"	{comment_nesting = 1; BEGIN(COMMENT);}
 <COMMENT>"/*"	{comment_nesting++;}
-<COMMENT>"*/"	{comment_nesting--; if (comment_nesting) == 0) {BEGIN(INITIAL);}}
+<COMMENT>"*/"	{comment_nesting--; if (comment_nesting == 0) {BEGIN(INITIAL);}}
 <COMMENT>\n  	{Err_newline();}
 <COMMENT>.   	{}
 
