@@ -5,10 +5,16 @@
 namespace Error {
 
 static int linenumber = 1;
+static int errorCount = 0;
 
 int getLineNumber()
 {
 	return linenumber;
+}
+
+int getErrorCount()
+{
+	return errorCount;
 }
 
 void newline()
@@ -16,9 +22,19 @@ void newline()
     linenumber++;
 }
 
-void error(const std::string &message)
+void error(const std::string &message, int _linenumber)
 {
-    printf("Error, line %d: %s\n", linenumber, message.c_str());
+    printf("Error, line %d: %s\n",
+		   _linenumber > 0 ? _linenumber : Error::linenumber,
+		   message.c_str());
+	errorCount++;
+}
+
+void fatalError(const std::string &message, int _linenumber)
+{
+    printf("Fatal error, line %d: %s\n",
+		   _linenumber > 0 ? _linenumber : Error::linenumber,
+		   message.c_str());
 	exit(1);
 }
 

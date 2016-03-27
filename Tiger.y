@@ -1,16 +1,16 @@
 %{
 #include <syntaxtree.h>
+#include <idmap.h>
 
 #include <errormsg.h>
 #include <string>
 #include <stdio.h>
 
-extern int ivalue;
-extern std::string svalue;
-
 int yyerror(char *s);
 int yylex();
 extern void ProcessTree(YYSTYPE tree);
+
+static IdTracker idProvider;
 
 %}
 
@@ -84,7 +84,6 @@ expression: lvalue
           | SYM_STRING {$$ = $1;}
           | SYM_MINUS expression {$$ = new Syntax::BinaryOp(SYM_MINUS, new Syntax::IntValue(0), $2);} %prec UNARYMINUS
           | call
-          //| SYM_ID SYM_OPENPAREN arguments SYM_CLOSEPAREN {printf("Call to function %s\n", svalue.c_str());}
           | expression SYM_PLUS expression {$$ = new Syntax::BinaryOp(SYM_PLUS, $1, $3);}
           | expression SYM_MINUS expression {$$ = new Syntax::BinaryOp(SYM_MINUS, $1, $3);}
           | expression SYM_ASTERISK expression {$$ = new Syntax::BinaryOp(SYM_ASTERISK, $1, $3);}
@@ -205,17 +204,17 @@ fieldsdec: {$$ = new Syntax::ExpressionList;}
 
 fieldsdec_nonempty: SYM_ID SYM_COLON SYM_ID {
                       Syntax::ExpressionList *s = new Syntax::ExpressionList;
-                      s->prepend(new Syntax::ParameterDeclaration($1, $3));
+                      s->prepend(new Syntax::ParameterDeclaration(idProvider.getId(), $1, $3));
                       $$ = s;
                   }
                   | SYM_ID SYM_COLON SYM_ID SYM_COMMA fieldsdec_nonempty {
                       Syntax::ExpressionList *s = (Syntax::ExpressionList *)$5;
-                      s->prepend(new Syntax::ParameterDeclaration($1, $3));
+                      s->prepend(new Syntax::ParameterDeclaration(idProvider.getId(), $1, $3));
                       $$ = s;
                   }
 
-vardec: SYM_VAR SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclaration($2, $4);}
-      | SYM_VAR SYM_ID SYM_COLON SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclaration($2, $6, $4);}
+vardec: SYM_VAR SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclaration(idProvider.getId(), $2, $4);}
+      | SYM_VAR SYM_ID SYM_COLON SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclaration(idProvider.getId(), $2, $6, $4);}
 
 funcdec: SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_EQUAL expression {
            $$ = new Syntax::Function($2, NULL, $4, $7);
