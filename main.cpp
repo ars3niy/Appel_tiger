@@ -1,11 +1,14 @@
+#include "translate_utils.h"
+#include "translator.h"
+#include "errormsg.h"
+#include "x86_64_frame.h"
+
 #include <iostream>
 #include <string>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
 #include <syntaxtree.h>
-#include "translator.h"
-#include "errormsg.h"
 
 extern "C" {
 extern FILE *yyin;
@@ -218,10 +221,14 @@ void print(Syntax::Tree tree, int indent = 0, const char *prefix = "")
 void ProcessTree(Syntax::Tree tree)
 {
 	//PrintTree(tree);
-	Semantic::DeclarationsEnvironment translator;
-	Semantic::TranslatedExpression *translated;
+	
+	IR::X86_64FrameManager framemanager;
+	Semantic::Translator translator(&framemanager);
+	IR::Code *translated;
 	Semantic::Type *type;
-	translator.translateExpression(tree, translated, type);
+	translator.translateProgram(tree, translated, type);
+	if (Error::getErrorCount() == 0)
+		IR::PrintCode(translated);
 }
 
 int main(int argc, char **argv) {

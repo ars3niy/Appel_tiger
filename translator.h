@@ -4,6 +4,7 @@
 #include "syntaxtree.h"
 #include "layeredmap.h"
 #include "declarations.h"
+#include "translate_utils.h"
 
 #include <string>
 #include <map>
@@ -11,22 +12,17 @@
 
 namespace Semantic {
 
-class TranslatedExpression;
-class DeclarationsEnvironmentPrivate;
+class TranslatorPrivate;
 
-class DeclarationsEnvironment {
+class Translator {
 private:
-	DeclarationsEnvironmentPrivate *impl;
+	TranslatorPrivate *impl;
 public:
-	DeclarationsEnvironment();
-	~DeclarationsEnvironment();
+	Translator(IR::AbstractFrameManager * _framemanager);
+	~Translator();
 	
-	void translateExpression(Syntax::Tree expression,
-		TranslatedExpression *&translated, Type *&type,
-		Syntax::Tree lastloop = NULL);
-};
-
-class TranslatedExpression {
+	void translateProgram(Syntax::Tree expression,
+		IR::Code *&translated, Type *&type);
 };
 
 }

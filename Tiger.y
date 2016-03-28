@@ -94,8 +94,8 @@ expression: lvalue
           | expression SYM_LESSEQUAL expression {$$ = new Syntax::BinaryOp(SYM_LESSEQUAL, $1, $3);}
           | expression SYM_GREATER expression {$$ = new Syntax::BinaryOp(SYM_GREATER, $1, $3);}
           | expression SYM_GREATEQUAL expression {$$ = new Syntax::BinaryOp(SYM_GREATEQUAL, $1, $3);}
-          | expression SYM_AND expression {$$ = new Syntax::BinaryOp(SYM_AND, $1, $3);}
-          | expression SYM_OR expression {$$ = new Syntax::BinaryOp(SYM_OR, $1, $3);}
+          | expression SYM_AND expression {$$ = new Syntax::IfElse($1, $3, new Syntax::IntValue(0));}
+          | expression SYM_OR expression {$$ = new Syntax::IfElse($1, new Syntax::IntValue(1), $3);}
           | record_value
           | index_expression SYM_OF expression {
               Syntax::ArrayInstantiation *a = new Syntax::ArrayInstantiation($1, $3);
@@ -106,7 +106,7 @@ expression: lvalue
           | SYM_IF expression SYM_THEN expression {$$ = new Syntax::If($2, $4);}
           | SYM_IF expression SYM_THEN expression SYM_ELSE expression {$$ = new Syntax::IfElse($2, $4, $6);}
           | SYM_WHILE expression SYM_DO expression {$$ = new Syntax::While($2, $4);}
-          | SYM_FOR SYM_ID SYM_ASSIGN expression SYM_TO expression SYM_DO expression {$$ = new Syntax::For($2, $4, $6, $8);}
+          | SYM_FOR SYM_ID SYM_ASSIGN expression SYM_TO expression SYM_DO expression {$$ = new Syntax::For($2, $4, $6, $8, idProvider.getId());}
           | SYM_BREAK {$$ = new Syntax::Node(Syntax::BREAK);}
           | SYM_LET declarations SYM_IN sequence SYM_END {$$ = new Syntax::Scope($2, $4);}
           | SYM_OPENPAREN expression SYM_CLOSEPAREN {$$ = $2;}

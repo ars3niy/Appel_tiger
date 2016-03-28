@@ -82,7 +82,25 @@ public:
 	Tree left, right;
 	
 	BinaryOp(yytokentype _operation, Tree _left, Tree _right) :
-		Node(BINARYOP), operation(_operation), left(_left), right(_right) {}
+		Node(BINARYOP), operation(_operation), left(_left), right(_right)
+	{
+		switch (_operation) {
+			case SYM_PLUS:
+			case SYM_MINUS:
+			case SYM_ASTERISK:
+			case SYM_SLASH:
+			case SYM_EQUAL:
+			case SYM_NONEQUAL:
+			case SYM_LESS:
+			case SYM_LESSEQUAL:
+			case SYM_GREATER:
+			case SYM_GREATEQUAL:
+			case SYM_ASSIGN:
+				return;
+			default:
+				Error::fatalError("Unexpected operation token", left->linenumber);
+		}
+	}
 };
 
 class ExpressionList: public Node {
@@ -157,10 +175,14 @@ class For: public Node {
 public:
 	Identifier *variable;
 	Tree start, stop, action;
+	/**
+	 * Id for the loop variable
+	 */
+	ObjectId variable_id;
 	
-	For(Tree _variable, Tree _start, Tree _stop, Tree _action) :
+	For(Tree _variable, Tree _start, Tree _stop, Tree _action, ObjectId _var_id) :
 		Node(FOR), variable((Identifier *)_variable),
-		start(_start), stop(_stop), action(_action)
+		start(_start), stop(_stop), action(_action), variable_id(_var_id)
 	{
 		assert(variable->type == IDENTIFIER);
 	}
