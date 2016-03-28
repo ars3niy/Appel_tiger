@@ -1,4 +1,5 @@
 #include "intermediate.h"
+#include "errormsg.h"
 #include <stdio.h>
 
 namespace IR {
@@ -42,22 +43,97 @@ void putLabels(const std::list<Label**> &replace_true,
 
 Expression *IREnvironment::killCodeToExpression(Code *&code)
 {
+	IR::Expression *result = NULL;
+	switch (code->kind) {
+		case CODE_STATEMENT:
+			Error::fatalError("Not supposed to convert statements to expressions");
+			break;
+		case CODE_EXPRESSION:
+			result = ((ExpressionCode *)code)->exp;
+			break;
+		case CODE_JUMP_WITH_PATCHES: {
+			Label *true_label = addLabel();
+			Label *false_label = addLabel();
+			Label *finish_label = addLabel();
+			Register *value = addRegister();
+			putLabels(((CondJumpPatchesCode *)code)->replace_true,
+				((CondJumpPatchesCode *)code)->replace_false,
+				true_label, false_label);
+			
+			StatementSequence *sequence = new StatementSequence;
+			sequence->addStatement(((CondJumpPatchesCode *)code)->statm);
+			sequence->addStatement(new LabelPlacementStatement(true_label));
+			sequence->addStatement(new MoveStatement(new RegisterExpression(value),
+				new IntegerExpression(1)));
+			sequence->addStatement(new JumpStatement(
+				new LabelAddressExpression(finish_label), finish_label));
+			sequence->addStatement(new LabelPlacementStatement(false_label));
+			sequence->addStatement(new MoveStatement(new RegisterExpression(value),
+				new IntegerExpression(0)));
+			sequence->addStatement(new LabelPlacementStatement(finish_label));
+			
+			result = new StatExpSequence(sequence, new RegisterExpression(value));
+		}
+	}
 	delete code;
 	code = NULL;
+	return result;
 }
 
 Statement *IREnvironment::killCodeToStatement(Code *&code)
 {
+	IR::Statement *result = NULL;
+	switch (code->kind) {
+		case CODE_STATEMENT:
+			result = ((StatementCode *)code)->statm;
+			break;
+		case CODE_EXPRESSION:
+			result = new ExpressionStatement(((ExpressionCode *)code)->exp);
+			break;
+		case CODE_JUMP_WITH_PATCHES: {
+			Label *proceed = addLabel();
+			putLabels(((CondJumpPatchesCode *)code)->replace_true,
+				((CondJumpPatchesCode *)code)->replace_false,
+				proceed, proceed);
+			StatementSequence *seq = new StatementSequence;
+			seq->addStatement(((CondJumpPatchesCode *)code)->statm);
+			seq->addStatement(new LabelPlacementStatement(proceed));
+			result = seq;
+			break;
+		}
+	}
 	delete code;
 	code = NULL;
+	return result;
 }
 
 Statement *IREnvironment::killCodeToCondJump(Code *&code,
 	std::list<Label**> &replace_true,
 	std::list<Label**> &replace_false)
 {
+	Statement *result = NULL;
+	switch (code->kind) {
+		case CODE_STATEMENT:
+			Error::fatalError("Not supposed to convert statements to conditional jumps");
+			break;
+		case CODE_EXPRESSION:
+			result = new CondJumpStatement(OP_NONEQUAL,
+				((ExpressionCode *)code)->exp, new IntegerExpression(0),
+				NULL, NULL);
+			replace_true.clear();
+			replace_false.clear();
+			replace_true.push_back(&((CondJumpStatement *)result)->true_dest);
+			replace_false.push_back(&((CondJumpStatement *)result)->false_dest);
+			break;
+		case CODE_JUMP_WITH_PATCHES:
+			result = ((CondJumpPatchesCode *)code)->statm;
+			replace_true = ((CondJumpPatchesCode *)code)->replace_true;
+			replace_false = ((CondJumpPatchesCode *)code)->replace_false;
+			break;
+	}
 	delete code;
 	code = NULL;
+	return result;
 }
 
 void preprint(int indent, const char *prefix = "")
@@ -193,6 +269,27 @@ void PrintCode(Code *code, int indent)
 		case CODE_JUMP_WITH_PATCHES:
 			PrintStatement(((StatementCode *)code)->statm, indent);
 			break;
+	}
+}
+
+void IREnvironment::printBlobs()
+{
+	for (std::list<Blob>::iterator blob = blobs.begin();
+			blob != blobs.end(); blob++) {
+		printf("Label here: %s\n", (*blob).label->getName().c_str());
+		if ((*blob).data.size() == 0)
+			printf("(0 bytes)");
+		else {
+			for (int i = 0; i < (*blob).data.size(); i++) {
+				if (i != 0)
+					fputc(' ', stdout);
+				printf("0x%.2x", (*blob).data[i]);
+			}
+		}
+		printf(" \"");
+		for (int i = 0; i < (*blob).data.size(); i++)
+			printf("%c", (*blob).data[i]);
+		printf("\"\n");
 	}
 }
 

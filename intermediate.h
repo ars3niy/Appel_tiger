@@ -304,6 +304,7 @@ public:
 	Label *addLabel(const std::string &name) {return labels.addLabel(name);}
 	Register *addRegister() {return registers.addRegister();}
 	Blob *addBlob();
+	void printBlobs();
 	
 	Expression *killCodeToExpression(Code *&code);
 	Statement *killCodeToStatement(Code *&code);

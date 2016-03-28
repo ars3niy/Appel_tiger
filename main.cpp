@@ -221,14 +221,17 @@ void print(Syntax::Tree tree, int indent = 0, const char *prefix = "")
 void ProcessTree(Syntax::Tree tree)
 {
 	//PrintTree(tree);
-	
-	IR::X86_64FrameManager framemanager;
-	Semantic::Translator translator(&framemanager);
+	IR::IREnvironment IR_env;
+	IR::X86_64FrameManager framemanager(&IR_env);
+	Semantic::Translator translator(&IR_env, &framemanager);
 	IR::Code *translated;
 	Semantic::Type *type;
 	translator.translateProgram(tree, translated, type);
-	if (Error::getErrorCount() == 0)
+	if (Error::getErrorCount() == 0) {
+		translator.printFunctions();
 		IR::PrintCode(translated);
+		IR_env.printBlobs();
+	}
 }
 
 int main(int argc, char **argv) {

@@ -2,6 +2,7 @@
 #define _X86_64_FRAME_H
 
 #include "declarations.h"
+#include "intermediate.h"
 
 namespace IR {
 
@@ -15,11 +16,13 @@ public:
 };
 
 class X86_64Frame: public AbstractFrame {
-private:
+public:
+	Register *framepointer;
 	X86_64Frame *parent;
 	int frame_size;
-public:
-	X86_64Frame(X86_64Frame *_parent) : parent(_parent) {}
+
+	X86_64Frame(X86_64Frame *_parent, Register *_framepointer) :
+		parent(_parent), framepointer(_framepointer) {}
 	
 	virtual AbstractVarLocation *createVariable(int size, bool cant_be_register)
 	{
@@ -34,6 +37,8 @@ class X86_64FrameManager: public AbstractFrameManager {
 private:
 	X86_64Frame *root_frame;
 public:
+	X86_64FrameManager(IREnvironment *env) : AbstractFrameManager(env) {}
+	
 	virtual AbstractFrame *rootFrame()
 	{
 		return root_frame;
@@ -41,7 +46,7 @@ public:
 	
 	virtual AbstractFrame *newFrame(AbstractFrame *parent)
 	{
-		return new X86_64Frame((X86_64Frame *)parent);
+		return new X86_64Frame((X86_64Frame *)parent, IR_env->addRegister());
 	}
 	
 	virtual int getVarSize(Semantic::Type *type)

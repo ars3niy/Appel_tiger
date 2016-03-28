@@ -3,7 +3,7 @@ project(compiler)
 find_package(FLEX)
 find_package(BISON)
 
-set(CMAKE_CXX_FLAGS -fpermissive)
+set(CMAKE_CXX_FLAGS "-fpermissive -O0")
 
 BISON_TARGET(TigerParser Tiger.y ${CMAKE_CURRENT_BINARY_DIR}/parser.cpp)
 FLEX_TARGET(TigerScanner Tiger.lex ${CMAKE_CURRENT_BINARY_DIR}/lexer.cpp)

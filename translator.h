@@ -18,11 +18,12 @@ class Translator {
 private:
 	TranslatorPrivate *impl;
 public:
-	Translator(IR::AbstractFrameManager * _framemanager);
+	Translator(IR::IREnvironment *ir_inv, IR::AbstractFrameManager * _framemanager);
 	~Translator();
 	
 	void translateProgram(Syntax::Tree expression,
 		IR::Code *&translated, Type *&type);
+	void printFunctions();
 };
 
 }

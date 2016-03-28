@@ -13,9 +13,9 @@ class AbstractFrame;
 
 class AbstractVarLocation {
 public:
-	AbstractFrame *frame;
+	AbstractFrame *owner_frame;
 	
-	AbstractVarLocation(AbstractFrame *_frame) : frame(_frame) {}
+	AbstractVarLocation(AbstractFrame *_frame) : owner_frame(_frame) {}
 	virtual IR::Code *createCode(AbstractFrame *currentFrame) = 0;
 };
 
@@ -43,7 +43,10 @@ private:
 };
 
 class AbstractFrameManager {
+protected:
+	IREnvironment *IR_env;
 public:
+	AbstractFrameManager(IREnvironment *env) : IR_env(env) {}
 	virtual AbstractFrame *rootFrame() = 0;
 	virtual AbstractFrame *newFrame(AbstractFrame *parent) = 0;
 	virtual int getVarSize(Semantic::Type *type) = 0;
@@ -52,6 +55,8 @@ public:
 
 class DummyFrameManager: public AbstractFrameManager {
 public:
+	DummyFrameManager(IREnvironment *env) : AbstractFrameManager(env) {}
+	
 	virtual DummyFrame *rootFrame()
 	{
 		return new DummyFrame;
