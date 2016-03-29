@@ -6,7 +6,7 @@
 #include <string>
 #include <stdio.h>
 
-int yyerror(char *s);
+int yyerror(const char *s);
 int yylex();
 extern void ProcessTree(YYSTYPE tree);
 
@@ -224,7 +224,7 @@ funcdec: SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_EQUAL ex
        }
 
 %%
-int yyerror(char *s)
+int yyerror(const char *s)
 {
 	Error::error(s);
 }

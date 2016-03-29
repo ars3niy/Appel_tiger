@@ -42,10 +42,8 @@ public:
 class TranslatorPrivate {
 private:
 	LayeredMap func_and_var_names;
-	std::list<Variable> variables;
 	TypesEnvironment *type_environment;
 	Variable *undefined_variable;
-	IR::IREnvironment *IRenvironment;
 	typedef std::map<std::string, IR::Blob *> BlobsMap;
 	BlobsMap blobs_by_string;
 	
@@ -100,6 +98,8 @@ private:
 	void translateRecordInstantiation(Syntax::RecordInstantiation *expression, IR::Code *&translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 public:
+	IR::IREnvironment *IRenvironment;
+	std::list<Variable> variables;
 	IR::AbstractFrameManager *framemanager;
 	VariablesAccessInfo variables_extra_info;
 	std::list<Function> functions;
@@ -782,7 +782,7 @@ void TranslatorPrivate::translateSequence(const std::list<Syntax::Tree> &express
 			e++) {
 		std::list<Syntax::Tree>::const_iterator next = e;
 		next++;
-		IR::Code *item_code = 0xdeadbeef;
+		IR::Code *item_code;
 		translateExpression(*e, item_code, type, last_loop_exit, currentFrame);
 		if ((next != expressions.end()) || type->basetype == TYPE_VOID)
 			sequence->addStatement(IRenvironment->killCodeToStatement(item_code));
@@ -792,7 +792,7 @@ void TranslatorPrivate::translateSequence(const std::list<Syntax::Tree> &express
 	if (last_expression == NULL)
 		translated = new IR::StatementCode(sequence);
 	else
-		if (sequence->statements.size() > 0)
+		if (! sequence->statements.empty())
 			translated = new IR::ExpressionCode(new IR::StatExpSequence(
 				sequence, last_expression));
 		else
@@ -1388,21 +1388,46 @@ Translator::~Translator()
 	delete impl;
 }
 
-void Translator::translateProgram(Syntax::Tree expression,
-	IR::Code*& translated, Type*& type)
+IR::Statement *Translator::translateProgram(Syntax::Tree expression)
 {
+	IR::Code *code;
+	Type *type;
 	impl->variables_extra_info.processExpression(expression);
-	impl->translateExpression(expression, translated, type, NULL,
+	impl->translateExpression(expression, code, type, NULL,
 		impl->framemanager->newFrame(impl->framemanager->rootFrame()));
+	return impl->IRenvironment->killCodeToStatement(code);
 }
 
-void Translator::printFunctions()
+void Translator::printFunctions(FILE *out)
 {
 	for (std::list<Function>::iterator func = impl->functions.begin();
 			func != impl->functions.end(); func++)
 		if ((*func).body != NULL) {
 			printf("Label here: %s\n", (*func).label->getName().c_str());
-			IR::PrintCode((*func).body);
+			IR::PrintCode(out, (*func).body);
+		}
+}
+
+void Translator::canonicalizeProgram(IR::Statement*& statement)
+{
+	impl->IRenvironment->canonicalizeStatement(statement);
+}
+
+void Translator::canonicalizeFunctions()
+{
+	for (std::list<Function>::iterator func = impl->functions.begin();
+			func != impl->functions.end(); func++)
+		switch ((*func).body->kind) {
+			case IR::CODE_EXPRESSION:
+				impl->IRenvironment->canonicalizeExpression(
+					((IR::ExpressionCode *) (*func).body)->exp, NULL, NULL
+				);
+				break;
+			case IR::CODE_STATEMENT:
+				impl->IRenvironment->canonicalizeStatement(
+					((IR::StatementCode *) (*func).body)->statm
+				);
+				break;
 		}
 }
 

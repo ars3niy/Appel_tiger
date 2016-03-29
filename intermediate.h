@@ -173,6 +173,23 @@ public:
 		Expression(IR_STAT_EXP_SEQ), stat(_stat), exp(_exp) {}
 };
 
+#define DECLARE_EXPRESSION_CONVERSION(type, code) \
+static inline type *To ## type(Expression *e) \
+{ \
+	assert(e->kind == code); \
+	return (type *)e; \
+}
+
+DECLARE_EXPRESSION_CONVERSION(IntegerExpression, IR_INTEGER);
+DECLARE_EXPRESSION_CONVERSION(LabelAddressExpression, IR_LABELADDR);
+DECLARE_EXPRESSION_CONVERSION(RegisterExpression, IR_REGISTER);
+DECLARE_EXPRESSION_CONVERSION(BinaryOpExpression, IR_BINARYOP);
+DECLARE_EXPRESSION_CONVERSION(MemoryExpression, IR_MEMORY);
+DECLARE_EXPRESSION_CONVERSION(CallExpression, IR_FUN_CALL);
+DECLARE_EXPRESSION_CONVERSION(StatExpSequence, IR_STAT_EXP_SEQ);
+
+#undef DECLARE_EXPRESSION_CONVERSION
+
 class Statement {
 public:
 	StatementKind kind;
@@ -247,6 +264,22 @@ public:
     LabelPlacementStatement(Label *_label) : Statement(IR_LABEL), label(_label) {}
 };
 
+#define DECLARE_STATEMENT_CONVERSION(type, code) \
+static inline type *To ## type(Statement *s) \
+{ \
+	assert(s->kind == code); \
+	return (type *)s; \
+}
+
+DECLARE_STATEMENT_CONVERSION(MoveStatement, IR_MOVE);
+DECLARE_STATEMENT_CONVERSION(ExpressionStatement, IR_EXP_IGNORE_RESULT);
+DECLARE_STATEMENT_CONVERSION(JumpStatement, IR_JUMP);
+DECLARE_STATEMENT_CONVERSION(CondJumpStatement, IR_COND_JUMP);
+DECLARE_STATEMENT_CONVERSION(StatementSequence, IR_STAT_SEQ);
+DECLARE_STATEMENT_CONVERSION(LabelPlacementStatement, IR_LABEL);
+
+#undef DECLARE_STATEMENT_CONVERSION
+
 enum NodeKind {
 	CODE_EXPRESSION,
 	CODE_STATEMENT,
@@ -259,8 +292,6 @@ public:
 	
 	Code(NodeKind _kind) : kind(_kind) {}
 };
-
-void PrintCode(Code *code, int indent = 0);
 
 class ExpressionCode: public Code {
 public:
@@ -299,18 +330,43 @@ private:
 	LabelFactory labels;
 	RegisterFactory registers;
 	std::list<Blob >blobs;
+	
+	void pullStatementsOutOfTwoOperands(Expression *&left,
+		Expression *&right, StatementSequence *&collected_statements);
+	void canonicalizeMemoryExp(Expression *&exp);
+	void canonicalizeBinaryOpExp(Expression *&exp);
+	void canonicalizeCallExp(Expression *&exp,
+		Expression *parentExpression, Statement *parentStatement);
+	void combineStatExpSequences(StatExpSequence *exp);
+	
+	void canonicalizeMoveStatement(Statement *&statm);
+	void canonicalizeExpressionStatement(Statement *&statm);
+	void canonicalizeJumpStatement(Statement *&statm);
+	void canonicalizeCondJumpStatement(Statement *&statm);
+	void mergeChildStatSequences(StatementSequence *statm);
 public:
 	Label *addLabel() {return labels.addLabel();}
 	Label *addLabel(const std::string &name) {return labels.addLabel(name);}
 	Register *addRegister() {return registers.addRegister();}
 	Blob *addBlob();
-	void printBlobs();
+	void printBlobs(FILE *out);
 	
 	Expression *killCodeToExpression(Code *&code);
 	Statement *killCodeToStatement(Code *&code);
 	Statement *killCodeToCondJump(Code *&code, std::list<Label**> &replace_true,
 		std::list<Label**> &replace_false);
+
+	/**
+	 * Either parentExpression or parentStatement (or both) must be NULL
+	 */
+	void canonicalizeExpression(Expression *&exp,
+		Expression *parentExpression, Statement *parentStatement);
+	void canonicalizeStatement(Statement *&statm);
 };
+
+void PrintCode(FILE *out, Code *code, int indent = 0);
+void PrintStatement(FILE *out, Statement *statm, int indent=0,
+	const char *prefix = "");
 
 };
 

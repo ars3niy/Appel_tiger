@@ -21,9 +21,10 @@ public:
 	Translator(IR::IREnvironment *ir_inv, IR::AbstractFrameManager * _framemanager);
 	~Translator();
 	
-	void translateProgram(Syntax::Tree expression,
-		IR::Code *&translated, Type *&type);
-	void printFunctions();
+	IR::Statement *translateProgram(Syntax::Tree expression);
+	void printFunctions(FILE *out);
+	void canonicalizeProgram(IR::Statement *&statement);
+	void canonicalizeFunctions();
 };
 
 }
