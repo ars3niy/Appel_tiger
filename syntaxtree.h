@@ -347,6 +347,11 @@ public:
 	}
 };
 
+/**
+ * Recursively delete the entire tree
+ */
+void DestroySyntaxTree(Tree &tree);
+
 }
 
 #endif

@@ -330,20 +330,6 @@ private:
 	LabelFactory labels;
 	RegisterFactory registers;
 	std::list<Blob >blobs;
-	
-	void pullStatementsOutOfTwoOperands(Expression *&left,
-		Expression *&right, StatementSequence *&collected_statements);
-	void canonicalizeMemoryExp(Expression *&exp);
-	void canonicalizeBinaryOpExp(Expression *&exp);
-	void canonicalizeCallExp(Expression *&exp,
-		Expression *parentExpression, Statement *parentStatement);
-	void combineStatExpSequences(StatExpSequence *exp);
-	
-	void canonicalizeMoveStatement(Statement *&statm);
-	void canonicalizeExpressionStatement(Statement *&statm);
-	void canonicalizeJumpStatement(Statement *&statm);
-	void canonicalizeCondJumpStatement(Statement *&statm);
-	void mergeChildStatSequences(StatementSequence *statm);
 public:
 	Label *addLabel() {return labels.addLabel();}
 	Label *addLabel(const std::string &name) {return labels.addLabel(name);}
@@ -355,13 +341,6 @@ public:
 	Statement *killCodeToStatement(Code *&code);
 	Statement *killCodeToCondJump(Code *&code, std::list<Label**> &replace_true,
 		std::list<Label**> &replace_false);
-
-	/**
-	 * Either parentExpression or parentStatement (or both) must be NULL
-	 */
-	void canonicalizeExpression(Expression *&exp,
-		Expression *parentExpression, Statement *parentStatement);
-	void canonicalizeStatement(Statement *&statm);
 };
 
 void PrintCode(FILE *out, Code *code, int indent = 0);

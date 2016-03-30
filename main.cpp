@@ -23,6 +23,7 @@ void ProcessTree(Syntax::Tree tree)
 	IR::Code *translated;
 	Semantic::Type *type;
 	IR::Statement *program_body = translator.translateProgram(tree);
+	Syntax::DestroySyntaxTree(tree);
 	if (Error::getErrorCount() == 0) {
 		FILE *f = fopen("intermediate", "w");
 		translator.printFunctions(f);

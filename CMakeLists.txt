@@ -11,7 +11,7 @@ ADD_FLEX_BISON_DEPENDENCY(TigerScanner TigerParser)
 include_directories(${CMAKE_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(compiler debugprint.cpp ir_transformer.cpp types.cpp x86_64_frame.cpp x86_frame.cpp intermadiate.cpp translate_utils.cpp idmap.cpp translator.cpp declarations.cpp layeredmap.cpp ${FLEX_TigerScanner_OUTPUTS} ${BISON_TigerParser_OUTPUTS} errormsg.cpp main.cpp)
+add_executable(compiler syntaxtree.cpp debugprint.cpp ir_transformer.cpp types.cpp x86_64_frame.cpp x86_frame.cpp intermadiate.cpp translate_utils.cpp idmap.cpp translator.cpp declarations.cpp layeredmap.cpp ${FLEX_TigerScanner_OUTPUTS} ${BISON_TigerParser_OUTPUTS} errormsg.cpp main.cpp)
 target_link_libraries(compiler "fl")
 
 install(TARGETS compiler RUNTIME DESTINATION bin)

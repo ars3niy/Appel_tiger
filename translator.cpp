@@ -1,6 +1,7 @@
 #include "translator.h"
 #include "errormsg.h"
 #include "intermediate.h"
+#include "ir_transformer.h"
 #include "translate_utils.h"
 #include <list>
 #include <set>
@@ -99,6 +100,7 @@ private:
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 public:
 	IR::IREnvironment *IRenvironment;
+	IR::IRTransformer *IRtransformer;
 	std::list<Variable> variables;
 	IR::AbstractFrameManager *framemanager;
 	VariablesAccessInfo variables_extra_info;
@@ -278,6 +280,7 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	IRenvironment = ir_inv;
 	framemanager = _framemanager;
 	type_environment = new TypesEnvironment(_framemanager);
+	IRtransformer = new IR::IRTransformer(ir_inv);
 	
 	undefined_variable = new Variable("undefined", type_environment->getErrorType(),
 		NULL, NULL);
@@ -1403,32 +1406,46 @@ void Translator::printFunctions(FILE *out)
 	for (std::list<Function>::iterator func = impl->functions.begin();
 			func != impl->functions.end(); func++)
 		if ((*func).body != NULL) {
-			printf("Label here: %s\n", (*func).label->getName().c_str());
+			fprintf(out, "Function %s\n", (*func).label->getName().c_str());
 			IR::PrintCode(out, (*func).body);
 		}
 }
 
 void Translator::canonicalizeProgram(IR::Statement*& statement)
 {
-	impl->IRenvironment->canonicalizeStatement(statement);
+	impl->IRtransformer->canonicalizeStatement(statement);
+	if (statement->kind == IR::IR_STAT_SEQ)
+		impl->IRtransformer->arrangeJumps(IR::ToStatementSequence(statement));
 }
 
 void Translator::canonicalizeFunctions()
 {
 	for (std::list<Function>::iterator func = impl->functions.begin();
-			func != impl->functions.end(); func++)
+			func != impl->functions.end(); func++) {
+		if ((*func).body == NULL)
+			continue;
 		switch ((*func).body->kind) {
-			case IR::CODE_EXPRESSION:
-				impl->IRenvironment->canonicalizeExpression(
-					((IR::ExpressionCode *) (*func).body)->exp, NULL, NULL
-				);
+			case IR::CODE_EXPRESSION: {
+				IR::ExpressionCode *exp_code = (IR::ExpressionCode *) (*func).body;
+				impl->IRtransformer->canonicalizeExpression(
+					exp_code->exp, NULL, NULL);
+				impl->IRtransformer->arrangeJumpsInExpression(exp_code->exp);
 				break;
-			case IR::CODE_STATEMENT:
-				impl->IRenvironment->canonicalizeStatement(
-					((IR::StatementCode *) (*func).body)->statm
-				);
+			}
+			case IR::CODE_STATEMENT: {
+				IR::StatementCode *statm_code = (IR::StatementCode *) (*func).body;
+				canonicalizeProgram(statm_code->statm);
 				break;
+			}
+			case IR::CODE_JUMP_WITH_PATCHES: {
+				IR::Expression *expr = impl->IRenvironment->
+					killCodeToExpression((*func).body);
+				impl->IRtransformer->canonicalizeExpression(expr, NULL, NULL);
+				impl->IRtransformer->arrangeJumpsInExpression(expr);
+				(*func).body = new IR::ExpressionCode(expr);
+			}
 		}
+	}
 }
 
 }
