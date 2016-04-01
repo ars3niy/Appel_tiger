@@ -21,9 +21,11 @@ void ProcessTree(Syntax::Tree tree)
 	IR::IREnvironment IR_env;
 	IR::X86_64FrameManager framemanager(&IR_env);
 	Semantic::Translator translator(&IR_env, &framemanager);
-	IR::Code *translated;
+
+	IR::AbstractFrame *body_frame;
 	Semantic::Type *type;
-	IR::Statement *program_body = translator.translateProgram(tree);
+	IR::Statement *program_body;
+	translator.translateProgram(tree, program_body, body_frame);
 	Syntax::DestroySyntaxTree(tree);
 	if (Error::getErrorCount() == 0) {
 		FILE *f = fopen("intermediate", "w");
@@ -42,6 +44,19 @@ void ProcessTree(Syntax::Tree tree)
 		fclose(f);
 		
 		Asm::X86_64Assembler assembler(&IR_env);
+		Asm::Instructions code;
+		
+		f = fopen("assembler", "w");
+		for (std::list<Semantic::Function>::const_iterator func =
+				translator.getFunctions().begin();
+				func != translator.getFunctions().end(); func++)
+			assembler.translateFunctionBody((*func).body, (*func).frame, code);
+		assembler.translateProgram(program_body, body_frame, code);
+		assembler.outputCode(f, code);
+		assembler.outputBlobs(f, IR_env.getBlobs());
+		
+		fwrite(assembler.debug_output.c_str(), assembler.debug_output.size(),
+			1, stdout);
 	}
 }
 

@@ -287,15 +287,28 @@ void IRTransformer::canonicalizeExpression(Expression *&exp,
 void IRTransformer::canonicalizeMoveStatement(Statement *&statm)
 {
 	MoveStatement *move_statm = ToMoveStatement(statm);
-	StatementSequence *pre_statements;
 	
-	pullStatementsOutOfTwoOperands(move_statm->to, move_statm->from, pre_statements);
-	
-	if (! pre_statements->statements.empty()) {
-		pre_statements->addStatement(move_statm);
-		statm = pre_statements;
+	if (move_statm->to->kind == IR_MEMORY) {
+		StatementSequence *pre_statements;
+		pullStatementsOutOfTwoOperands(ToMemoryExpression(move_statm->to)->address,
+			move_statm->from, pre_statements);
+		if (! pre_statements->statements.empty()) {
+			pre_statements->addStatement(move_statm);
+			statm = pre_statements;
+		} else
+			delete pre_statements;
+	} else if (move_statm->to->kind == IR_REGISTER) {
+		if (move_statm->from->kind == IR_STAT_EXP_SEQ) {
+			StatementSequence *sequence = new StatementSequence;
+			StatExpSequence *stat_exp_seq = ToStatExpSequence(move_statm->from);
+			growStatementSequence(sequence, stat_exp_seq->stat);
+			move_statm->from = stat_exp_seq->exp;
+			delete stat_exp_seq;
+			growStatementSequence(sequence, move_statm);
+			statm = sequence;
+		}
 	} else
-		delete pre_statements;
+		Error::fatalError("canonicalizeMoveStatement: strange destination");
 }
 
 void IRTransformer::canonicalizeExpressionStatement(Statement *&statm)

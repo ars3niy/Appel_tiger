@@ -124,9 +124,9 @@ public:
 	void processExpression(Syntax::Tree expression, ObjectId current_function_id);
 	void processDeclaration(Syntax::Tree declaration, ObjectId current_function_id);
 	bool isAccessedByAddress(Syntax::Tree definition);
-	bool functionNeedsParentFp(Syntax::Tree definition)
+	bool functionNeedsParentFp(Syntax::Function *definition)
 	{return true;}
-	bool isFunctionParentFpAccessedByChildren(Syntax::Tree definition)
+	bool isFunctionParentFpAccessedByChildren(Syntax::Function *definition)
 	{return true;}
 };
 

@@ -72,12 +72,15 @@ public:
 	IR::Code *body;
 	IR::AbstractFrame *frame;
 	IR::Label *label;
+	bool needs_parent_fp;
 
 	Function(const std::string &_name, Type *_return_type,
 		Syntax::Tree _raw, IR::Code *_body,
-		IR::AbstractFrame *_frame, IR::Label *_label) :
+		IR::AbstractFrame *_frame, IR::Label *_label,
+		bool _needs_parent_fp) :
 		name(_name), Declaration(DECL_FUNCTION), return_type(_return_type), 
-		raw_body(_raw), body(_body), frame(_frame), label(_label)
+		raw_body(_raw), body(_body), frame(_frame), label(_label),
+		needs_parent_fp(_needs_parent_fp)
 	{}
 	FunctionArgument *addArgument(const std::string &name, Type *type,
 		IR::AbstractVarLocation *impl)

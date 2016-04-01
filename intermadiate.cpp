@@ -22,10 +22,31 @@ Label *LabelFactory::addLabel()
 	return &(labels.back());
 }
 
+Label::Label(int _index) : index(_index)
+{
+	char s[32];
+	sprintf(s, ".L%d", _index);
+	name = s;
+}
+
+VirtualRegister::VirtualRegister(int _index) : index(_index)
+{
+	char s[32];
+	sprintf(s, "t%d", _index);
+	name = s;
+}
+
+
 Label *LabelFactory::addLabel(const std::string &name)
 {
 	labels.push_back(Label(labels.size(), name));
 	return &(labels.back());
+}
+
+VirtualRegister *RegisterFactory::addRegister()
+{
+	registers.push_back(VirtualRegister(registers.size()));
+	return &(registers.back());
 }
 
 VirtualRegister *RegisterFactory::addRegister(const std::string &name)

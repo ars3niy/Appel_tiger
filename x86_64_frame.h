@@ -37,7 +37,7 @@ public:
 		parent(_parent),
 		ir_env(_ir_env),
 		framepointer(_framepointer),
-		frame_size(0) 
+		frame_size(0)
 	{}
 	
 	virtual AbstractVarLocation *createVariable(const std::string &name,

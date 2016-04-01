@@ -2,6 +2,7 @@
 #define _ASSEMBLER_H
 
 #include "intermediate.h"
+#include "translate_utils.h"
 
 namespace Asm {
 
@@ -59,7 +60,34 @@ public:
 	}
 };
 
-typedef std::string Instruction;
+//typedef std::string Instruction;
+
+class Instruction {
+public:
+	static std::string Input(int number)
+	{
+		return std::string("&i") + (char)('0' + number);
+	}
+	static std::string Output(int number)
+	{
+		return std::string("&o") + (char)('0' + number);
+	}
+	
+	std::string notation;
+	std::vector<IR::VirtualRegister *> inputs, outputs;
+	
+	/**
+	 * NULL element means fall through to the next instruction
+	 */
+	std::vector<IR::Label *> destinations;
+	
+	explicit Instruction(const std::string &_notation) : notation(_notation) {}
+	
+	Instruction(const std::string &_notation, int ninput, IR::VirtualRegister **inputs,
+		int noutput, IR::VirtualRegister **outputs, int ndest = 1,
+		IR::Label **_destinations = NULL);
+};
+
 typedef std::list<Instruction> Instructions;
 
 class Assembler {
@@ -83,10 +111,18 @@ protected:
 	};
 
 	virtual void translateExpressionTemplate(IR::Expression *templ,
-		IR::VirtualRegister *result_storage,
+		IR::AbstractFrame *frame, IR::VirtualRegister *result_storage,
 		const std::list<TemplateChildInfo> &children, Instructions &result) = 0;
 	virtual void translateStatementTemplate(IR::Statement *templ,
 		const std::list<TemplateChildInfo> &children, Instructions &result) = 0;
+	virtual void translateBlob(const IR::Blob &blob, Instructions &result) = 0;
+	
+	virtual void getCodeSectionHeader(std::string &header) = 0;
+	virtual void getBlobSectionHeader(std::string &header) = 0;
+	virtual void functionEpilogue(IR::VirtualRegister *result_storage,
+		Instructions &result) = 0;
+	virtual void programEpilogue(Instructions &result) = 0;
+	void debug(const char *msg, ...);
 private:
 	
 	void FindExpressionTemplate(IR::Expression *expression, InstructionTemplate *&templ);
@@ -97,12 +133,21 @@ private:
 	bool MatchStatement(IR::Statement *statement, IR::Statement *templ,
 		int &nodecount, std::list<TemplateChildInfo> *children = NULL,
 		IR::Statement **template_instantiation = NULL);
+	void translateExpression(IR::Expression *expression, IR::AbstractFrame *frame,
+		IR::VirtualRegister *value_storage, Instructions &result);
+	void translateStatement(IR::Statement *statement, IR::AbstractFrame *frame,
+		Instructions &result);
 public:
+	std::string debug_output;
 	Assembler(IR::IREnvironment *ir_env);
 	
-	void translateExpression(IR::Expression *expression,
-		IR::VirtualRegister *value_storage, Instructions &result);
-	void translateStatement(IR::Statement *statement, Instructions &result);
+	void translateProgram(IR::Statement *program, IR::AbstractFrame *frame,
+		Instructions &result);
+	void translateFunctionBody(IR::Code *code, IR::AbstractFrame *frame,
+		Instructions &result);
+	
+	void outputCode(FILE *output, const Instructions &code);
+	void outputBlobs(FILE *output, const std::list<IR::Blob> &blobs);
 };
 
 

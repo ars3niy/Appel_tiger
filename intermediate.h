@@ -14,12 +14,7 @@ private:
 	int index;
 	std::string name;
 public:
-	Label(int _index) : index(_index)
-	{
-		char s[32];
-		sprintf(s, ".L%d", _index);
-		name = s;
-	}
+	Label(int _index);
 	
 	Label(int _index, const std::string &_name) : index(_index), name(_name) {}
 	
@@ -49,8 +44,9 @@ private:
 	int index;
 	std::string name;
 public:
-	VirtualRegister(int _index, const std::string &_name = "") :
+	VirtualRegister(int _index, const std::string &_name) :
 		index(_index), name(_name) {}
+	VirtualRegister(int _index);
 	
 	/**
 	 * Sequential number, from 0 to total number of labels - 1
@@ -64,7 +60,8 @@ class RegisterFactory {
 private:
 	std::list<VirtualRegister> registers;
 public:
-	VirtualRegister *addRegister(const std::string &name = "");
+	VirtualRegister *addRegister();
+	VirtualRegister *addRegister(const std::string &name);
 };
 
 enum ExpressionKind {
@@ -169,8 +166,12 @@ class CallExpression: public Expression {
 public:
 	Expression *function;
 	std::list<Expression *> arguments;
+	bool needs_parent_fp;
 	
-	CallExpression(Expression *_func) : Expression(IR_FUN_CALL), function(_func) {}
+	CallExpression(Expression *_func, bool _needs_parent_fp) :
+		Expression(IR_FUN_CALL), function(_func), needs_parent_fp(_needs_parent_fp)
+	{}
+	
 	void addArgument(Expression *arg)
 	{
 		arguments.push_back(arg);
@@ -216,9 +217,7 @@ public:
 	
     MoveStatement(Expression *_to, Expression *_from) :
 		Statement(IR_MOVE), to(_to), from(_from)
-	{
-		assert((to->kind == IR_REGISTER) || (to->kind == IR_MEMORY));
-	}
+	{}
 };
 
 class ExpressionStatement: public Statement {
@@ -353,8 +352,10 @@ private:
 public:
 	Label *addLabel() {return labels.addLabel();}
 	Label *addLabel(const std::string &name) {return labels.addLabel(name);}
-	VirtualRegister *addRegister(const std::string &name = "") {return registers.addRegister(name);}
+	VirtualRegister *addRegister() {return registers.addRegister();}
+	VirtualRegister *addRegister(const std::string &name) {return registers.addRegister(name);}
 	Blob *addBlob();
+	const std::list<Blob> &getBlobs() {return blobs;}
 	void printBlobs(FILE *out);
 	
 	Expression *killCodeToExpression(Code *&code);

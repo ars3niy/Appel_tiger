@@ -285,64 +285,64 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	undefined_variable = new Variable("undefined", type_environment->getErrorType(),
 		NULL, NULL);
 	functions.push_back(Function("print", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("print")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("print"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("print", &(functions.back()));
 
 	functions.push_back(Function("flush", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("flush")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("flush"), false));
 	func_and_var_names.add("flush", &(functions.back()));
 
 	functions.push_back(Function("getchar", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getchar")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getchar"), false));
 	func_and_var_names.add("getchar", &(functions.back()));
 
 	functions.push_back(Function("ord", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("ord")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("ord"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("ord", &(functions.back()));
 
 	functions.push_back(Function("chr", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("chr")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("chr"), false));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("chr", &(functions.back()));
 
 	functions.push_back(Function("size", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("size")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("size"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("size", &(functions.back()));
 
 	functions.push_back(Function("substring", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("substring")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("substring"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	functions.back().addArgument("first", type_environment->getIntType(), NULL);
 	functions.back().addArgument("n", type_environment->getIntType(), NULL);
 	func_and_var_names.add("substring", &(functions.back()));
 
 	functions.push_back(Function("concat", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("concat")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("concat"), false));
 	functions.back().addArgument("s1", type_environment->getStringType(), NULL);
 	functions.back().addArgument("s2", type_environment->getStringType(), NULL);
 	func_and_var_names.add("concat", &(functions.back()));
 
 	functions.push_back(Function("not", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("not")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("not"), false));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("not", &(functions.back()));
 
 	functions.push_back(Function("exit", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("exit")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("exit"), false));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("exit", &(functions.back()));
 
 	functions.push_back(Function("getmem", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getmem")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getmem"), false));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
 	func_and_var_names.add("getmem", &(functions.back()));
 	getmem_func = &(functions.back());
 
 	functions.push_back(Function("getmem_fill", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getmem_fill")));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getmem_fill"), false));
 	functions.back().addArgument("elemcount", type_environment->getIntType(), NULL);
 	functions.back().addArgument("value", type_environment->getIntType(), NULL);
 	func_and_var_names.add("getmem", &(functions.back()));
@@ -481,7 +481,7 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		functions.push_back(Function(declaration->name->name, return_type,
 			declaration->body, NULL,
 			framemanager->newFrame(currentFrame, function_label->getName()),
-			function_label));
+			function_label, variables_extra_info.functionNeedsParentFp(declaration)));
 		Function *function = &(functions.back());
 		if (variables_extra_info.functionNeedsParentFp(declaration))
 			function->frame->addParentFpParamVariable(
@@ -1158,11 +1158,12 @@ void TranslatorPrivate::translateRecordField(
 	}
 }
 
-void TranslatorPrivate::makeCallCode(Function *function, std::list<IR::Code *>arguments,
-		IR::Code *&result)
+void TranslatorPrivate::makeCallCode(Function *function,
+	std::list<IR::Code *>arguments, IR::Code *&result)
 {
 	IR::CallExpression *call = new IR::CallExpression(
-		new IR::LabelAddressExpression(function->label));
+		new IR::LabelAddressExpression(function->label),
+		function->needs_parent_fp);
 	for (std::list<IR::Code *>::iterator arg = arguments.begin();
 			arg != arguments.end(); arg++)
 		 call->addArgument(IRenvironment->killCodeToExpression(*arg));
@@ -1413,14 +1414,15 @@ Translator::~Translator()
 	delete impl;
 }
 
-IR::Statement *Translator::translateProgram(Syntax::Tree expression)
+void Translator::translateProgram(Syntax::Tree expression,
+	IR::Statement *&result, IR::AbstractFrame *&frame)
 {
-	IR::Code *code;
 	Type *type;
+	IR::Code *code;
 	impl->variables_extra_info.processExpression(expression, INVALID_OBJECT_ID);
-	impl->translateExpression(expression, code, type, NULL,
-		impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global"));
-	return impl->IRenvironment->killCodeToStatement(code);
+	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
+	impl->translateExpression(expression, code, type, NULL, frame);
+	result = impl->IRenvironment->killCodeToStatement(code);
 }
 
 void Translator::printFunctions(FILE *out)
@@ -1469,5 +1471,11 @@ void Translator::canonicalizeFunctions()
 		}
 	}
 }
+
+const std::list< Function >& Translator::getFunctions()
+{
+	return impl->functions;
+}
+
 
 }

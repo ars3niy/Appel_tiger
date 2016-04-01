@@ -10,17 +10,38 @@ private:
 	std::vector<IR::Expression *> memory_exp;
 	IR::Expression *exp_int, *exp_label, *exp_register;
 	IR::Expression *exp_mul_index[8], *exp_mul_index_plus[8];
+	IR::VirtualRegister *rax, *rdx, *rcx, *rsi, *rdi, *r8, *r9, *r10, *r11;
 	
 	void make_arithmetic(int asm_code, IR::BinaryOp ir_code);
 	void make_comparison(int asm_code, IR::ComparisonOp ir_code);
 	void make_assignment();
+	void addInstruction(Instructions &result,
+		const std::string &prefix, IR::Expression *operand,
+		const std::string &suffix, IR::VirtualRegister *output0,
+		IR::VirtualRegister *output1 = NULL);
+	void addInstruction(Instructions &result,
+		const std::string &prefix, IR::Expression *operand0,
+		const std::string &suffix, IR::Expression *operand1);
+	void makeOperand(IR::Expression *expression,
+		std::vector<IR::VirtualRegister *> &add_inputs,
+		std::string &notation);
 	std::string translateOperand(IR::Expression *expr);
+	void placeCallArguments(const std::list<IR::Expression *> &arguments,
+		Instructions &result);
+	void removeCallArguments(const std::list<IR::Expression *> &arguments,
+		Instructions &result);
 protected:
 	virtual void translateExpressionTemplate(IR::Expression *templ,
-		IR::VirtualRegister *value_storage,
+		IR::AbstractFrame *frame, IR::VirtualRegister *value_storage,
 		const std::list<TemplateChildInfo> &children, Instructions &result);
 	virtual void translateStatementTemplate(IR::Statement *templ,
 		const std::list<TemplateChildInfo> &children, Instructions &result);
+	virtual void translateBlob(const IR::Blob &blob, Instructions &result);
+	virtual void getCodeSectionHeader(std::string &header);
+	virtual void getBlobSectionHeader(std::string &header);
+	virtual void functionEpilogue(IR::VirtualRegister *result_storage,
+		Instructions &result);
+	virtual void programEpilogue(Instructions &result);
 public:
 	X86_64Assembler(IR::IREnvironment *ir_env);
 };
