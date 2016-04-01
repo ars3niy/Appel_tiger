@@ -10,36 +10,60 @@
 namespace IR {
 
 class AbstractFrame;
+class AbstractFrameManager;
 
 class AbstractVarLocation {
 public:
 	AbstractFrame *owner_frame;
 	
 	AbstractVarLocation(AbstractFrame *_frame) : owner_frame(_frame) {}
-	virtual IR::Code *createCode(AbstractFrame *currentFrame) = 0;
+	virtual IR::Expression *createCode(AbstractFrame *currentFrame) = 0;
 };
 
 class DummyVarLocation: public AbstractVarLocation {
 public:
 	DummyVarLocation(AbstractFrame *frame) : AbstractVarLocation(frame) {}
-	virtual IR::Code *createCode(AbstractFrame *currentFrame) {return NULL;}
+	virtual IR::Expression *createCode(AbstractFrame *currentFrame) {return NULL;}
 };
 
 class AbstractFrame {
 private:
-	virtual AbstractVarLocation *createVariable(int size, bool cant_be_register) = 0;
+	virtual AbstractVarLocation *createVariable(const std::string &name,
+		int size, bool cant_be_register) = 0;
+protected:
+	std::string name;
+	AbstractVarLocation *parent_fp_parameter;
+	AbstractFrameManager *framemanager;
 public:
 	std::list<AbstractVarLocation *>variables;
-	AbstractVarLocation *addVariable(int size, bool cant_be_register);
+	
+	AbstractFrame(AbstractFrameManager *_framemanager,
+		const std::string &_name) : framemanager(_framemanager), name(_name),
+		parent_fp_parameter(NULL)
+	{}
+	
+	AbstractVarLocation *addVariable(const std::string &name,
+		int size, bool cant_be_register);
+	void addParentFpParamVariable(bool cant_be_register);
+	
+	AbstractVarLocation *getParentFpParamVariable()
+	{
+		return parent_fp_parameter;
+	}
+	
 	~AbstractFrame();
 };
 
 class DummyFrame: public AbstractFrame {
 private:
-	virtual AbstractVarLocation *createVariable(int size, bool cant_be_register)
+	virtual AbstractVarLocation *createVariable(const std::string &name,
+		int size, bool cant_be_register)
 	{
 		return new DummyVarLocation(this);
 	}
+public:
+	DummyFrame(AbstractFrameManager *_framemanager, const std::string &name) :
+		AbstractFrame(_framemanager, name) {}
 };
 
 class AbstractFrameManager {
@@ -48,8 +72,9 @@ protected:
 public:
 	AbstractFrameManager(IREnvironment *env) : IR_env(env) {}
 	virtual AbstractFrame *rootFrame() = 0;
-	virtual AbstractFrame *newFrame(AbstractFrame *parent) = 0;
+	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name) = 0;
 	virtual int getVarSize(Semantic::Type *type) = 0;
+	virtual int getPointerSize() = 0;
 	virtual void updateRecordSize(int &size, Semantic::Type *newFieldType) = 0;
 };
 
@@ -59,15 +84,20 @@ public:
 	
 	virtual DummyFrame *rootFrame()
 	{
-		return new DummyFrame;
+		return new DummyFrame(this, ".root");
 	}
 	
-	virtual DummyFrame *newFrame(AbstractFrame *parent)
+	virtual DummyFrame *newFrame(AbstractFrame *parent, const std::string &name)
 	{
-		return new DummyFrame;
+		return new DummyFrame(this, name);
 	}
 	
 	virtual int getVarSize(Semantic::Type *type)
+	{
+		return 0;
+	}
+	
+	virtual int getPointerSize(Semantic::Type *type)
 	{
 		return 0;
 	}
@@ -81,12 +111,23 @@ public:
 
 namespace Semantic {
 
+class VariablesAccessInfoPrivate;
+
 class VariablesAccessInfo {
 private:
-	IdMap info;
+	IdMap var_info;
+	VariablesAccessInfoPrivate *impl;
 public:
-	void processExpression(Syntax::Tree expression);
+	VariablesAccessInfo();
+	~VariablesAccessInfo();
+	
+	void processExpression(Syntax::Tree expression, ObjectId current_function_id);
+	void processDeclaration(Syntax::Tree declaration, ObjectId current_function_id);
 	bool isAccessedByAddress(Syntax::Tree definition);
+	bool functionNeedsParentFp(Syntax::Tree definition)
+	{return true;}
+	bool isFunctionParentFpAccessedByChildren(Syntax::Tree definition)
+	{return true;}
 };
 
 }

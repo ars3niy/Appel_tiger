@@ -71,7 +71,7 @@ void IRTransformer::pullStatementsOutOfTwoOperands(Expression *&left,
 			right = stat_exp->exp;
 			growStatementSequence(pre_statements, stat_exp->stat);
 		} else {
-			Register *save_left = ir_env->addRegister();
+			VirtualRegister *save_left = ir_env->addRegister();
 			pre_statements->addStatement(new MoveStatement(
 				new RegisterExpression(save_left), left));
 			growStatementSequence(pre_statements, stat_exp->stat);
@@ -132,7 +132,7 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 							// Cannot move pre_arg expression past this expression
 							// Need to save this expression
 							arg_saved[pre_prev_index] = true;
-							Register *save_arg = ir_env->addRegister();
+							VirtualRegister *save_arg = ir_env->addRegister();
 							pre_statements->addStatement(new MoveStatement(
 								new RegisterExpression(save_arg), *pre_prev_arg));
 							*pre_prev_arg = new RegisterExpression(save_arg);
@@ -142,7 +142,7 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 					
 					// Now finally save the argument
 					arg_saved[prev_index] = true;
-					Register *save_arg = ir_env->addRegister();
+					VirtualRegister *save_arg = ir_env->addRegister();
 					pre_statements->addStatement(new MoveStatement(
 						new RegisterExpression(save_arg), *prev_arg));
 					*prev_arg = new RegisterExpression(save_arg);
@@ -161,9 +161,11 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 	
 	Expression *transformed_call_exp;
 	// Unless we are a child of statement "ignore expression result" or
-	// "Move function result to a constant destination", replace call with
-	// moving return value to a register plus presenting the register
+	// "Move function result to a constant destination" or child of nothing,
+	// replace call with moving return value to a register plus presenting
+	// the register
 	if (
+		(parentStatement == NULL) && (parentExpression == NULL) ||
 		(parentStatement != NULL) && (
 			(parentStatement->kind == IR_EXP_IGNORE_RESULT) ||
 			(parentStatement->kind == IR_MOVE) && (
@@ -176,7 +178,7 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 		// Already a child of acceptable parent
 		transformed_call_exp = call_exp;
 	} else {
-		Register *save_result = ir_env->addRegister();
+		VirtualRegister *save_result = ir_env->addRegister();
 		pre_statements->addStatement(new MoveStatement(
 			new RegisterExpression(save_result), call_exp
 		));
@@ -508,8 +510,37 @@ void IRTransformer::arrangeJumps(StatementSequence* sequence)
 				(sequence->statements.back()->kind == IR_COND_JUMP)) {
 			CondJumpStatement *last_cond_jump =
 				ToCondJumpStatement(sequence->statements.back());
-			if ((*block)->start_label->getIndex() !=
-					last_cond_jump->false_dest->getIndex()) {
+			if ((*block)->start_label->getIndex() ==
+					last_cond_jump->false_dest->getIndex())
+				// already good, do nothing
+				;
+			else if ((*block)->start_label->getIndex() ==
+					last_cond_jump->true_dest->getIndex()) {
+				last_cond_jump->true_dest = last_cond_jump->false_dest;
+				last_cond_jump->false_dest = (*block)->start_label;
+				switch (last_cond_jump->comparison) {
+					case OP_EQUAL:
+						last_cond_jump->comparison = OP_NONEQUAL;
+					case OP_NONEQUAL:
+						last_cond_jump->comparison = OP_EQUAL;
+					case OP_LESS:
+						last_cond_jump->comparison = OP_GREATEQUAL;
+					case OP_GREATER:
+						last_cond_jump->comparison = OP_LESSEQUAL;
+					case OP_LESSEQUAL:
+						last_cond_jump->comparison = OP_GREATER;
+					case OP_GREATEQUAL:
+						last_cond_jump->comparison = OP_LESS;
+					case OP_ULESS:
+						last_cond_jump->comparison = OP_UGREATEQUAL;
+					case OP_UGREATER:
+						last_cond_jump->comparison = OP_ULESSEQUAL;
+					case OP_ULESSEQUAL:
+						last_cond_jump->comparison = OP_UGREATER;
+					case OP_UGREATEQUAL:
+						last_cond_jump->comparison = OP_ULESS;
+				}
+			} else {
 				Label *immediate_false = ir_env->addLabel();
 				sequence->addStatement(new LabelPlacementStatement(immediate_false));
 				sequence->addStatement(new JumpStatement(

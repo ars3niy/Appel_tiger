@@ -31,11 +31,12 @@ public:
 	Type *type;
 	IR::Code *value;
 	IR::AbstractVarLocation *implementation;
+	bool isAccessedByAddress;
 	
 	Variable(const std::string &_name, Type *_type,
 		IR::Code *_value, IR::AbstractVarLocation *impl) :
 		Declaration(DECL_VARIABLE), name(_name), type(_type), value(_value),
-		implementation(impl) {}
+		implementation(impl), isAccessedByAddress(false) {}
 };
 
 class Function;
@@ -75,8 +76,9 @@ public:
 	Function(const std::string &_name, Type *_return_type,
 		Syntax::Tree _raw, IR::Code *_body,
 		IR::AbstractFrame *_frame, IR::Label *_label) :
-		Declaration(DECL_FUNCTION), return_type(_return_type), 
-		raw_body(_raw), body(_body), frame(_frame), label(_label) {}
+		name(_name), Declaration(DECL_FUNCTION), return_type(_return_type), 
+		raw_body(_raw), body(_body), frame(_frame), label(_label)
+	{}
 	FunctionArgument *addArgument(const std::string &name, Type *type,
 		IR::AbstractVarLocation *impl)
 	{

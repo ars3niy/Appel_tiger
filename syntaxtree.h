@@ -289,8 +289,8 @@ class ParameterDeclaration: public Node {
 public:
 	Identifier *name, *type;
 	/**
-	 * Unique within the program tree for all ParameterDeclarations and
-	 * VariableDeclarations
+	 * Unique within the program tree for all ParameterDeclarations,
+	 * VariableDeclarations, For's and FunctionDeclaration
 	 * Used to share information about the varible between multiple passes
 	 * of the syntax tree
 	 */
@@ -310,8 +310,8 @@ public:
 	Identifier *name, *type;
 	Tree value;
 	/**
-	 * Unique within the program tree for all ParameterDeclarations and
-	 * VariableDeclarations
+	 * Unique within the program tree for all ParameterDeclarations,
+	 * VariableDeclarations, For's and FunctionDeclaration
 	 * Used to share information about the varible between multiple passes
 	 * of the syntax tree
 	 */
@@ -331,9 +331,16 @@ public:
 	Identifier *name, *type;
 	ExpressionList *parameters;
 	Tree body;
+	/**
+	 * Unique within the program tree for all ParameterDeclarations,
+	 * VariableDeclarations, For's and FunctionDeclaration
+	 * Used to share information about the varible between multiple passes
+	 * of the syntax tree
+	 */
+	ObjectId id;
 	
-	Function(Tree _name, Tree _type, Tree _parameters, Tree _body) :
-		Node(FUNCTION), name((Identifier *)_name),
+	Function(int _id, Tree _name, Tree _type, Tree _parameters, Tree _body) :
+		id(_id), Node(FUNCTION), name((Identifier *)_name),
 		type((Identifier *)_type),
 		parameters((ExpressionList *)_parameters),
 		body(_body)

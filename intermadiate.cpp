@@ -4,6 +4,18 @@
 
 namespace IR {
 
+void DestroyExpression(Expression *&expression)
+{
+}
+
+void DestroyStatement(Statement *&statement)
+{
+}
+
+void DestroyCode(Code *&code)
+{
+}
+
 Label *LabelFactory::addLabel()
 {
 	labels.push_back(Label(labels.size()));
@@ -16,9 +28,9 @@ Label *LabelFactory::addLabel(const std::string &name)
 	return &(labels.back());
 }
 
-Register *RegisterFactory::addRegister()
+VirtualRegister *RegisterFactory::addRegister(const std::string &name)
 {
-	registers.push_back(Register(registers.size()));
+	registers.push_back(VirtualRegister(registers.size(), name));
 	return &(registers.back());
 }
 
@@ -56,7 +68,7 @@ Expression *IREnvironment::killCodeToExpression(Code *&code)
 			Label *true_label = addLabel();
 			Label *false_label = addLabel();
 			Label *finish_label = addLabel();
-			Register *value = addRegister();
+			VirtualRegister *value = addRegister();
 			putLabels(((CondJumpPatchesCode *)code)->replace_true,
 				((CondJumpPatchesCode *)code)->replace_false,
 				true_label, false_label);

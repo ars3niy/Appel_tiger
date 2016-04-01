@@ -29,6 +29,11 @@ public:
 	int getIndex() {return index;}
 	
 	const std::string &getName() {return name;}
+	
+	void appendToName(const std::string &s)
+	{
+		name += s;
+	}
 };
 
 class LabelFactory {
@@ -39,23 +44,27 @@ public:
 	Label *addLabel(const std::string &name);
 };
 
-class Register {
+class VirtualRegister {
 private:
 	int index;
+	std::string name;
 public:
-	Register(int _index) : index(_index) {}
+	VirtualRegister(int _index, const std::string &_name = "") :
+		index(_index), name(_name) {}
 	
 	/**
 	 * Sequential number, from 0 to total number of labels - 1
 	 */
 	int getIndex() {return index;}
+	
+	const std::string &getName() {return name;}
 };
 
 class RegisterFactory {
 private:
-	std::list<Register> registers;
+	std::list<VirtualRegister> registers;
 public:
-	Register *addRegister();
+	VirtualRegister *addRegister(const std::string &name = "");
 };
 
 enum ExpressionKind {
@@ -67,6 +76,7 @@ enum ExpressionKind {
 	IR_MEMORY,   // expression for address
 	IR_FUN_CALL, // expression for function, list of expressions for arguments
 	IR_STAT_EXP_SEQ, // statement, expression
+	IR_EXPR_MAX
 };
 
 enum StatementKind {
@@ -76,7 +86,8 @@ enum StatementKind {
 	IR_JUMP,     // expression, list of possible destination labels
 	IR_COND_JUMP,// two expressions, comparisen operation, true label, false label
 	IR_STAT_SEQ, // list of statementsn
-	IR_LABEL     // label, places it
+	IR_LABEL,     // label, places it
+	IR_STAT_MAX
 };
 
 enum BinaryOp {
@@ -89,7 +100,8 @@ enum BinaryOp {
 	OP_XOR,
 	OP_SHL,
 	OP_SHR,
-	OP_SHAR
+	OP_SHAR,
+	BINOP_MAX
 };
 
 enum ComparisonOp {
@@ -102,7 +114,8 @@ enum ComparisonOp {
 	OP_ULESS,
 	OP_ULESSEQUAL,
 	OP_UGREATER,
-	OP_UGREATEQUAL
+	OP_UGREATEQUAL,
+	COMPOP_MAX
 };
 
 class Statement;
@@ -130,9 +143,9 @@ public:
 
 class RegisterExpression: public Expression {
 public:
-	Register *reg;
+	VirtualRegister *reg;
 	
-	RegisterExpression(Register *_reg) : Expression(IR_REGISTER), reg(_reg) {}
+	RegisterExpression(VirtualRegister *_reg) : Expression(IR_REGISTER), reg(_reg) {}
 };
 
 class BinaryOpExpression: public Expression {
@@ -317,6 +330,13 @@ public:
 	}
 };
 
+/**
+ * Recursively delete the entire tree
+ */
+void DestroyExpression(Expression *&expression);
+void DestroyStatement(Statement *&statement);
+void DestroyCode(Code *&code);
+
 void putLabels(const std::list<Label**> &replace_true, 
 	const std::list<Label**> &replace_false, Label *truelabel, Label *falselabel);
 
@@ -333,7 +353,7 @@ private:
 public:
 	Label *addLabel() {return labels.addLabel();}
 	Label *addLabel(const std::string &name) {return labels.addLabel(name);}
-	Register *addRegister() {return registers.addRegister();}
+	VirtualRegister *addRegister(const std::string &name = "") {return registers.addRegister(name);}
 	Blob *addBlob();
 	void printBlobs(FILE *out);
 	

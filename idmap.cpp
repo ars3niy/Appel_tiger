@@ -16,6 +16,6 @@ void IdMap::add(ObjectId id, void* value)
 		if (newsize <= id)
 			newsize = id;
 		values.resize(newsize, NULL);
-		values[id] = value;
 	}
+	values[id] = value;
 }

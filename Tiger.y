@@ -217,10 +217,10 @@ vardec: SYM_VAR SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclarati
       | SYM_VAR SYM_ID SYM_COLON SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclaration(idProvider.getId(), $2, $6, $4);}
 
 funcdec: SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_EQUAL expression {
-           $$ = new Syntax::Function($2, NULL, $4, $7);
+           $$ = new Syntax::Function(idProvider.getId(), $2, NULL, $4, $7);
        }
        | SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_COLON SYM_ID SYM_EQUAL expression {
-           $$ = new Syntax::Function($2, $7, $4, $9);
+           $$ = new Syntax::Function(idProvider.getId(), $2, $7, $4, $9);
        }
 
 %%

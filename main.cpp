@@ -2,6 +2,7 @@
 #include "translator.h"
 #include "errormsg.h"
 #include "x86_64_frame.h"
+#include "x86_64assembler.h"
 
 #include <iostream>
 #include <string>
@@ -39,6 +40,8 @@ void ProcessTree(Syntax::Tree tree)
 		IR::PrintStatement(f, program_body);
 		IR_env.printBlobs(f);
 		fclose(f);
+		
+		Asm::X86_64Assembler assembler(&IR_env);
 	}
 }
 

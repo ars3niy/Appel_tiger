@@ -48,7 +48,10 @@ void PrintExpression(FILE *out, Expression *exp, int indent, const char *prefix 
 			((LabelAddressExpression *)exp)->label->getName().c_str());
 		break;
 	case IR_REGISTER:
-		fprintf(out, "Register %d\n", ((RegisterExpression *)exp)->reg->getIndex());
+		if (((RegisterExpression *)exp)->reg->getName() == "")
+			fprintf(out, "Register %d\n", ((RegisterExpression *)exp)->reg->getIndex());
+		else
+			fprintf(out, "Register %s\n", ((RegisterExpression *)exp)->reg->getName().c_str());
 		break;
 	case IR_BINARYOP: 
 		fprintf(out, "%s\n", BINARYOPNAMES[((BinaryOpExpression *)exp)->operation]);
@@ -128,11 +131,11 @@ void PrintCode(FILE *out, Code *code, int indent)
 {
 	switch (code->kind) {
 		case CODE_EXPRESSION:
-			PrintExpression(out, ((ExpressionCode *)code)->exp, indent);
+			PrintExpression(out, ((ExpressionCode *)code)->exp, indent+4);
 			break;
 		case CODE_STATEMENT:
 		case CODE_JUMP_WITH_PATCHES:
-			PrintStatement(out, ((StatementCode *)code)->statm, indent);
+			PrintStatement(out, ((StatementCode *)code)->statm, indent+4);
 			break;
 	}
 }

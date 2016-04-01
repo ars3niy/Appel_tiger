@@ -450,9 +450,14 @@ void TranslatorPrivate::processVariableDeclaration(
 		if (! CheckAssignmentTypes(vartype, exprtype))
 			Error::error("Incompatible type for variable initialization",
 				declaration->linenumber);
+// 	printf("Variable %s at line %d is %s by address\n",
+// 		declaration->name->name.c_str(),
+// 		declaration->linenumber,
+// 		variables_extra_info.isAccessedByAddress(declaration) ? "accessed" : "not accessed");
 	variables.push_back(Variable(declaration->name->name, vartype,
 		translatedValue,
-		currentFrame->addVariable(framemanager->getVarSize(vartype),
+		currentFrame->addVariable(declaration->name->name,
+			framemanager->getVarSize(vartype),
 			variables_extra_info.isAccessedByAddress(declaration))));
 	func_and_var_names.add(declaration->name->name, &(variables.back()));
 	new_vars.push_back(&(variables.back()));
@@ -471,12 +476,16 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			return_type = type_environment->getVoidType();
 		else
 			return_type = type_environment->getType(declaration->type, false)->resolve();
+		IR::Label *function_label = IRenvironment->addLabel();
+		function_label->appendToName(std::string("_") + declaration->name->name);
 		functions.push_back(Function(declaration->name->name, return_type,
 			declaration->body, NULL,
-			framemanager->newFrame(currentFrame), IRenvironment->addLabel()));
+			framemanager->newFrame(currentFrame, function_label->getName()),
+			function_label));
 		Function *function = &(functions.back());
-		function->frame->addVariable(framemanager->getVarSize(
-			type_environment->getPointerType()), true);
+		if (variables_extra_info.functionNeedsParentFp(declaration))
+			function->frame->addParentFpParamVariable(
+				variables_extra_info.isFunctionParentFpAccessedByChildren(declaration));
 		func_and_var_names.add(declaration->name->name, function);
 		recent_functions.push_back(function);
 		
@@ -487,8 +496,14 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			Syntax::ParameterDeclaration *param_decl = 
 				(Syntax::ParameterDeclaration *) *param;
 			Type *param_type = type_environment->getType(param_decl->type, false)->resolve();
+// 			printf("Parameter %s of function %s at line %d is %s by address\n",
+// 				param_decl->name->name.c_str(),
+// 				declaration->name->name.c_str(),
+// 				param_decl->linenumber,
+// 				variables_extra_info.isAccessedByAddress(param_decl) ? "accessed" : "not accessed");
 			function->addArgument(param_decl->name->name, param_type,
 				function->frame->addVariable(
+					param_decl->name->name,
 					framemanager->getVarSize(param_type),
 					variables_extra_info.isAccessedByAddress(param_decl)
 				)
@@ -597,7 +612,9 @@ void TranslatorPrivate::translateIdentifier(Syntax::Identifier *expression,
 		translated = ErrorPlaceholderCode();
 	} else {
 		type = ((Variable *)var_or_function)->type->resolve();
-		translated = ((Variable *)var_or_function)->implementation->createCode(currentFrame);
+		translated = new IR::ExpressionCode(
+			((Variable *)var_or_function)->implementation->createCode(currentFrame)
+		);
 	}
 }
 
@@ -928,7 +945,7 @@ void TranslatorPrivate::translateIfElse(
 			IR::Label *true_label = IRenvironment->addLabel();
 			IR::Label *false_label = IRenvironment->addLabel();
 			IR::Label *finish_label = IRenvironment->addLabel();
-			IR::Register *value_storage = NULL;
+			IR::VirtualRegister *value_storage = NULL;
 			if (type->basetype != TYPE_VOID)
 				value_storage = IRenvironment->addRegister();
 			std::list<IR::Label**> replace_true, replace_false;
@@ -1022,10 +1039,14 @@ void TranslatorPrivate::translateFor(
 	if (! IsInt(to_type))
 		Error::error("For loop 'to' not integer", expression->stop->linenumber);
 	func_and_var_names.newLayer();
+// 	printf("Loop variable %s at line %d is %s by address\n",
+// 		expression->variable->name.c_str(),
+// 		expression->linenumber,
+// 		variables_extra_info.isAccessedByAddress(expression) ? "accessed" : "not accessed");
 	variables.push_back(Variable(
-	//LoopVariable *loopvar = new LoopVariable(
 		expression->variable->name,
 		type_environment->getLoopIntType(), NULL, currentFrame->addVariable(
+			expression->variable->name,
 			framemanager->getVarSize(from_type),
 			variables_extra_info.isAccessedByAddress(expression)
 		)));
@@ -1035,35 +1056,35 @@ void TranslatorPrivate::translateFor(
 		currentFrame);
 	if ((from_type->basetype == TYPE_INT) && (to_type->basetype == TYPE_INT)) {
 		IR::StatementSequence *sequence = new IR::StatementSequence;
-		IR::Register *upper_bound = IRenvironment->addRegister();
+		IR::VirtualRegister *upper_bound = IRenvironment->addRegister();
 		sequence->addStatement(new IR::MoveStatement(
 			new IR::RegisterExpression(upper_bound),
 			IRenvironment->killCodeToExpression(to_code)));
-		IR::Code *loopvar_code = loopvar->implementation->createCode(currentFrame);
+		IR::Expression *loopvar_expression = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(new IR::MoveStatement(
-			IRenvironment->killCodeToExpression(loopvar_code),
+			loopvar_expression,
 			IRenvironment->killCodeToExpression(from_code)));
 		IR::Label *loop_label = IRenvironment->addLabel();
-		loopvar_code = loopvar->implementation->createCode(currentFrame);
+		loopvar_expression = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(new IR::CondJumpStatement(IR::OP_LESSEQUAL,
-			IRenvironment->killCodeToExpression(loopvar_code),
+			loopvar_expression,
 			new IR::RegisterExpression(upper_bound),
 			loop_label, exit_label));
 		sequence->addStatement(new IR::LabelPlacementStatement(loop_label));
 		sequence->addStatement(IRenvironment->killCodeToStatement(action_code));
 		IR::Label *proceed_label = IRenvironment->addLabel();
-		loopvar_code = loopvar->implementation->createCode(currentFrame);
+		loopvar_expression = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(new IR::CondJumpStatement(IR::OP_LESS,
-			IRenvironment->killCodeToExpression(loopvar_code),
+			loopvar_expression,
 			new IR::RegisterExpression(upper_bound),
 			proceed_label, exit_label));
 		sequence->addStatement(new IR::LabelPlacementStatement(proceed_label));
-		loopvar_code = loopvar->implementation->createCode(currentFrame);
-		IR::Code *loopvar_code2 = loopvar->implementation->createCode(currentFrame);
+		loopvar_expression = loopvar->implementation->createCode(currentFrame);
+		IR::Expression *loopvar_expression2 = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(new IR::MoveStatement(
-			IRenvironment->killCodeToExpression(loopvar_code),
+			loopvar_expression,
 			new IR::BinaryOpExpression(IR::OP_PLUS,
-				IRenvironment->killCodeToExpression(loopvar_code2),
+				loopvar_expression2,
 				new IR::IntegerExpression(1)
 			)
 		));
@@ -1093,7 +1114,8 @@ void TranslatorPrivate::translateScope(
 	for (std::list<Variable *>::iterator newvar = new_vars.begin();
 			newvar != new_vars.end(); newvar++)
 		if ((*newvar)->type->basetype != TYPE_ERROR) {
-			IR::Code *var_code = (*newvar)->implementation->createCode(currentFrame);
+			IR::Code *var_code = new IR::ExpressionCode(
+				(*newvar)->implementation->createCode(currentFrame));
 			sequence->addStatement(new IR::MoveStatement(
 				IRenvironment->killCodeToExpression(var_code),
 				IRenvironment->killCodeToExpression((*newvar)->value)
@@ -1221,7 +1243,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 	}
 	RecordType *record = (RecordType *)type;
 	
-	IR::Register *record_address = IRenvironment->addRegister();
+	IR::VirtualRegister *record_address = IRenvironment->addRegister();
 	IR::StatementSequence *sequence = new IR::StatementSequence;
 	std::list<IR::Code *>alloc_argument;
 	alloc_argument.push_back(new IR::ExpressionCode(new IR::IntegerExpression(
@@ -1395,9 +1417,9 @@ IR::Statement *Translator::translateProgram(Syntax::Tree expression)
 {
 	IR::Code *code;
 	Type *type;
-	impl->variables_extra_info.processExpression(expression);
+	impl->variables_extra_info.processExpression(expression, INVALID_OBJECT_ID);
 	impl->translateExpression(expression, code, type, NULL,
-		impl->framemanager->newFrame(impl->framemanager->rootFrame()));
+		impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global"));
 	return impl->IRenvironment->killCodeToStatement(code);
 }
 
