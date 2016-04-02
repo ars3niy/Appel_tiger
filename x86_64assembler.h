@@ -10,7 +10,8 @@ private:
 	std::vector<IR::Expression *> memory_exp;
 	IR::Expression *exp_int, *exp_label, *exp_register;
 	IR::Expression *exp_mul_index[8], *exp_mul_index_plus[8];
-	IR::VirtualRegister *rax, *rdx, *rcx, *rsi, *rdi, *r8, *r9, *r10, *r11;
+	std::vector<IR::VirtualRegister *>machine_registers;
+	std::vector<IR::VirtualRegister *>available_registers, callersave_registers;
 	
 	void make_arithmetic(int asm_code, IR::BinaryOp ir_code);
 	void make_comparison(int asm_code, IR::ComparisonOp ir_code);
@@ -43,6 +44,8 @@ protected:
 		Instructions &result);
 	virtual void programEpilogue(Instructions &result);
 public:
+	virtual const std::vector<IR::VirtualRegister *> &getAvailableRegisters()
+		{return available_registers;}
 	X86_64Assembler(IR::IREnvironment *ir_env);
 };
 

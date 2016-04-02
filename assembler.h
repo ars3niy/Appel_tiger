@@ -75,17 +75,22 @@ public:
 	
 	std::string notation;
 	std::vector<IR::VirtualRegister *> inputs, outputs;
+	IR::Label *label;
+	bool is_reg_to_reg_assign;
 	
 	/**
 	 * NULL element means fall through to the next instruction
 	 */
 	std::vector<IR::Label *> destinations;
 	
-	explicit Instruction(const std::string &_notation) : notation(_notation) {}
+	explicit Instruction(const std::string &_notation,
+		bool _reg_to_reg_assign = false)
+			: notation(_notation), label(NULL),
+			is_reg_to_reg_assign(_reg_to_reg_assign) {}
 	
 	Instruction(const std::string &_notation, int ninput, IR::VirtualRegister **inputs,
 		int noutput, IR::VirtualRegister **outputs, int ndest = 1,
-		IR::Label **_destinations = NULL);
+		IR::Label **_destinations = NULL, bool _reg_to_reg_assign = false);
 };
 
 typedef std::list<Instruction> Instructions;
@@ -146,8 +151,11 @@ public:
 	void translateFunctionBody(IR::Code *code, IR::AbstractFrame *frame,
 		Instructions &result);
 	
-	void outputCode(FILE *output, const Instructions &code);
+	void outputCode(FILE *output,
+		const std::list<Instructions> &code,
+		const IR::RegisterMap *register_map);
 	void outputBlobs(FILE *output, const std::list<IR::Blob> &blobs);
+	virtual const std::vector<IR::VirtualRegister *> &getAvailableRegisters() = 0;
 };
 
 

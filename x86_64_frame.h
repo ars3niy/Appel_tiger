@@ -95,6 +95,7 @@ public:
 	{
 		size += getVarSize(newFieldType);
 	}
+	
 };
 
 }

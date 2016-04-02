@@ -8,7 +8,8 @@ namespace Asm {
 Instruction::Instruction(const std::string &_notation, int ninput,
 	IR::VirtualRegister **inputs,
 	int noutput, IR::VirtualRegister **outputs, int ndest,
-	IR::Label **_destinations) : notation(_notation)
+	IR::Label **_destinations, bool _reg_to_reg_assign) :
+		notation(_notation), label(NULL), is_reg_to_reg_assign(_reg_to_reg_assign)
 {
 	this->outputs.resize(noutput);
 	for (int i = 0; i < noutput; i++)
@@ -391,12 +392,15 @@ void Assembler::translateStatement(IR::Statement* statement,
 		}
 		debug("Generating assembler code for the template");
 		translateStatementTemplate(template_instantiation, children, result);
+		if (statement->kind == IR::IR_LABEL)
+			result.back().label = IR::ToLabelPlacementStatement(statement)->label;
 		
 		IR::DestroyStatement(template_instantiation);
 	}
 }
 
-void Assembler::outputCode(FILE* output, const Instructions& code)
+void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
+	const IR::RegisterMap *register_map)
 {
 	std::string header;
 	getCodeSectionHeader(header);
@@ -404,60 +408,69 @@ void Assembler::outputCode(FILE* output, const Instructions& code)
 	if ((header.size() > 0) && (header[header.size()-1] != '\n'))
 		fputc('\n', output);
 	
-	for (std::list<Instruction>::const_iterator inst = code.begin();
-			inst != code.end(); inst++) {
-		const std::string &s = (*inst).notation;
-		//fprintf(output, "%s\n", (*inst).c_str());
-		int i = 0;
-		int len = 0;
-		while (i < s.size()) {
-			if (s[i] != '&') {
-				fputc(s[i], output);
-				len++;
-				i++;
-			} else {
-				i++;
-				if (i+1 < s.size()) {
-					int arg_index = s[i+1] - '0';
-					const std::vector<IR::VirtualRegister *> *registers;
-					
-					if (s[i] == 'i')
-						registers = &(*inst).inputs;
-					else if (s[i] == 'o')
-						registers = &(*inst).outputs;
-					else
-						Error::fatalError("Misformed instruction");
-					
-					if (arg_index > (*registers).size())
-						Error::fatalError("Misformed instruction");
-					else {
-						fprintf(output, "%s", (*registers)[arg_index]->getName().c_str());
-						len += (*registers)[arg_index]->getName().size();
+	for (std::list<Instructions>::const_iterator chunk = code.begin();
+			chunk != code.end(); chunk++)
+		for (Instructions::const_iterator inst = (*chunk).begin();
+				inst != (*chunk).end(); inst++) {
+			const std::string &s = (*inst).notation;
+			//fprintf(output, "%s\n", (*inst).c_str());
+			int i = 0;
+			int len = 0;
+			while (i < s.size()) {
+				if (s[i] != '&') {
+					fputc(s[i], output);
+					len++;
+					i++;
+				} else {
+					i++;
+					if (i+1 < s.size()) {
+						int arg_index = s[i+1] - '0';
+						const std::vector<IR::VirtualRegister *> *registers;
+						
+						if (s[i] == 'i')
+							registers = &(*inst).inputs;
+						else if (s[i] == 'o')
+							registers = &(*inst).outputs;
+						else
+							Error::fatalError("Misformed instruction");
+						
+						if (arg_index > (*registers).size())
+							Error::fatalError("Misformed instruction");
+						else {
+							IR::VirtualRegister *reg = (*registers)[arg_index];
+							if (
+								(register_map != NULL) &&
+								(register_map->size() > reg->getIndex()) &&
+								((*register_map)[reg->getIndex()] != NULL)
+							)
+								reg = (*register_map)[reg->getIndex()];
+							fprintf(output, "%s", reg->getName().c_str());
+							len += reg->getName().size();
+						}
+						i += 2;
 					}
-					i += 2;
 				}
 			}
+			for (int i = 0; i < 30-len; i++)
+				fputc(' ', output);
+			fprintf(output, " # ");
+			bool use_reg = false;
+			if ((*inst).inputs.size() > 0) {
+				use_reg = true;
+				fprintf(output, "<- ");
+				for (int i = 0; i < (*inst).inputs.size(); i++)
+					fprintf(output, "%s ", (*inst).inputs[i]->getName().c_str());
+			}
+			if ((*inst).outputs.size() > 0) {
+				use_reg = true;
+				fprintf(output, "-> ");
+				for (int i = 0; i < (*inst).outputs.size(); i++)
+					fprintf(output, "%s ", (*inst).outputs[i]->getName().c_str());
+			}
+			if (! use_reg)
+				fprintf(output, "no register use");
+			fputc('\n', output);
 		}
-		for (int i = 0; i < 30-len; i++)
-			fputc(' ', output);
-		fprintf(output, " # ");
-		bool use_reg = false;
-		if ((*inst).inputs.size() > 0) {
-			use_reg = true;
-			fprintf(output, "<- ");
-			for (int i = 0; i < (*inst).inputs.size(); i++)
-				fprintf(output, "%s ", (*inst).inputs[i]->getName().c_str());
-		}
-		if ((*inst).outputs.size() > 0) {
-			use_reg = true;
-			fprintf(output, "-> ");
-			for (int i = 0; i < (*inst).outputs.size(); i++)
-				fprintf(output, "%s ", (*inst).outputs[i]->getName().c_str());
-		}
-		if (! use_reg)
-			fprintf(output, "no register use");
-		fputc('\n', output);
-	}
 }
 
 void Assembler::outputBlobs(FILE* output, const std::list< IR::Blob >& blobs)

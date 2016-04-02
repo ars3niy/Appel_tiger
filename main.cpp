@@ -3,6 +3,7 @@
 #include "errormsg.h"
 #include "x86_64_frame.h"
 #include "x86_64assembler.h"
+#include "regallocator.h"
 
 #include <iostream>
 #include <string>
@@ -13,6 +14,19 @@
 
 extern "C" {
 extern FILE *yyin;
+}
+
+void MergeVirtualRegisterMaps(IR::RegisterMap &merge_to,
+	const IR::RegisterMap &merge_from)
+{
+	if (merge_to.size() < merge_from.size())
+		merge_to.resize(merge_from.size(), NULL);
+	for (int i = 0; i < merge_from.size(); i++)
+		if (merge_from[i] != NULL) {
+			if (merge_to[i] != NULL)
+				assert(merge_from[i]->getIndex() == merge_to[i]->getIndex());
+			merge_to[i] = merge_from[i];
+		}
 }
 
 void ProcessTree(Syntax::Tree tree)
@@ -44,19 +58,44 @@ void ProcessTree(Syntax::Tree tree)
 		fclose(f);
 		
 		Asm::X86_64Assembler assembler(&IR_env);
-		Asm::Instructions code;
+		std::list<Asm::Instructions> code;
 		
-		f = fopen("assembler", "w");
 		for (std::list<Semantic::Function>::const_iterator func =
-				translator.getFunctions().begin();
-				func != translator.getFunctions().end(); func++)
-			assembler.translateFunctionBody((*func).body, (*func).frame, code);
-		assembler.translateProgram(program_body, body_frame, code);
-		assembler.outputCode(f, code);
+				translator.getFunctions().begin(); 
+				func != translator.getFunctions().end(); func++) {
+			code.push_back(Asm::Instructions());
+			assembler.translateFunctionBody((*func).body, (*func).frame, code.back());
+		}
+		code.push_back(Asm::Instructions());
+		assembler.translateProgram(program_body, body_frame, code.back());
+		f = fopen("assembler_raw", "w");
+		assembler.outputCode(f, code, NULL);
 		assembler.outputBlobs(f, IR_env.getBlobs());
+		fclose(f);
 		
 		fwrite(assembler.debug_output.c_str(), assembler.debug_output.size(),
 			1, stdout);
+		
+		f = fopen("liveness", "w");
+		Optimize::PrintLivenessInfo(f, code.back());
+		fclose(f);
+		
+		const std::vector<IR::VirtualRegister *> &machine_registers =
+			assembler.getAvailableRegisters();
+		IR::RegisterMap virtual_register_map;
+		
+		for (std::list<Asm::Instructions>::iterator codechunk = code.begin();
+				codechunk != code.end(); codechunk++) {
+			IR::RegisterMap vreg_map;
+			std::list<IR::VirtualRegister *> unassigned_vreg;
+			Optimize::AssignRegisters(*codechunk, machine_registers,
+				vreg_map, unassigned_vreg);
+			MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
+		}
+		f = fopen("assembler_final", "w");
+		assembler.outputCode(f, code, &virtual_register_map);
+		assembler.outputBlobs(f, IR_env.getBlobs());
+		fclose(f);
 	}
 }
 

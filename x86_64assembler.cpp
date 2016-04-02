@@ -6,6 +6,35 @@
 
 namespace Asm {
 
+	enum {
+		RAX = 0,
+		RDX,
+		RCX,
+		RBX,
+		RSI,
+		RDI,
+		R8,
+		R9,
+		R10,
+		R11,
+		R12,
+		R13,
+		R14,
+		R15,
+		RBP,
+		RSP,
+		LAST_REGISTER,
+	};
+
+static int paramreg_list[] = {RDI, RSI, RDX, RCX, R8, R9};
+static int paramreg_count = 6;
+enum {RESULT_REG = RAX};
+enum {FPLINK_REG = R10};
+static int callersave_list[] = {RDI, RSI, RDX, RCX, R8, R9, RESULT_REG, FPLINK_REG, R11};
+static int callersave_count = 9;
+static int calleesave_list[] = {RBX, RBP, R12, R13, R14, R15};
+static int calleesave_count = 6;
+
 enum {
 	I_YIELD = 1,
 	I_ADD,
@@ -132,15 +161,36 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	addTemplate(I_JMP, new IR::JumpStatement(new IR::LabelAddressExpression(NULL)));
 	addTemplate(I_JMP, new IR::JumpStatement(new IR::RegisterExpression(NULL)));
 	
-	rax = IRenvironment->addRegister("%rax");
-	rdx = IRenvironment->addRegister("%rdx");
-	rcx = IRenvironment->addRegister("%rcx");
-	rsi = IRenvironment->addRegister("%rsi");
-	rdi = IRenvironment->addRegister("%rdi");
-	r8 = IRenvironment->addRegister("%r8");
-	r9 = IRenvironment->addRegister("%r9");
-	r10 = IRenvironment->addRegister("%r10");
-	r11 = IRenvironment->addRegister("%r11");
+	static const char *register_names[] = {
+		"%rax",
+		"%rdx",
+		"%rcx",
+		"%rbx",
+		"%rsi",
+		"%rdi",
+		"%r8",
+		"%r9",
+		"%r10",
+		"%r11",
+		"%r12",
+		"%r13",
+		"%r14",
+		"%r15",
+		"%rbp",
+		"%rsp",
+	};
+	
+	machine_registers.resize(LAST_REGISTER);
+	
+	for (int r = 0; r < LAST_REGISTER; r++) {
+		machine_registers[r] = IRenvironment->addRegister(register_names[r]);
+		if ((r != RBP) && (r != RSP))
+			available_registers.push_back(machine_registers[r]);
+	}
+	
+	callersave_registers.resize(callersave_count);
+	for (int i = 0; i < callersave_count; i++)
+		callersave_registers[i] = machine_registers[callersave_list[i]];
 }
 
 void X86_64Assembler::make_arithmetic(int asm_code, IR::BinaryOp ir_code)
@@ -285,7 +335,8 @@ void X86_64Assembler::addInstruction(Instructions &result,
 			noutput = 1;
 	}
 	result.push_back(Instruction(notation, inputs.size(), inputs.data(),
-		noutput, outputs));
+		noutput, outputs,
+		(prefix == "movq ") && (operand->kind == IR::IR_REGISTER)));
 }
 
 void X86_64Assembler::addInstruction(Instructions &result,
@@ -363,19 +414,20 @@ std::string X86_64Assembler::translateOperand(IR::Expression* expr)
 void X86_64Assembler::placeCallArguments(const std::list<IR::Expression * >& arguments,
 	Instructions &result)
 {
-	IR::VirtualRegister *arg_registers[] = {rdi, rsi, rdx, rcx, r8, r9};
 	int arg_count = 0;
 	std::list<IR::Expression *>::const_iterator arg;
 	for (arg = arguments.begin(); arg != arguments.end(); arg++) {
 		assert((*arg)->kind == IR::IR_REGISTER);
 		result.push_back(Instruction(
 			"movq " + Instruction::Input(0) + ", " + Instruction::Output(0),
-			1, &IR::ToRegisterExpression(*arg)->reg, 1, &arg_registers[arg_count]));
+			1, &IR::ToRegisterExpression(*arg)->reg, 1,
+			&machine_registers[paramreg_list[arg_count]],
+			true));
 		arg_count++;
-		if (arg_count == 6)
+		if (arg_count == paramreg_count)
 			break;
 	}
-	if (arg_count == 6) {
+	if (arg_count == paramreg_count) {
 		std::list<IR::Expression *>::const_iterator extra_arg = arguments.end();
 		extra_arg--; 
 		while (extra_arg != arg) {
@@ -428,23 +480,25 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 						break;
 					case IR::OP_MUL:
 						addInstruction(result, "movq ", bin_op->left,
-							", " + Instruction::Output(0), rax);
+							", " + Instruction::Output(0), machine_registers[RAX]);
 						addInstruction(result, "imulq ", bin_op->right,
-							", " + Instruction::Output(0), rax, rdx);
+							", " + Instruction::Output(0), machine_registers[RAX],
+							machine_registers[RDX]);
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
-							1, &rax, 1, &value_storage));
+							1, &machine_registers[RAX], 1, &value_storage, true));
 						break;
 					case IR::OP_DIV:
 						addInstruction(result, "movq ", bin_op->left,
-							", " + Instruction::Output(0), rax);
+							", " + Instruction::Output(0), machine_registers[RAX]);
 						result.push_back(Instruction("cqo",
-							0, NULL, 1, &rdx));
+							0, NULL, 1, &machine_registers[RDX]));
 						addInstruction(result, "imulq ", bin_op->right,
-							", " + Instruction::Output(0), rax, rdx);
+							", " + Instruction::Output(0), machine_registers[RAX],
+							machine_registers[RDX]);
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
-							1, &rax, 1, &value_storage));
+							1, &machine_registers[RAX], 1, &value_storage, true));
 						break;
 					default:
 						Error::fatalError("X86_64Assembler::translateExpressionTemplate unexpected binary operation");
@@ -453,26 +507,21 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			break;
 		case IR::IR_FUN_CALL: {
 			IR::CallExpression *call = IR::ToCallExpression(templ);
-			/* TODO:
-			 * pass arguments
-			 * pass frame pointer (if needed??)
-			 * cleanup arguments
-			 */
 			if (call->needs_parent_fp)
 				result.push_back(Instruction(
 					"movq " + Instruction::Input(0) + ", " + Instruction::Output(0),
-					1, &((IR::X86_64Frame *)frame)->framepointer, 1, &r10));
+					1, &((IR::X86_64Frame *)frame)->framepointer, 1, &machine_registers[R10]));
 			placeCallArguments(call->arguments, result);
 			assert(call->function->kind == IR::IR_LABELADDR);
-			IR::VirtualRegister *callersave[] = {rax, rdx, rcx, rsi, rdi, r8, r9, r10, r11};
+			IR::VirtualRegister **callersave = callersave_registers.data();
 			result.push_back(Instruction("call " + 
 				IR::ToLabelAddressExpression(call->function)->label->getName(),
-				0, NULL, sizeof(callersave)/sizeof(callersave[0]), callersave));
+				0, NULL, callersave_count, callersave));
 			removeCallArguments(call->arguments, result);
 			if (value_storage != NULL)
 				result.push_back(Instruction("movq " + Instruction::Input(0) +
 					", " + Instruction::Output(0),
-					1, &rax, 1, &value_storage));
+					1, &machine_registers[RAX], 1, &value_storage, true));
 			break;
 		}
 		default:
@@ -581,7 +630,7 @@ void X86_64Assembler::functionEpilogue(IR::VirtualRegister* result_storage,
 	Instructions &result)
 {
 	result.push_back(Instruction("movq " + Instruction::Input(0) + ", " +
-		Instruction::Output(0), 1, &result_storage, 1, &rax));
+		Instruction::Output(0), 1, &result_storage, 1, &machine_registers[RAX]));
 }
 
 void X86_64Assembler::programEpilogue(Instructions &result)

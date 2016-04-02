@@ -23,7 +23,7 @@ public:
 	 */
 	int getIndex() {return index;}
 	
-	const std::string &getName() {return name;}
+	const std::string &getName() const {return name;}
 	
 	void appendToName(const std::string &s)
 	{
@@ -49,12 +49,14 @@ public:
 	VirtualRegister(int _index);
 	
 	/**
-	 * Sequential number, from 0 to total number of labels - 1
+	 * Sequential number, from 0 to total number of virtual registers - 1
 	 */
 	int getIndex() {return index;}
 	
 	const std::string &getName() {return name;}
 };
+
+typedef std::vector<IR::VirtualRegister *> RegisterMap;
 
 class RegisterFactory {
 private:
