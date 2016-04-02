@@ -285,48 +285,48 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	undefined_variable = new Variable("undefined", type_environment->getErrorType(),
 		NULL, NULL);
 	functions.push_back(Function("print", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("print"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__print"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("print", &(functions.back()));
 
 	functions.push_back(Function("flush", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("flush"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__flush"), false));
 	func_and_var_names.add("flush", &(functions.back()));
 
 	functions.push_back(Function("getchar", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getchar"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getchar"), false));
 	func_and_var_names.add("getchar", &(functions.back()));
 
 	functions.push_back(Function("ord", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("ord"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__ord"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("ord", &(functions.back()));
 
 	functions.push_back(Function("chr", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("chr"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__chr"), false));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("chr", &(functions.back()));
 
 	functions.push_back(Function("size", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("size"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__size"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("size", &(functions.back()));
 
 	functions.push_back(Function("substring", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("substring"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__substring"), false));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	functions.back().addArgument("first", type_environment->getIntType(), NULL);
 	functions.back().addArgument("n", type_environment->getIntType(), NULL);
 	func_and_var_names.add("substring", &(functions.back()));
 
 	functions.push_back(Function("concat", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("concat"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__concat"), false));
 	functions.back().addArgument("s1", type_environment->getStringType(), NULL);
 	functions.back().addArgument("s2", type_environment->getStringType(), NULL);
 	func_and_var_names.add("concat", &(functions.back()));
 
 	functions.push_back(Function("not", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("not"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__not"), false));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("not", &(functions.back()));
 
@@ -336,13 +336,13 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	func_and_var_names.add("exit", &(functions.back()));
 
 	functions.push_back(Function("getmem", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getmem"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem"), false));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
 	func_and_var_names.add("getmem", &(functions.back()));
 	getmem_func = &(functions.back());
 
 	functions.push_back(Function("getmem_fill", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("getmem_fill"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem_fill"), false));
 	functions.back().addArgument("elemcount", type_environment->getIntType(), NULL);
 	functions.back().addArgument("value", type_environment->getIntType(), NULL);
 	func_and_var_names.add("getmem", &(functions.back()));
