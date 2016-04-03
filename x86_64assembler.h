@@ -11,7 +11,8 @@ private:
 	IR::Expression *exp_int, *exp_label, *exp_register;
 	IR::Expression *exp_mul_index[8], *exp_mul_index_plus[8];
 	std::vector<IR::VirtualRegister *>machine_registers;
-	std::vector<IR::VirtualRegister *>available_registers, callersave_registers;
+	std::vector<IR::VirtualRegister *>available_registers,
+		callersave_registers, calleesave_registers;
 	
 	void make_arithmetic(int asm_code, IR::BinaryOp ir_code);
 	void make_comparison(int asm_code, IR::ComparisonOp ir_code);
@@ -19,18 +20,26 @@ private:
 	void addInstruction(Instructions &result,
 		const std::string &prefix, IR::Expression *operand,
 		const std::string &suffix, IR::VirtualRegister *output0,
-		IR::VirtualRegister *output1 = NULL);
+		IR::VirtualRegister *extra_input = NULL,
+		IR::VirtualRegister *extra_output = NULL,
+		Instructions::iterator *insert_before = NULL);
 	void addInstruction(Instructions &result,
 		const std::string &prefix, IR::Expression *operand0,
 		const std::string &suffix, IR::Expression *operand1);
 	void makeOperand(IR::Expression *expression,
 		std::vector<IR::VirtualRegister *> &add_inputs,
 		std::string &notation);
-	std::string translateOperand(IR::Expression *expr);
 	void placeCallArguments(const std::list<IR::Expression *> &arguments,
 		Instructions &result);
 	void removeCallArguments(const std::list<IR::Expression *> &arguments,
 		Instructions &result);
+	void addOffset(std::string &command, int inputreg_index, int offset);
+	void replaceRegisterUsage(Instructions &code,
+		std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
+		IR::MemoryExpression *replacement);
+	void replaceRegisterAssignment(Instructions &code,
+		std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
+		IR::MemoryExpression *replacement);
 protected:
 	virtual void translateExpressionTemplate(IR::Expression *templ,
 		IR::AbstractFrame *frame, IR::VirtualRegister *value_storage,
@@ -40,89 +49,26 @@ protected:
 	virtual void translateBlob(const IR::Blob &blob, Instructions &result);
 	virtual void getCodeSectionHeader(std::string &header);
 	virtual void getBlobSectionHeader(std::string &header);
-	virtual void functionEpilogue(IR::VirtualRegister *result_storage,
+	virtual void functionPrologue(IR::Label *fcn_label,
+		IR::AbstractFrame *frame, Instructions &result);
+	virtual void functionEpilogue(IR::AbstractFrame *frame,
+		IR::VirtualRegister *result_storage,
 		Instructions &result);
-	virtual void programEpilogue(Instructions &result);
+	virtual void framePrologue(IR::Label *label, IR::AbstractFrame *frame,
+		Instructions &result);
+	virtual void frameEpilogue(IR::AbstractFrame *frame, Instructions &result);
+	virtual void programPrologue(IR::AbstractFrame *frame, Instructions &result);
+	virtual void programEpilogue(IR::AbstractFrame *frame, Instructions &result);
+	virtual void implementFramePointer(IR::AbstractFrame *frame,
+		Instructions &result);
 public:
 	virtual const std::vector<IR::VirtualRegister *> &getAvailableRegisters()
 		{return available_registers;}
+	virtual void spillRegister(IR::AbstractFrame *frame, Instructions &code,
+		IR::VirtualRegister *reg);
+
 	X86_64Assembler(IR::IREnvironment *ir_env);
 };
-
-/*
-enum ExpressionKind {
-	IR_INTEGER,  (put value)
-	IR_LABELADDR,(put label name)
-	IR_REGISTER, (put register)
-	IR_BINARYOP,
-	IR_MEMORY,   mov [...], register
-	IR_FUN_CALL, mov (arg1), %rdi
-	             mov (arg2), %rsi
-	             mov (arg3), %rdx
-	             mov (arg4), %rcx
-	             mov (arg5), %r8
-	             mov (arg6), %r9
-	             push (arg N)
-	             push (arg N-1)
-	             ...
-	             push (arg7)
-	             mov fp, %r10
-	             call (dest)
-	IR_STAT_EXP_SEQ, (statements)
-	                 (expression)
-};
-
-enum StatementKind {
-	IR_MOVE,    mov reg, reg
-	          | mov const, reg
-	          | mov mem, reg
-	          | mov reg, mem
-	          | mov const, mem
-	IR_EXP_IGNORE_RESULT (expression) unless constant or register
-	IR_JUMP,     | jmp constant
-	             | jmp register
-	IR_COND_JUMP,  cmp reg,reg
-	               jXX true
-	             | cmp const,reg
-	               jXX true
-	             | cmp mem,reg
-	               jXX true
-	             | cmp reg, mem
-	               jXX true
-	             | cmp const, mem
-	               jXX true
-	IR_STAT_SEQ, 
-	IR_LABEL     (label name):
-};
-
-enum BinaryOp {
-	OP_PLUS, OP_MINUS: add/sub 
-	OP_MUL   mov op1, %eax
-	         mul op2
-	OP_DIV   mov op1, %eax
-	         div %op2
-	
-	OP_AND   I
-	OP_OR    G
-	OP_XOR   N
-	OP_SHL   O
-	OP_SHR   R
-	OP_SHAR  E
-};
-
-enum ComparisonOp {
-	OP_EQUAL,
-	OP_NONEQUAL,
-	OP_LESS,
-	OP_LESSEQUAL,
-	OP_GREATER,
-	OP_GREATEQUAL,
-	OP_ULESS,
-	OP_ULESSEQUAL,
-	OP_UGREATER,
-	OP_UGREATEQUAL
-};
-*/
 
 }
 

@@ -6,14 +6,91 @@ namespace IR {
 
 void DestroyExpression(Expression *&expression)
 {
+	switch (expression->kind) {
+		case IR_INTEGER:
+			delete ToIntegerExpression(expression);
+			break;
+		case IR_LABELADDR:
+			delete ToLabelAddressExpression(expression);
+			break;
+		case IR_REGISTER:
+			delete ToRegisterExpression(expression);
+			break;
+		case IR_BINARYOP:
+			DestroyExpression(ToBinaryOpExpression(expression)->left);
+			DestroyExpression(ToBinaryOpExpression(expression)->right);
+			delete ToBinaryOpExpression(expression);
+			break;
+		case IR_MEMORY:
+			DestroyExpression(ToMemoryExpression(expression)->address);
+			delete ToMemoryExpression(expression);
+			break;
+		case IR_FUN_CALL:
+			DestroyExpression(ToCallExpression(expression)->function);
+			delete ToCallExpression(expression);
+			break;			
+		case IR_STAT_EXP_SEQ: {
+			DestroyStatement(ToStatExpSequence(expression)->stat);
+			DestroyExpression(ToStatExpSequence(expression)->exp);
+			delete ToStatExpSequence(expression);
+			break;
+		}
+	}
+	expression = NULL;
 }
 
 void DestroyStatement(Statement *&statement)
 {
+	switch (statement->kind) {
+		case IR_MOVE:
+			DestroyExpression(ToMoveStatement(statement)->to);
+			DestroyExpression(ToMoveStatement(statement)->from);
+			delete ToMoveStatement(statement);
+			break;
+		case IR_EXP_IGNORE_RESULT:
+			DestroyExpression(ToExpressionStatement(statement)->exp);
+			delete ToExpressionStatement(statement);
+			break;
+		case IR_JUMP:
+			delete ToJumpStatement(statement);
+			break;
+		case IR_COND_JUMP:
+			DestroyExpression(ToCondJumpStatement(statement)->left);
+			DestroyExpression(ToCondJumpStatement(statement)->right);
+			delete ToCondJumpStatement(statement);
+			break;
+		case IR_STAT_SEQ: {
+			StatementSequence *seq = ToStatementSequence(statement);
+			for (std::list<Statement *>::iterator s = seq->statements.begin();
+					s != seq->statements.end(); s++)
+				DestroyStatement(*s);
+			delete seq;
+			break;
+		}
+		case IR_LABEL:
+			delete ToLabelPlacementStatement(statement);
+			break;
+	}
+	statement = NULL;
 }
 
 void DestroyCode(Code *&code)
 {
+	switch (code->kind) {
+		case CODE_EXPRESSION:
+			DestroyExpression(((ExpressionCode *)code)->exp);
+			delete ((ExpressionCode *)code);
+			break;
+		case CODE_STATEMENT:
+			DestroyStatement(((StatementCode *)code)->statm);
+			delete ((ExpressionCode *)code);
+			break;
+		case CODE_JUMP_WITH_PATCHES:
+			DestroyStatement(((CondJumpPatchesCode *)code)->statm);
+			delete ((CondJumpPatchesCode *)code);
+			break;
+	}
+	code = NULL;
 }
 
 Label *LabelFactory::addLabel()

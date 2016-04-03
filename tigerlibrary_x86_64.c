@@ -17,6 +17,15 @@ void *__getmem_fill(int64_t count, int64_t value)
 	return result;
 }
 
+void __print(char *s)
+{
+	int i;
+	uint64_t len = *((uint64_t *)s);
+	s += 8;
+	while (len-- != 0)
+		fputc(*s++, stdout);
+}
+
 void __flush()
 {
 	fflush(stdout);
@@ -53,7 +62,7 @@ int64_t __size(char *s)
 	return *((int64_t *)s);
 }
 
-void *__substring(char *s, int first, int n)
+void *__substring(char *s, int64_t first, int64_t n)
 {
 	int64_t len = *((int64_t *)s);
 	if (first + n > len)
@@ -74,6 +83,7 @@ void *__concat(char *s1, char *s2)
 	*((int64_t *)res) = len1+len2;
 	memmove(res+8, s1+8, len1);
 	memmove(res+8+len1, s2+8, len2);
+	return res;
 }
 
 int64_t __not(int64_t i)

@@ -39,14 +39,22 @@ public:
 	Label *addLabel(const std::string &name);
 };
 
+class AbstractVarLocation;
+
 class VirtualRegister {
 private:
 	int index;
 	std::string name;
+	AbstractVarLocation *prespilled_location;
 public:
 	VirtualRegister(int _index, const std::string &_name) :
-		index(_index), name(_name) {}
+		index(_index), name(_name), prespilled_location(NULL) {}
 	VirtualRegister(int _index);
+	
+	void prespill(AbstractVarLocation *location) {prespilled_location = location;}
+	
+	bool isPrespilled() {return prespilled_location != NULL;}
+	AbstractVarLocation *getPrespilledLocation() {return prespilled_location;}
 	
 	/**
 	 * Sequential number, from 0 to total number of virtual registers - 1

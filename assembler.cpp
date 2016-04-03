@@ -4,7 +4,17 @@
 #include <stdarg.h>
 
 namespace Asm {
-	
+
+Instruction::Instruction(const std::string &_notation,
+	bool _reg_to_reg_assign)
+		: notation(_notation), label(NULL),
+		is_reg_to_reg_assign(_reg_to_reg_assign)
+{
+	destinations.resize(1);
+	destinations[0] = NULL;
+}
+
+
 Instruction::Instruction(const std::string &_notation, int ninput,
 	IR::VirtualRegister **inputs,
 	int noutput, IR::VirtualRegister **outputs, int ndest,
@@ -28,7 +38,7 @@ Instruction::Instruction(const std::string &_notation, int ninput,
 }
 
 Assembler::Assembler(IR::IREnvironment *ir_env)
-	: IRenvironment(ir_env)
+	: IRenvironment(ir_env), DebugPrinter("assembler.log")
 {
 	expr_templates.resize((int)IR::IR_EXPR_MAX);
 	for (int i = 0; i < IR::IR_EXPR_MAX; i++) {
@@ -55,17 +65,6 @@ std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Expression *expr
 			getList((int)binop->operation/*, (int)binop->left->kind, (int)binop->right->kind*/);
 	} else
 		return & ((TemplateList *)expr_templates[(int)expr->kind])->list;
-}
-
-void Assembler::debug(const char *msg, ...)
-{
-	va_list ap;
-	va_start(ap, msg);
-	char buf[1024];
-	vsprintf(buf, msg, ap);
-	debug_output += buf;
-	debug_output += "\n";
-	va_end(ap);
 }
 
 std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Statement *statm)
@@ -264,9 +263,9 @@ bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
 				right_inst = &cj_inst->right;
 			}
 			return MatchExpression(cj_statm->left, cj_templ->left, 
-					nodecount, children) &&
+					nodecount, children, left_inst) &&
 				MatchExpression(cj_statm->right, cj_templ->right, 
-					nodecount, children);
+					nodecount, children, right_inst);
 		}
 		default:
 			Error::fatalError("Strange statement template kind");
@@ -286,15 +285,12 @@ void Assembler::FindExpressionTemplate(IR::Expression* expression,
 		int nodecount = 0;
 		std::list<IR::Expression *> current_children;
 		if (MatchExpression(expression, templ_exp, nodecount)) {
-			debug("Found template with %d nodes, kind %d", nodecount,
-				  templ_exp->kind);
 			if (nodecount > best_nodecount) {
 				best_nodecount = nodecount;
 				templ = &(*cur_templ);
 			}
 		}
 	}
-	debug("Best nodecount is %d", best_nodecount);
 }
 
 void Assembler::FindStatementTemplate(IR::Statement* statement,
@@ -323,15 +319,12 @@ void Assembler::translateExpression(IR::Expression* expression,
 	IR::AbstractFrame *frame, IR::VirtualRegister* value_storage, 
 	Instructions& result)
 {
-	debug("Translating expression, kind %d", expression->kind);
 	if (expression->kind == IR::IR_STAT_EXP_SEQ) {
-		debug("Statements first");
 		IR::StatExpSequence *statexp = IR::ToStatExpSequence(expression);
 		translateStatement(statexp->stat, frame, result);
 		translateExpression(statexp->exp, frame, value_storage, result);
 	} else {
 		InstructionTemplate *templ;
-		debug("Looking for template");
 		FindExpressionTemplate(expression, templ);
 		if (templ == NULL)
 			Error::fatalError("Failed to find expression template");
@@ -342,12 +335,10 @@ void Assembler::translateExpression(IR::Expression* expression,
 		int nodecount = 0;
 		MatchExpression(expression, ((IR::ExpressionCode *)templ->code)->exp,
 			nodecount, &children, &template_instantiation);
-		debug("Template found, %d nodes, %d children", nodecount, children.size());
 		for (std::list<TemplateChildInfo>::iterator child = children.begin();
 				child != children.end(); child++)
 			translateExpression((*child).expression, frame, (*child).value_storage,
 				result);
-		debug("Generating assembler code for the template");
 		translateExpressionTemplate(template_instantiation, frame, value_storage,
 			children, result);
 		
@@ -358,20 +349,16 @@ void Assembler::translateExpression(IR::Expression* expression,
 void Assembler::translateStatement(IR::Statement* statement, 
 	IR::AbstractFrame *frame, Instructions& result)
 {
-	debug("Translating statement %d", statement->kind);
 	if (statement->kind == IR::IR_STAT_SEQ) {
-		debug("Translating statement sequence");
 		IR::StatementSequence *seq = IR::ToStatementSequence(statement);
 		for (std::list<IR::Statement *>::iterator statm = seq->statements.begin();
 				statm != seq->statements.end(); statm++)
 			 translateStatement(*statm, frame, result);
 	} else if (statement->kind == IR::IR_EXP_IGNORE_RESULT) {
-		debug("Translating expression, ignoring result");
 		translateExpression(IR::ToExpressionStatement(statement)->exp, 
 			frame, NULL, result);
 	} else {
 		InstructionTemplate *templ;
-		debug("Looking for template");
 		FindStatementTemplate(statement, templ);
 		if (templ == NULL)
 			Error::fatalError("Failed to find statement template");
@@ -382,21 +369,27 @@ void Assembler::translateStatement(IR::Statement* statement,
 		int nodecount = 0;
 		MatchStatement(statement, ((IR::StatementCode *)templ->code)->statm,
 			nodecount, &children, &template_instantiation);
-		debug("Found template, matched %d nodes, %d children",
-			nodecount, children.size());
 		for (std::list<TemplateChildInfo>::iterator child = children.begin();
 				child != children.end(); child++) {
-			debug("Translating child");
 			translateExpression((*child).expression, frame, (*child).value_storage,
 				result);
 		}
-		debug("Generating assembler code for the template");
 		translateStatementTemplate(template_instantiation, children, result);
 		if (statement->kind == IR::IR_LABEL)
 			result.back().label = IR::ToLabelPlacementStatement(statement)->label;
 		
 		IR::DestroyStatement(template_instantiation);
 	}
+}
+
+IR::VirtualRegister *MapRegister(const IR::RegisterMap *register_map,
+	IR::VirtualRegister *reg)
+{
+	if ((register_map != NULL) && (register_map->size() > reg->getIndex()) &&
+		((*register_map)[reg->getIndex()] != NULL))
+		return (*register_map)[reg->getIndex()];
+	else
+		return reg;
 }
 
 void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
@@ -409,11 +402,20 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 		fputc('\n', output);
 	
 	for (std::list<Instructions>::const_iterator chunk = code.begin();
-			chunk != code.end(); chunk++)
+			chunk != code.end(); chunk++) {
+		int line = 0;
 		for (Instructions::const_iterator inst = (*chunk).begin();
-				inst != (*chunk).end(); inst++) {
+				inst != (*chunk).end(); inst++, line++) {
 			const std::string &s = (*inst).notation;
-			//fprintf(output, "%s\n", (*inst).c_str());
+			
+			if ((*inst).is_reg_to_reg_assign) {
+				assert((*inst).inputs.size() == 1);
+				assert((*inst).outputs.size() == 1);
+				if (MapRegister(register_map, (*inst).inputs[0])->getIndex() ==
+						MapRegister(register_map, (*inst).outputs[0])->getIndex())
+					continue;
+			}
+		
 			int i = 0;
 			int len = 0;
 			while (i < s.size()) {
@@ -437,13 +439,8 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 						if (arg_index > (*registers).size())
 							Error::fatalError("Misformed instruction");
 						else {
-							IR::VirtualRegister *reg = (*registers)[arg_index];
-							if (
-								(register_map != NULL) &&
-								(register_map->size() > reg->getIndex()) &&
-								((*register_map)[reg->getIndex()] != NULL)
-							)
-								reg = (*register_map)[reg->getIndex()];
+							IR::VirtualRegister *reg =
+								MapRegister(register_map, (*registers)[arg_index]);
 							fprintf(output, "%s", reg->getName().c_str());
 							len += reg->getName().size();
 						}
@@ -453,7 +450,9 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 			}
 			for (int i = 0; i < 30-len; i++)
 				fputc(' ', output);
-			fprintf(output, " # ");
+			fprintf(output, " # %2d ", line);
+			if ((*inst).is_reg_to_reg_assign)
+				fprintf(output, "MOVE ");
 			bool use_reg = false;
 			if ((*inst).inputs.size() > 0) {
 				use_reg = true;
@@ -471,6 +470,7 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 				fprintf(output, "no register use");
 			fputc('\n', output);
 		}
+	}
 }
 
 void Assembler::outputBlobs(FILE* output, const std::list< IR::Blob >& blobs)
@@ -491,8 +491,8 @@ void Assembler::outputBlobs(FILE* output, const std::list< IR::Blob >& blobs)
 		fprintf(output, "%s\n", (*inst).notation.c_str());
 }
 
-void Assembler::translateFunctionBody(IR::Code* code, IR::AbstractFrame *frame,
-	Instructions &result)
+void Assembler::translateFunctionBody(IR::Code* code, IR::Label *fcn_label,
+	IR::AbstractFrame *frame, Instructions &result)
 {
 	if (code == NULL)
 		// External function, ignore
@@ -500,13 +500,16 @@ void Assembler::translateFunctionBody(IR::Code* code, IR::AbstractFrame *frame,
 	switch (code->kind) {
 		case IR::CODE_EXPRESSION: {
 			IR::VirtualRegister *result_storage = IRenvironment->addRegister();
+			functionPrologue(fcn_label, frame, result);
 			translateExpression(((IR::ExpressionCode *)code)->exp,
 				frame, result_storage, result);
-			functionEpilogue(result_storage, result);
+			functionEpilogue(frame, result_storage, result);
 			break;
 		}
 		case IR::CODE_STATEMENT:
+			functionPrologue(fcn_label, frame, result);
 			translateStatement(((IR::StatementCode *)code)->statm, frame, result);
+			functionEpilogue(frame, NULL, result);
 			break;
 		default:
 			Error::fatalError("Assembler::translateFunctionBody strange body code");
@@ -518,7 +521,22 @@ void Assembler::translateProgram(IR::Statement* program, IR::AbstractFrame *fram
 	Instructions& result)
 {
 	translateStatement(program, frame, result);
-	programEpilogue(result);
+}
+
+void Assembler::implementProgramFrameSize(IR::AbstractFrame *frame,
+	Instructions &result)
+{
+	programPrologue(frame, result);
+	programEpilogue(frame, result);
+	implementFramePointer(frame, result);
+}
+
+void Assembler::implementFunctionFrameSize(IR::Label *fcn_label,
+	IR::AbstractFrame *frame, Instructions &result)
+{
+	framePrologue(fcn_label, frame, result);
+	frameEpilogue(frame, result);
+		implementFramePointer(frame, result);
 }
 
 }

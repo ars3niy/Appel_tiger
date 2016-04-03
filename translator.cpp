@@ -3,6 +3,7 @@
 #include "intermediate.h"
 #include "ir_transformer.h"
 #include "translate_utils.h"
+#include "debugprint.h"
 #include <list>
 #include <set>
 #include <string.h>
@@ -40,7 +41,7 @@ public:
 		std::list<Syntax::Tree>::iterator end);
 };
 
-class TranslatorPrivate {
+class TranslatorPrivate: public DebugPrinter {
 private:
 	LayeredMap func_and_var_names;
 	TypesEnvironment *type_environment;
@@ -60,6 +61,8 @@ private:
 		IR::AbstractFrame *currentFrame, std::list<Variable *> &new_vars);
 	void processFunctionDeclarationBatch(std::list<Syntax::Tree>::iterator begin,
 		std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame);
+	void prependPrologue(IR::Code *&translated,
+		IR::AbstractFrame *func_frame);
 	
 	void translateIntValue(int value, IR::Code *&translated);
 	void translateStringValue(Syntax::StringValue *expression, IR::Code *&translated);
@@ -275,7 +278,7 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 }
 
 TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
-	IR::AbstractFrameManager * _framemanager)
+	IR::AbstractFrameManager * _framemanager): DebugPrinter("translator.log")
 {
 	IRenvironment = ir_inv;
 	framemanager = _framemanager;
@@ -463,6 +466,37 @@ void TranslatorPrivate::processVariableDeclaration(
 	new_vars.push_back(&(variables.back()));
 }
 
+void TranslatorPrivate::prependPrologue(IR::Code*& translated,
+	IR::AbstractFrame* func_frame)
+{
+	IR::Statement *sequence = new IR::StatementSequence;
+	
+	for (std::list<IR::AbstractFrame::ParameterMovement>::const_iterator move =
+			func_frame->getMovementPrologue().begin();
+			move != func_frame->getMovementPrologue().end(); move++) {
+		ToStatementSequence(sequence)->addStatement(new IR::MoveStatement(
+			(*move).where_store->createCode(func_frame),
+			(*move).parameter->createCode(func_frame)
+		));
+	}
+	
+	switch (translated->kind) {
+		case IR::CODE_EXPRESSION:
+			((IR::ExpressionCode *)translated)->exp =
+				new IR::StatExpSequence(sequence,
+					((IR::ExpressionCode *)translated)->exp);
+			break;
+		case IR::CODE_STATEMENT:
+		case IR::CODE_JUMP_WITH_PATCHES:
+			ToStatementSequence(sequence)->addStatement(
+				((IR::StatementCode *)translated)->statm);
+			((IR::StatementCode *)translated)->statm = sequence;
+			break;
+	}
+	
+}
+
+
 void TranslatorPrivate::processFunctionDeclarationBatch(
 	std::list<Syntax::Tree>::iterator begin,
 	std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame)
@@ -486,6 +520,13 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		if (variables_extra_info.functionNeedsParentFp(declaration))
 			function->frame->addParentFpParamVariable(
 				variables_extra_info.isFunctionParentFpAccessedByChildren(declaration));
+		debug("Function %s at line %d needs parent FP: %s",
+			function->name.c_str(), declaration->name->linenumber,
+			variables_extra_info.functionNeedsParentFp(declaration) ? "yes" : "no");
+		debug("Function %s at line %d exports parent FP to children: %s",
+			function->name.c_str(), declaration->name->linenumber,
+			variables_extra_info.isFunctionParentFpAccessedByChildren(declaration)
+				? "yes" : "no");
 		func_and_var_names.add(declaration->name->name, function);
 		recent_functions.push_back(function);
 		
@@ -496,13 +537,8 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			Syntax::ParameterDeclaration *param_decl = 
 				(Syntax::ParameterDeclaration *) *param;
 			Type *param_type = type_environment->getType(param_decl->type, false)->resolve();
-// 			printf("Parameter %s of function %s at line %d is %s by address\n",
-// 				param_decl->name->name.c_str(),
-// 				declaration->name->name.c_str(),
-// 				param_decl->linenumber,
-// 				variables_extra_info.isAccessedByAddress(param_decl) ? "accessed" : "not accessed");
 			function->addArgument(param_decl->name->name, param_type,
-				function->frame->addVariable(
+				function->frame->addParameter(
 					param_decl->name->name,
 					framemanager->getVarSize(param_type),
 					variables_extra_info.isAccessedByAddress(param_decl)
@@ -520,6 +556,7 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		translateExpression((*fcn)->raw_body, ((*fcn)->body), actual_return_type,
 			NULL, (*fcn)->frame);
 		func_and_var_names.removeLastLayer();
+		prependPrologue((*fcn)->body, (*fcn)->frame);
 		if (((*fcn)->return_type->basetype != TYPE_VOID) &&
 			! CheckAssignmentTypes((*fcn)->return_type, actual_return_type))
 			Error::error("Type of function body doesn't match specified return type",
@@ -1476,6 +1513,5 @@ const std::list< Function >& Translator::getFunctions()
 {
 	return impl->functions;
 }
-
 
 }

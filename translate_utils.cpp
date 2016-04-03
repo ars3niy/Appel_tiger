@@ -11,10 +11,35 @@ AbstractVarLocation* AbstractFrame::addVariable(const std::string &name,
 	return impl;
 }
 
+AbstractVarLocation* AbstractFrame::addParameter(const std::string &name,
+	int size, bool cant_be_register)
+{
+	AbstractVarLocation *impl = createParameter(name, size);
+	parameters.push_back(impl);
+	
+	if (impl->isRegister() && cant_be_register) {
+		AbstractVarLocation *storage = addVariable(name + "::.store." + name,
+			size, true);
+		parameter_store_prologue.push_back(ParameterMovement());
+		parameter_store_prologue.back().parameter = impl;
+		parameter_store_prologue.back().where_store = storage;
+		return storage;
+	}
+	return impl;
+}
+
 void AbstractFrame::addParentFpParamVariable(bool cant_be_register)
 {
-	parent_fp_parameter = createVariable(".parent_fp",
-		framemanager->getPointerSize(), cant_be_register);
+ 	parent_fp_parameter = createVariable(".parent_fp",
+		framemanager->getPointerSize(), false);
+	if (parent_fp_parameter->isRegister() && cant_be_register) {
+		parent_fp_memory_storage = addVariable(name + "::.store." + name,
+			framemanager->getPointerSize(), true);
+		parameter_store_prologue.push_back(ParameterMovement());
+		parameter_store_prologue.back().parameter = parent_fp_parameter;
+		parameter_store_prologue.back().where_store = parent_fp_memory_storage;
+		parent_fp_parameter->prespillRegister(parent_fp_memory_storage);
+	}
 }
 
 AbstractFrame::~AbstractFrame()
@@ -29,18 +54,26 @@ AbstractFrame::~AbstractFrame()
 namespace Semantic {
 
 struct VarAccessDefInfo {
-	ObjectId var_id;
-	ObjectId func_id;
+	ObjectId object_id;
+	ObjectId owner_func_id;
 	
-	VarAccessDefInfo(ObjectId _var_id, ObjectId _func_id) :
-		var_id(_var_id), func_id(_func_id) {}
+	/**
+	 * If it actually describes a function not a variable
+	 */
+	bool func_needs_parent_fp;
+	bool func_exports_parent_fp_to_children;
+	
+	VarAccessDefInfo(ObjectId _id, ObjectId _owner_func_id) :
+		object_id(_id), owner_func_id(_owner_func_id),
+		func_needs_parent_fp(false), func_exports_parent_fp_to_children(false) {}
 };
 
 class VariablesAccessInfoPrivate {
 public:
-	std::list<VarAccessDefInfo> variables;
+	std::list<VarAccessDefInfo> variables, functions;
 	LayeredMap variable_names;
 	VarAccessDefInfo function_info;
+	IdMap var_info;
 	
 	VariablesAccessInfoPrivate() : function_info(INVALID_OBJECT_ID, INVALID_OBJECT_ID) {}
 };
@@ -48,6 +81,7 @@ public:
 VariablesAccessInfo::VariablesAccessInfo()
 {
 	impl = new VariablesAccessInfoPrivate;
+	func_stack.push_back(INVALID_OBJECT_ID); // program body "function"
 }
 
 VariablesAccessInfo::~VariablesAccessInfo()
@@ -83,7 +117,9 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 				impl->variable_names.add(((Syntax::VariableDeclaration *) *param)->name->name,
 					&(impl->variables.back()));
 			}
+			func_stack.push_back(func_declaration->id);
 			processExpression(func_declaration->body, func_declaration->id);
+			func_stack.pop_back();
 			impl->variable_names.removeLastLayer();
 			break;
 		}
@@ -99,9 +135,27 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 		case Syntax::IDENTIFIER: {
 			VarAccessDefInfo *variable = (VarAccessDefInfo *)impl->variable_names.
 				lookup(((Syntax::Identifier *)expression)->name);
-			if ((variable != NULL) && (variable->var_id != INVALID_OBJECT_ID) &&
-					(variable->func_id != current_function_id))
-				var_info.add(variable->var_id, expression);
+			if ((variable != NULL) && (variable->object_id != INVALID_OBJECT_ID) &&
+					(variable->owner_func_id != current_function_id)) {
+				impl->var_info.add(variable->object_id, expression);
+				std::list<int>::reverse_iterator func_in_stack =
+					func_stack.rbegin();
+				while ((func_in_stack != func_stack.rend()) &&
+						(*func_in_stack != variable->owner_func_id)) {
+					VarAccessDefInfo *func_info =
+						(VarAccessDefInfo *)impl->var_info.lookup(*func_in_stack);
+					if (func_info == NULL) {
+						impl->functions.push_back(VarAccessDefInfo(
+							INVALID_OBJECT_ID, INVALID_OBJECT_ID));
+						func_info = & impl->functions.back();
+						impl->var_info.add(*func_in_stack, func_info);
+					}
+					func_info->func_needs_parent_fp = true;
+					if (*func_in_stack != current_function_id)
+						func_info->func_exports_parent_fp_to_children = true;
+					func_in_stack++;
+				}
+			}
 			break;
 		}
 		case Syntax::INTVALUE:
@@ -211,7 +265,25 @@ bool VariablesAccessInfo::isAccessedByAddress(Syntax::Tree definition)
 			Error::fatalError("Variable access checked for non-variable declaration",
 				definition->linenumber);
 	}
-	return var_info.lookup(id) != NULL;
+	return impl->var_info.lookup(id) != NULL;
+}
+
+bool VariablesAccessInfo::functionNeedsParentFp(Syntax::Function* definition)
+{
+	VarAccessDefInfo *info = (VarAccessDefInfo *)impl->var_info.lookup(definition->id);
+	if (info == NULL)
+		return false;
+	else
+		return info->func_needs_parent_fp;
+}
+
+bool VariablesAccessInfo::isFunctionParentFpAccessedByChildren(Syntax::Function* definition)
+{
+	VarAccessDefInfo *info = (VarAccessDefInfo *)impl->var_info.lookup(definition->id);
+	if (info == NULL)
+		return false;
+	else
+		return info->func_exports_parent_fp_to_children;
 }
 
 }

@@ -5,6 +5,37 @@
 
 namespace IR {
 
+AbstractVarLocation* X86_64Frame::createVariable(const std::string& name, int size, bool cant_be_register)
+{
+	X86_64VarLocation *result;
+	if (cant_be_register) {
+		assert(size <= 8);
+		frame_size += size + (8 - size % 8) % 8;
+		result = new X86_64VarLocation(this, -frame_size);
+	} else {
+		result = new X86_64VarLocation(this, ir_env->addRegister(this->name + "::" + name));
+	}
+	return result;
+}
+
+AbstractVarLocation* X86_64Frame::createParameter(const std::string& name, int size)
+{
+	AbstractVarLocation *result;
+	if (param_count >= 6) {
+		result = new X86_64VarLocation(this, 8+param_stack_size); // 8 for return address on stack
+		assert(size <= 8);
+		param_stack_size += size + (8 - size % 8) % 8;
+	} else
+		result = createVariable(name, size, false);
+	param_count++;
+	return result;
+}
+
+int X86_64Frame::getFrameSize()
+{
+	return frame_size + (24 - frame_size % 16) % 16;
+}
+
 Expression* X86_64VarLocation::createCode(AbstractFrame *calling_frame)
 {
 	if (is_register) {
@@ -29,10 +60,13 @@ Expression* X86_64VarLocation::createCode(AbstractFrame *calling_frame)
 	
 	for (std::list<X86_64Frame *>::iterator frame = frame_stack.begin();
 			frame != frame_stack.end(); frame++) {
-		X86_64VarLocation *var_location =
-			((*frame) == owner_frame) ?
-				this :
-				(X86_64VarLocation *) (*frame)->getParentFpParamVariable();
+		X86_64VarLocation *var_location;
+		if ((*frame) == owner_frame)
+			var_location = this;
+		else if (*frame == calling_frame)
+			var_location = (X86_64VarLocation *) (*frame)->getParentFpForUs();
+		else
+			var_location = (X86_64VarLocation *) (*frame)->getParentFpForChildren();
 				
 		assert(var_location != NULL);
 		assert(put_access_to_owner_frame != NULL);
@@ -45,7 +79,7 @@ Expression* X86_64VarLocation::createCode(AbstractFrame *calling_frame)
 			put_access_to_next_owner_frame = NULL;
 		} else {
 			BinaryOpExpression *address_expr = new BinaryOpExpression(
-				IR::OP_MINUS, NULL, new IntegerExpression(var_location->offset));
+				IR::OP_PLUS, NULL, new IntegerExpression(var_location->offset));
 			access_to_owner_frame = new MemoryExpression(address_expr);
 			put_access_to_next_owner_frame = &address_expr->left;
 		}
@@ -55,7 +89,7 @@ Expression* X86_64VarLocation::createCode(AbstractFrame *calling_frame)
 	}
 	if (put_access_to_owner_frame != NULL) {
 		*put_access_to_owner_frame = new RegisterExpression(
-			((X86_64Frame *)calling_frame)->framepointer);
+			((X86_64Frame *)calling_frame)->getFramePointer());
 	}
 	assert(result != NULL);
 	return result;

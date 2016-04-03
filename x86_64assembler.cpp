@@ -3,6 +3,7 @@
 #include "errormsg.h"
 #include <list>
 #include <assert.h>
+#include <stdlib.h>
 
 namespace Asm {
 
@@ -23,6 +24,7 @@ namespace Asm {
 		R15,
 		RBP,
 		RSP,
+		FP,
 		LAST_REGISTER,
 	};
 
@@ -178,21 +180,31 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 		"%r15",
 		"%rbp",
 		"%rsp",
+		"fp",
 	};
 	
 	machine_registers.resize(LAST_REGISTER);
 	
 	for (int r = 0; r < LAST_REGISTER; r++) {
 		machine_registers[r] = IRenvironment->addRegister(register_names[r]);
-		if ((r != RBP) && (r != RSP))
+		if ((r != FP) && (r != RSP))
 			available_registers.push_back(machine_registers[r]);
 	}
 	
 	callersave_registers.resize(callersave_count);
 	for (int i = 0; i < callersave_count; i++)
 		callersave_registers[i] = machine_registers[callersave_list[i]];
+	
+	calleesave_registers.resize(calleesave_count);
+	for (int i = 0; i < calleesave_count; i++)
+		calleesave_registers[i] = machine_registers[calleesave_list[i]];
 }
 
+// IR::VirtualRegister* X86_64Assembler::getFramePointerRegister()
+// {
+// 	return machine_registers[FP];
+// }
+// 
 void X86_64Assembler::make_arithmetic(int asm_code, IR::BinaryOp ir_code)
 {
 	// don't forget cqo
@@ -320,23 +332,34 @@ void X86_64Assembler::makeOperand(IR::Expression *expression,
 void X86_64Assembler::addInstruction(Instructions &result,
 	const std::string &prefix, IR::Expression *operand,
 	const std::string &suffix, IR::VirtualRegister *output0,
-	IR::VirtualRegister *output1)
+	IR::VirtualRegister *extra_input, IR::VirtualRegister *extra_output,
+	Instructions::iterator *insert_before)
 {
 	std::vector<IR::VirtualRegister *> inputs;
 	std::string notation;
 	makeOperand(operand, inputs, notation);
+	if (extra_input != NULL)
+		inputs.push_back(extra_input);
 	notation = prefix + notation + suffix;
-	IR::VirtualRegister *outputs[] = {output0, output1};
+	IR::VirtualRegister *outputs[] = {output0, extra_output};
 	int noutput = 0;
 	if (output0 != NULL) {
-		if (output1 != NULL)
+		if (extra_output != NULL)
 			noutput = 2;
 		else
 			noutput = 1;
 	}
-	result.push_back(Instruction(notation, inputs.size(), inputs.data(),
-		noutput, outputs,
-		(prefix == "movq ") && (operand->kind == IR::IR_REGISTER)));
+	Instructions::iterator position = result.end();
+	if (insert_before != NULL)
+		position = *insert_before;
+	
+	Instructions::iterator newinst = result.insert(position,
+		Instruction(notation, inputs.size(), inputs.data(),
+			noutput, outputs, 1, NULL,
+			(prefix == "movq ") && (operand->kind == IR::IR_REGISTER)));
+	if (insert_before != NULL)
+		debug("Spill: %s -> prepend %s", (*position).notation.c_str(),
+			  (*newinst).notation.c_str());
 }
 
 void X86_64Assembler::addInstruction(Instructions &result,
@@ -352,65 +375,6 @@ void X86_64Assembler::addInstruction(Instructions &result,
 		inputs.size(), inputs.data(), 0, NULL));
 }
 
-std::string X86_64Assembler::translateOperand(IR::Expression* expr)
-{
-	switch (expr->kind) {
-		case IR::IR_INTEGER:
-			return std::string("$") + IntToStr(IR::ToIntegerExpression(expr)->value);
-		case IR::IR_LABELADDR:
-			return std::string("$") + IR::ToLabelAddressExpression(expr)->label->getName();
-		case IR::IR_REGISTER:
-			return std::string("%") + IR::ToRegisterExpression(expr)->reg->getName();
-		case IR::IR_MEMORY: {
-			IR::Expression *addr = IR::ToMemoryExpression(expr)->address;
-			switch (addr->kind) {
-				case IR::IR_REGISTER:
-					return std::string("(%") +
-						IR::ToRegisterExpression(addr)->reg->getName() + ")";
-				case IR::IR_LABELADDR:
-					return std::string("(") +
-						IR::ToLabelAddressExpression(addr)->label->getName() + ")";
-				case IR::IR_BINARYOP: {
-					IR::BinaryOpExpression *binop = IR::ToBinaryOpExpression(addr);
-					if (binop->operation == IR::OP_PLUS) {
-						if (binop->left->kind == IR::IR_INTEGER) {
-							IR::MemoryExpression base(binop->right);
-							int offset = IR::ToIntegerExpression(binop->left)->value;
-							if (offset != 0)
-								return IntToStr(offset) + translateOperand(&base);
-							else
-								return translateOperand(&base);
-						} else if (binop->right->kind == IR::IR_INTEGER) {
-							IR::MemoryExpression base(binop->left);
-							int offset = IR::ToIntegerExpression(binop->right)->value;
-							if (offset != 0)
-								return IntToStr(offset) + translateOperand(&base);
-							else
-								return translateOperand(&base);
-						} else
-							Error::fatalError("Too complicated x86_64 assembler memory address");
-					} else if (binop->operation == IR::OP_MINUS) {
-						if (binop->right->kind == IR::IR_INTEGER) {
-							IR::MemoryExpression base(binop->left);
-							int offset = -IR::ToIntegerExpression(binop->right)->value;
-							if (offset != 0)
-								return IntToStr(offset) + translateOperand(&base);
-							else
-								return translateOperand(&base);
-						} else
-							Error::fatalError("Too complicated x86_64 assembler memory address");
-					} else
-						Error::fatalError("Too complicated x86_64 assembler memory address");
-				}
-				default:
-					Error::fatalError("Strange x86_64 assembler memory address");
-			}
-		}
-		default:
-			Error::fatalError("Strange x86_64 assembler operand");
-	}
-}
-
 void X86_64Assembler::placeCallArguments(const std::list<IR::Expression * >& arguments,
 	Instructions &result)
 {
@@ -422,7 +386,7 @@ void X86_64Assembler::placeCallArguments(const std::list<IR::Expression * >& arg
 			"movq " + Instruction::Input(0) + ", " + Instruction::Output(0),
 			1, &IR::ToRegisterExpression(*arg)->reg, 1,
 			&machine_registers[paramreg_list[arg_count]],
-			true));
+			1, NULL, true));
 		arg_count++;
 		if (arg_count == paramreg_count)
 			break;
@@ -481,24 +445,56 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 					case IR::OP_MUL:
 						addInstruction(result, "movq ", bin_op->left,
 							", " + Instruction::Output(0), machine_registers[RAX]);
-						addInstruction(result, "imulq ", bin_op->right,
-							", " + Instruction::Output(0), machine_registers[RAX],
-							machine_registers[RDX]);
+						if ((bin_op->right->kind == IR::IR_INTEGER) ||
+							(bin_op->right->kind == IR::IR_LABELADDR)) {
+							IR::VirtualRegister *tmp_reg = IRenvironment->addRegister();
+							addInstruction(result, "movq ", bin_op->right,
+								", " + Instruction::Output(0), tmp_reg);
+							IR::VirtualRegister *inputs[] = {
+								machine_registers[RAX],
+								tmp_reg};
+							IR::VirtualRegister *outputs[] = {
+								machine_registers[RAX],
+								machine_registers[RDX]};
+							result.push_back(Instruction(
+								"imulq " + Instruction::Input(1),
+								2, &inputs[0], 2, &outputs[0]));
+						} else
+							addInstruction(result, "imulq ", bin_op->right,
+								"", machine_registers[RAX],
+								machine_registers[RAX], machine_registers[RDX]);
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
-							1, &machine_registers[RAX], 1, &value_storage, true));
+							1, &machine_registers[RAX], 1, &value_storage,
+							1, NULL, true));
 						break;
 					case IR::OP_DIV:
 						addInstruction(result, "movq ", bin_op->left,
 							", " + Instruction::Output(0), machine_registers[RAX]);
 						result.push_back(Instruction("cqo",
 							0, NULL, 1, &machine_registers[RDX]));
-						addInstruction(result, "imulq ", bin_op->right,
-							", " + Instruction::Output(0), machine_registers[RAX],
-							machine_registers[RDX]);
+						if ((bin_op->right->kind == IR::IR_INTEGER) ||
+							(bin_op->right->kind == IR::IR_LABELADDR)) {
+							IR::VirtualRegister *tmp_reg = IRenvironment->addRegister();
+							addInstruction(result, "movq ", bin_op->right,
+								", " + Instruction::Output(0), tmp_reg);
+							IR::VirtualRegister *inputs[] = {
+								machine_registers[RAX],
+								tmp_reg};
+							IR::VirtualRegister *outputs[] = {
+								machine_registers[RAX],
+								machine_registers[RDX]};
+							result.push_back(Instruction(
+								"idivq " + Instruction::Input(1),
+								2, &inputs[0], 2, &outputs[0]));
+						} else
+							addInstruction(result, "imulq ", bin_op->right,
+								", " + Instruction::Output(0), machine_registers[RAX],
+								machine_registers[RAX], machine_registers[RDX]);
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
-							1, &machine_registers[RAX], 1, &value_storage, true));
+							1, &machine_registers[RAX], 1, &value_storage,
+							1, NULL, true));
 						break;
 					default:
 						Error::fatalError("X86_64Assembler::translateExpressionTemplate unexpected binary operation");
@@ -507,10 +503,12 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			break;
 		case IR::IR_FUN_CALL: {
 			IR::CallExpression *call = IR::ToCallExpression(templ);
-			if (call->needs_parent_fp)
+			if (call->needs_parent_fp) {
+				IR::VirtualRegister *fp = frame->getFramePointer();
 				result.push_back(Instruction(
 					"movq " + Instruction::Input(0) + ", " + Instruction::Output(0),
-					1, &((IR::X86_64Frame *)frame)->framepointer, 1, &machine_registers[R10]));
+					1, &fp, 1, &machine_registers[R10]));
+			}
 			placeCallArguments(call->arguments, result);
 			assert(call->function->kind == IR::IR_LABELADDR);
 			IR::VirtualRegister **callersave = callersave_registers.data();
@@ -521,7 +519,8 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			if (value_storage != NULL)
 				result.push_back(Instruction("movq " + Instruction::Input(0) +
 					", " + Instruction::Output(0),
-					1, &machine_registers[RAX], 1, &value_storage, true));
+					1, &machine_registers[RAX], 1, &value_storage,
+					1, NULL, true));
 			break;
 		}
 		default:
@@ -559,7 +558,7 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 			addInstruction(result, "cmp ", jump->right, ", ", jump->left);
 			IR::Label *destinations[] = {NULL, jump->true_dest};
 			result.push_back(Instruction(std::string(cond_jumps[jump->comparison]) +
-				jump->true_dest->getName(), 0, NULL, 0, NULL, 2, destinations));
+				" " + jump->true_dest->getName(), 0, NULL, 0, NULL, 2, destinations));
 			break;
 		}
 		case IR::IR_LABEL:
@@ -573,7 +572,7 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 			if (move->from->kind == IR::IR_BINARYOP) {
 				assert(move->to->kind == IR::IR_REGISTER);
 				IR::MemoryExpression *fake_addr = new IR::MemoryExpression(move->from);
-				addInstruction(result, "leaq ", fake_addr, ", ",
+				addInstruction(result, "leaq ", fake_addr, ", "  + Instruction::Output(0),
 					ToRegisterExpression(move->to)->reg);
 				delete fake_addr;
 			} else if (move->from->kind == IR::IR_MEMORY) {
@@ -604,16 +603,13 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 void X86_64Assembler::translateBlob(const IR::Blob& blob, Instructions& result)
 {
 	result.push_back(Instruction(blob.label->getName() + ":"));
-	std::string content = ".ascii \"";
-	for (int i = 0; i < blob.data.size(); i++)
-		if (isalnum(blob.data[i]))
-			content += blob.data[i];
-		else {
-			char buf[10];
-			sprintf(buf, "\\x%.2x", blob.data[i]);
-			content += buf;
-		}
-	result.push_back(Instruction(content + "\""));
+	std::string content = "";
+	for (int i = 0; i < blob.data.size(); i++) {
+		char buf[20];
+		sprintf(buf, ".byte 0x%.2x\n", blob.data[i]);
+		content += buf;
+	}
+	result.push_back(Instruction(content));
 }
 
 void X86_64Assembler::getBlobSectionHeader(std::string& header)
@@ -623,20 +619,333 @@ void X86_64Assembler::getBlobSectionHeader(std::string& header)
 
 void X86_64Assembler::getCodeSectionHeader(std::string& header)
 {
-	header = ".text\n.global main\nmain:\n";
+	header = ".text\n.global main\n";
 }
 
-void X86_64Assembler::functionEpilogue(IR::VirtualRegister* result_storage,
+void X86_64Assembler::framePrologue(IR::Label *fcn_label,
+	IR::AbstractFrame *frame, Instructions &result)
+{
+	int framesize = ((IR::X86_64Frame *)frame)->getFrameSize();
+	if (framesize > 0)
+		result.push_front(Instruction("subq $" + IntToStr(framesize) +
+			", %rsp"));
+	result.push_front(Instruction(fcn_label->getName() + ":"));
+}
+
+void X86_64Assembler::frameEpilogue(IR::AbstractFrame *frame, Instructions &result)
+{
+	int framesize = ((IR::X86_64Frame *)frame)->getFrameSize();
+	if (framesize > 0)
+		result.push_back(Instruction("addq $" + IntToStr(framesize) +
+			", %rsp"));
+	result.push_back(Instruction("ret"));
+}
+
+void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
+	IR::AbstractFrame *frame, Instructions &result)
+{
+	IR::VirtualRegister **calleesave = calleesave_registers.data();
+	result.push_back(Instruction("# callee-save registers",
+		0, NULL, calleesave_count, calleesave));
+	
+	const std::list<IR::AbstractVarLocation *>parameters =
+		frame->getParameters();
+	int param_index = 0;
+	for (std::list<IR::AbstractVarLocation *>::const_iterator param =
+			parameters.begin(); param != parameters.end(); ++param) {
+		if (param_index < paramreg_count) {
+			assert((*param)->isRegister());
+			IR::VirtualRegister *storage_reg =
+				((IR::X86_64VarLocation *) *param)->getRegister();
+			result.push_back(Instruction(std::string("movq ") +
+				Instruction::Input(0) + ", " + Instruction::Output(0),
+				1, &machine_registers[paramreg_list[param_index]], 
+				1, &storage_reg, 1, NULL, true));
+		} else
+			assert(! (*param)->isRegister());
+		param_index++;
+	}
+	IR::AbstractVarLocation *parent_fp = frame->getParentFpForUs();
+	if (parent_fp != NULL) {
+		assert(parent_fp->isRegister());
+		IR::VirtualRegister *storage_reg =
+			((IR::X86_64VarLocation *) parent_fp)->getRegister();
+		result.push_back(Instruction(std::string("movq ") +
+			Instruction::Input(0) + ", " + Instruction::Output(0),
+			1, &machine_registers[R10], 
+			1, &storage_reg, 1, NULL, true));
+	}
+}
+
+void X86_64Assembler::functionEpilogue(IR::AbstractFrame *frame,
+	IR::VirtualRegister* result_storage,
 	Instructions &result)
 {
-	result.push_back(Instruction("movq " + Instruction::Input(0) + ", " +
-		Instruction::Output(0), 1, &result_storage, 1, &machine_registers[RAX]));
+	if (result_storage != NULL)
+		result.push_back(Instruction("movq " + Instruction::Input(0) + ", " +
+			Instruction::Output(0), 1, &result_storage, 1, &machine_registers[RAX],
+			1, NULL, true));
+	IR::VirtualRegister **calleesave = calleesave_registers.data();
+	result.push_back(Instruction("# callee-save registers",
+		calleesave_count, calleesave, 0, NULL));
 }
 
-void X86_64Assembler::programEpilogue(Instructions &result)
+void X86_64Assembler::programPrologue(IR::AbstractFrame *frame, Instructions &result)
+{
+	IR::Label label(0, "main");
+	framePrologue(&label, frame, result);
+}
+
+void X86_64Assembler::programEpilogue(IR::AbstractFrame *frame, Instructions &result)
 {
 	result.push_back(Instruction("movq $0, %rax"));
-	result.push_back(Instruction("ret"));
+	frameEpilogue(frame, result);
+}
+
+/**
+ * Replace &iX (X = inputreg_index) with (semantically) &iX + offset
+ */
+void X86_64Assembler::addOffset(std::string &command, int inputreg_index, int offset)
+{
+	std::string p = std::string("&i") + IntToStr(inputreg_index);
+	assert(p.size() == 3);
+	const char *s = command.c_str();
+	const char *t = strstr(s, p.c_str());
+	assert(t != NULL);
+	int pos = t - s;
+	
+	assert((pos > 0) && (pos + p.size() < command.size()));
+	assert((s[pos-1] == ' ') || (s[pos-1] == '('));
+	std::string result;
+	
+	if (s[pos-1] == ' ') {
+		assert(! strncmp(s, "movq", 4));
+		result = "leaq " + IntToStr(offset) + "(" + p + ")" +
+			command.substr(pos + p.size(), command.size() - (pos + p.size()));
+	} else {
+		assert(s[pos + p.size()] == ')');
+		int before_offset = pos;
+		while ((before_offset > 0) && (s[before_offset] != ' '))
+			before_offset--;
+		assert(before_offset > 0);
+		int existing_offset = 0;
+		if (before_offset < pos-1)
+			existing_offset = atoi(command.substr(before_offset+1,
+				pos - (before_offset+1)).c_str());
+		std::string offset_s;
+		if (existing_offset + offset == 0)
+			offset_s = "";
+		else
+			offset_s = IntToStr(existing_offset+offset);
+		result = command.substr(0, before_offset+1) +
+			offset_s + command.substr(pos-1, command.size() - (pos-1));
+	}
+	debug("%s +%d -> %s", command.c_str(), offset, result.c_str());
+	command = result;
+}
+
+void X86_64Assembler::implementFramePointer(IR::AbstractFrame* frame, Instructions& result)
+{
+	for (Instructions::iterator inst = result.begin(); inst != result.end(); inst++) {
+		debug("Inserting frame pointer: %s", (*inst).notation.c_str());
+		for (int i = 0; i < (*inst).outputs.size(); i++)
+			if ((*inst).outputs[i]->getIndex() == frame->getFramePointer()->getIndex())
+				Error::fatalError("Cannot write to frame pointer");
+		for (int i = 0; i < (*inst).inputs.size(); i++)
+			if ((*inst).inputs[i]->getIndex() == frame->getFramePointer()->getIndex()) {
+				(*inst).inputs[i] = machine_registers[RSP];
+				addOffset((*inst).notation, i,
+					((IR::X86_64Frame *)frame)->getFrameSize());
+				break;
+			}
+	}
+}
+
+int findRegister(const std::string &notation, bool input, int index)
+{
+	const char *s = notation.c_str();
+	std::string part;
+	if (input)
+		part = "&i" + IntToStr(index);
+	else
+		part = "&o" + IntToStr(index);
+	const char *t = strstr(s, part.c_str());
+	if (t == NULL)
+		return -1;
+	else
+		return t-s;
+}
+
+void X86_64Assembler::replaceRegisterUsage(Instructions &code,
+	std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
+	IR::MemoryExpression *replacement)
+{
+	for (int i = 0; i < (*inst).inputs.size(); i++)
+		if ((*inst).inputs[i]->getIndex() == reg->getIndex()) {
+			bool need_splitting = true;
+			const std::string &original = (*inst).notation;
+			if (((*inst).outputs.size() > 0) &&
+					((*inst).outputs[0]->getIndex() != reg->getIndex()) &&
+					((*inst).inputs.size() == 1)) {
+				int pos = findRegister(original, true, 0);
+				assert(pos > 0);
+				need_splitting = original[pos-1] == '(';
+			}
+			if (! need_splitting) {
+				std::string storage_notation;
+				(*inst).inputs.clear();
+				makeOperand(replacement, (*inst).inputs, storage_notation);
+				int pos = findRegister(original, true, 0);
+				std::string new_command = original.substr(0, pos) +
+					storage_notation + original.substr(pos+3,
+					original.size() - (pos+3));
+				debug("spilling %s -> %s", original.c_str(), new_command.c_str());
+				(*inst).notation = new_command;
+				(*inst).is_reg_to_reg_assign = false;
+			} else {
+				IR::VirtualRegister *temp = IRenvironment->addRegister();
+				addInstruction(code, "movq ", replacement, ", ", temp,
+					NULL, NULL, &inst);
+				(*inst).inputs[i] = temp;
+			}
+			return;
+		}
+}
+
+void X86_64Assembler::replaceRegisterAssignment(Instructions &code,
+	std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
+	IR::MemoryExpression *replacement)
+{
+	for (int i = 0; i < (*inst).outputs.size(); i++)
+		if ((*inst).outputs[i]->getIndex() == reg->getIndex()) {
+			bool need_splitting;
+			const std::string &original = (*inst).notation;
+			if ((*inst).inputs.size() > 1)
+				need_splitting = true;
+			else if ((*inst).inputs.size() == 0)
+				need_splitting = false;
+			else {
+				int pos = findRegister(original, true, 0);
+				assert(pos > 0);
+				need_splitting = original[pos-1] == '(';
+			}
+			if (! need_splitting) {
+				std::string storage_notation;
+				makeOperand(replacement, (*inst).inputs, storage_notation);
+				int pos = findRegister(original, false, 0);
+				assert(pos == original.size()-3);
+				std::string new_command = original.substr(0, pos) +
+					storage_notation;
+				debug("spilling %s -> %s", original.c_str(), new_command.c_str());
+				(*inst).notation = new_command;
+				(*inst).is_reg_to_reg_assign = false;
+			} else {
+				IR::VirtualRegister *temp = IRenvironment->addRegister();
+				(*inst).outputs[i] = temp;
+				const std::string &original = (*inst).notation;
+				inst++;
+
+				std::vector<IR::VirtualRegister *> registers;
+				registers.push_back(temp);
+				std::string operand0 = Instruction::Input(0);
+				std::string operand1;
+				makeOperand(replacement, registers, operand1);
+				std::string new_command = "movq " + operand0 + ", " + operand1;
+				code.insert(inst, Instruction(new_command, registers.size(),
+					registers.data(), 0, NULL));
+				debug("spilling %s -> append %s", original.c_str(),
+					new_command.c_str());
+			}
+		}
+}
+
+void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code,
+	IR::VirtualRegister *reg)
+{
+	if (reg->isPrespilled()) {
+		IR::X86_64VarLocation *stored_location =
+			(IR::X86_64VarLocation *)reg->getPrespilledLocation();
+		IR::Expression *storage_exp =
+			stored_location->createCode(stored_location->owner_frame);
+		
+		Instructions::iterator inst = code.begin();
+		bool seen_usage = false, seen_assignment = false;
+		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
+			bool is_assigned = false;
+			for (int i = 0; i < (*inst).outputs.size(); i++)
+				if ((*inst).outputs[i]->getIndex() == reg->getIndex()) {
+					is_assigned = true;
+					seen_assignment = true;
+					assert((*inst).is_reg_to_reg_assign);
+					assert(! seen_usage);
+					assert(! seen_assignment);
+					assert((*inst).inputs.size() == 1);
+					assert((*inst).outputs.size() == 1);
+					std::string storage_notation;
+					makeOperand(storage_exp, (*inst).inputs, storage_notation);
+					
+					const std::string &s = (*inst).notation;
+					assert(s.substr(s.size()-3, 3) == "&o0");
+					std::string replacement = s.substr(0, s.size()-3) +
+						storage_notation;
+					debug("Spilling %s -> %s", s.c_str(),
+						  replacement.c_str());
+					(*inst).notation = replacement;
+					(*inst).is_reg_to_reg_assign = false;
+				}
+			
+			bool is_used = false;
+			for (int i = 0; i < (*inst).inputs.size(); i++)
+				if ((*inst).inputs[i]->getIndex() == reg->getIndex()) {
+					assert(! is_assigned);
+					assert(seen_assignment);
+					is_used = true;
+					seen_usage = true;
+					break;
+				}
+			if (is_used)
+				replaceRegisterUsage(code, inst, reg,
+					IR::ToMemoryExpression(storage_exp));
+		}
+		IR::DestroyExpression(storage_exp);
+	} else {
+		IR::X86_64VarLocation *stored_location =
+			(IR::X86_64VarLocation *)frame->addVariable(".store." + reg->getName(),
+				8, true);
+		IR::Expression *storage_exp = IR::ToMemoryExpression(
+			stored_location->createCode(stored_location->owner_frame));
+		
+		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
+			debug("Spilling: %s", (*inst).notation.c_str());
+			bool is_assigned = false, is_used = false;
+			for (int i = 0; i < (*inst).outputs.size(); i++)
+				if ((*inst).outputs[i]->getIndex() == reg->getIndex())
+					is_assigned = true;
+			for (int i = 0; i < (*inst).inputs.size(); i++)
+				if ((*inst).inputs[i]->getIndex() == reg->getIndex())
+					is_used = true;
+			if (is_used) {
+				if (! is_assigned)
+					replaceRegisterUsage(code, inst, reg,
+						IR::ToMemoryExpression(storage_exp));
+				else {
+					IR::VirtualRegister *temp = IRenvironment->addRegister();
+					addInstruction(code, "movq ", storage_exp, ", ", temp,
+						NULL, NULL, &inst);
+					for (int i = 0; i < (*inst).inputs.size(); i++)
+						if ((*inst).inputs[i]->getIndex() == reg->getIndex())
+							(*inst).inputs[i] = temp;
+					replaceRegisterAssignment(code, inst, reg,
+						IR::ToMemoryExpression(storage_exp));
+				}
+			} else if (is_assigned) {
+				replaceRegisterAssignment(code, inst, reg,
+					IR::ToMemoryExpression(storage_exp));
+			}
+		}
+		
+		IR::DestroyExpression(storage_exp);
+	}
 }
 
 }

@@ -3,6 +3,7 @@
 
 #include "intermediate.h"
 #include "translate_utils.h"
+#include "debugprint.h"
 
 namespace Asm {
 
@@ -84,9 +85,7 @@ public:
 	std::vector<IR::Label *> destinations;
 	
 	explicit Instruction(const std::string &_notation,
-		bool _reg_to_reg_assign = false)
-			: notation(_notation), label(NULL),
-			is_reg_to_reg_assign(_reg_to_reg_assign) {}
+		bool _reg_to_reg_assign = false);
 	
 	Instruction(const std::string &_notation, int ninput, IR::VirtualRegister **inputs,
 		int noutput, IR::VirtualRegister **outputs, int ndest = 1,
@@ -95,7 +94,7 @@ public:
 
 typedef std::list<Instruction> Instructions;
 
-class Assembler {
+class Assembler: public DebugPrinter {
 protected:
 	IR::IREnvironment *IRenvironment;
 	std::vector<TemplateStorage *> expr_templates;
@@ -124,10 +123,18 @@ protected:
 	
 	virtual void getCodeSectionHeader(std::string &header) = 0;
 	virtual void getBlobSectionHeader(std::string &header) = 0;
-	virtual void functionEpilogue(IR::VirtualRegister *result_storage,
+	virtual void functionPrologue(IR::Label *fcn_label,
+		IR::AbstractFrame *frame, Instructions &result) = 0;
+	virtual void functionEpilogue(IR::AbstractFrame *frame, 
+		IR::VirtualRegister *result_storage,
 		Instructions &result) = 0;
-	virtual void programEpilogue(Instructions &result) = 0;
-	void debug(const char *msg, ...);
+	virtual void framePrologue(IR::Label *label, IR::AbstractFrame *frame,
+		Instructions &result) = 0;
+	virtual void frameEpilogue(IR::AbstractFrame *frame, Instructions &result) = 0;
+	virtual void programPrologue(IR::AbstractFrame *frame, Instructions &result) = 0;
+	virtual void programEpilogue(IR::AbstractFrame *frame, Instructions &result) = 0;
+	virtual void implementFramePointer(IR::AbstractFrame *frame,
+		Instructions &result) = 0;
 private:
 	
 	void FindExpressionTemplate(IR::Expression *expression, InstructionTemplate *&templ);
@@ -143,19 +150,29 @@ private:
 	void translateStatement(IR::Statement *statement, IR::AbstractFrame *frame,
 		Instructions &result);
 public:
-	std::string debug_output;
 	Assembler(IR::IREnvironment *ir_env);
 	
 	void translateProgram(IR::Statement *program, IR::AbstractFrame *frame,
 		Instructions &result);
-	void translateFunctionBody(IR::Code *code, IR::AbstractFrame *frame,
+	void implementProgramFrameSize(IR::AbstractFrame *frame,
+		Instructions &result);
+	void translateFunctionBody(IR::Code *code,  IR::Label *fcn_label,
+		IR::AbstractFrame *frame, Instructions &result);
+	void implementFunctionFrameSize(IR::Label *fcn_label, IR::AbstractFrame *frame,
 		Instructions &result);
 	
 	void outputCode(FILE *output,
 		const std::list<Instructions> &code,
 		const IR::RegisterMap *register_map);
 	void outputBlobs(FILE *output, const std::list<IR::Blob> &blobs);
+	
+	/**
+	 * Frame pointer register must NOT be one of them
+	 */
 	virtual const std::vector<IR::VirtualRegister *> &getAvailableRegisters() = 0;
+	
+	virtual void spillRegister(IR::AbstractFrame *frame, Instructions &code,
+		IR::VirtualRegister *reg) = 0;
 };
 
 

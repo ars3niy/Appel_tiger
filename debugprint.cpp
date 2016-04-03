@@ -1,5 +1,26 @@
 #include "intermediate.h"
 #include "syntaxtree.h"
+#include "debugprint.h"
+#include <stdarg.h>
+
+DebugPrinter::DebugPrinter(const char* filename)
+{
+	f = fopen(filename, "a");
+}
+
+DebugPrinter::~DebugPrinter()
+{
+	fclose(f);
+}
+
+void DebugPrinter::debug(const char *msg, ...)
+{
+	va_list ap;
+	va_start(ap, msg);
+	vfprintf(f, msg, ap);
+	fputc('\n', f);
+	va_end(ap);
+}
 
 namespace IR {
 

@@ -21,14 +21,24 @@ public:
 		reg(_register)
 	{}
 	virtual IR::Expression *createCode(AbstractFrame *frame);
+	virtual bool isRegister() {return reg != NULL;}
+	VirtualRegister *getRegister() {return reg;}
+	virtual void prespillRegister(AbstractVarLocation *location)
+	{
+		if (reg != NULL)
+			reg->prespill(location);
+	}
 };
 
 class X86_64Frame: public AbstractFrame {
-public:
-	VirtualRegister *framepointer;
-	X86_64Frame *parent;
+private:
 	int frame_size;
 	IREnvironment *ir_env;
+	int param_count;
+	int param_stack_size;
+	VirtualRegister *framepointer;
+public:
+	X86_64Frame *parent;
 
 	X86_64Frame(AbstractFrameManager *_framemanager, const std::string &name,
 		X86_64Frame *_parent, IREnvironment *_ir_env,
@@ -37,22 +47,20 @@ public:
 		parent(_parent),
 		ir_env(_ir_env),
 		framepointer(_framepointer),
-		frame_size(0)
+		frame_size(0),
+		param_count(0),
+		param_stack_size(0)
 	{}
 	
 	virtual AbstractVarLocation *createVariable(const std::string &name,
-		int size, bool cant_be_register)
-	{
-		X86_64VarLocation *result;
-		if (cant_be_register) {
-			result = new X86_64VarLocation(this, frame_size);
-			frame_size += size + (8 - size % 8) % 8;
-		} else {
-			result = new X86_64VarLocation(this, ir_env->addRegister(this->name + "::" + name));
-		}
-		return result;
-	}
+		int size, bool cant_be_register);
 	
+	virtual AbstractVarLocation *createParameter(const std::string &name,
+		int size);
+	
+	virtual IR::VirtualRegister *getFramePointer() {return framepointer;}
+	
+	int getFrameSize();
 };
 
 class X86_64FrameManager: public AbstractFrameManager {
