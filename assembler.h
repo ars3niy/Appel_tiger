@@ -124,9 +124,11 @@ protected:
 	virtual void getCodeSectionHeader(std::string &header) = 0;
 	virtual void getBlobSectionHeader(std::string &header) = 0;
 	virtual void functionPrologue(IR::Label *fcn_label,
-		IR::AbstractFrame *frame, Instructions &result) = 0;
+		IR::AbstractFrame *frame, Instructions &result,
+		std::vector<IR::VirtualRegister *> &prologue_regs) = 0;
 	virtual void functionEpilogue(IR::AbstractFrame *frame, 
 		IR::VirtualRegister *result_storage,
+		std::vector<IR::VirtualRegister *> &prologue_regs,
 		Instructions &result) = 0;
 	virtual void framePrologue(IR::Label *label, IR::AbstractFrame *frame,
 		Instructions &result) = 0;
@@ -142,9 +144,13 @@ private:
 	bool MatchExpression(IR::Expression *expression, IR::Expression *templ,
 		int &nodecount, std::list<TemplateChildInfo> *children = NULL,
 		IR::Expression **template_instantiation = NULL);
+	bool MatchMoveDestination(IR::Expression *expression, IR::Expression *templ,
+		int &nodecount, std::list<TemplateChildInfo> *children = NULL,
+		IR::Expression **template_instantiation = NULL);
 	bool MatchStatement(IR::Statement *statement, IR::Statement *templ,
 		int &nodecount, std::list<TemplateChildInfo> *children = NULL,
 		IR::Statement **template_instantiation = NULL);
+protected:
 	void translateExpression(IR::Expression *expression, IR::AbstractFrame *frame,
 		IR::VirtualRegister *value_storage, Instructions &result);
 	void translateStatement(IR::Statement *statement, IR::AbstractFrame *frame,

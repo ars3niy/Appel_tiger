@@ -7,6 +7,7 @@ FlowGraphNode::FlowGraphNode(int _index, const Asm::Instruction* _instruction,
 	IR::VirtualRegister *ignored_register)
 	: index(_index), instruction(_instruction)
 {
+	is_reg_to_reg_assign = instruction->is_reg_to_reg_assign;
 	for (int i = 0; i < instruction->outputs.size(); i++)
 		assert(instruction->outputs[i]->getIndex() !=
 			ignored_register->getIndex());
@@ -15,6 +16,8 @@ FlowGraphNode::FlowGraphNode(int _index, const Asm::Instruction* _instruction,
 				(instruction->inputs[i]->getIndex() !=
 				ignored_register->getIndex()))
 			used.push_back(instruction->inputs[i]);
+		else
+			is_reg_to_reg_assign = false;
 }
 
 const std::vector< IR::VirtualRegister* >& FlowGraphNode::usedRegisters() const

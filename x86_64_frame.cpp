@@ -49,7 +49,7 @@ Expression* X86_64VarLocation::createCode(AbstractFrame *calling_frame)
 		frame_stack.push_front(frame);
 		if (frame == owner_frame)
 			break;
-		frame = (X86_64Frame *)frame->parent;
+		frame = (X86_64Frame *)frame->getParent();
 	}
 	if (frame != owner_frame)
 		Error::fatalError("Variable has been used outside its function without syntax error??");

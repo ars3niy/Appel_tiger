@@ -1,6 +1,6 @@
 let
 	type ints = array of int
-	var maxn := 1000
+	var maxn := 32
 
 	function printint(i: int) =
 		let

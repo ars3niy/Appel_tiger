@@ -22,7 +22,6 @@ let
 					G1 := F2 + f2 + g1;
 					G2 := g2;
 					G3 := h(G1, G2);
-					G3 := 0;
 					G1 + G2 + G3
 				end
 		in

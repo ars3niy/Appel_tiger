@@ -2,10 +2,12 @@
 #define _DEBUGPRINT_H
 
 #include <stdio.h>
+#include <string>
 
 class DebugPrinter {
 private:
 	FILE *f;
+	std::string name;
 public:
 	DebugPrinter(const char *filename);
 	~DebugPrinter();

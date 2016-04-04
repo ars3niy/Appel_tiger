@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <assert.h>
 
 int g(int f1, int f2, int F1, int F2, int g1, int g2);
 

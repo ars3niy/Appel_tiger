@@ -176,10 +176,10 @@ class CallExpression: public Expression {
 public:
 	Expression *function;
 	std::list<Expression *> arguments;
-	bool needs_parent_fp;
+	Expression *callee_parentfp;
 	
-	CallExpression(Expression *_func, bool _needs_parent_fp) :
-		Expression(IR_FUN_CALL), function(_func), needs_parent_fp(_needs_parent_fp)
+	CallExpression(Expression *_func, Expression *_callee_parentfp) :
+		Expression(IR_FUN_CALL), function(_func), callee_parentfp(_callee_parentfp)
 	{}
 	
 	void addArgument(Expression *arg)
@@ -267,6 +267,8 @@ public:
 		Statement(IR_COND_JUMP), comparison(_comparison), left(_left),
 		right(_right), true_dest(_true_dest), false_dest(_false_dest) {}
 };
+
+void FlipComparison(CondJumpStatement *jump);
 
 class StatementSequence: public Statement {
 public:

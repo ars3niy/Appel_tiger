@@ -96,6 +96,8 @@ public:
 			case SYM_GREATER:
 			case SYM_GREATEQUAL:
 			case SYM_ASSIGN:
+			case SYM_AND:
+			case SYM_OR:
 				return;
 			default:
 				Error::fatalError("Unexpected operation token", left->linenumber);

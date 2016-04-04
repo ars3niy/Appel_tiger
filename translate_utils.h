@@ -43,6 +43,8 @@ public:
 		AbstractVarLocation *where_store;
 	};
 protected:
+	AbstractFrame *parent;
+	int id;
 	std::string name;
 	AbstractVarLocation *parent_fp_parameter;
 	AbstractVarLocation *parent_fp_memory_storage;
@@ -53,7 +55,8 @@ protected:
 	std::list<ParameterMovement> parameter_store_prologue;
 public:
 	AbstractFrame(AbstractFrameManager *_framemanager,
-		const std::string &_name) : framemanager(_framemanager), name(_name),
+		const std::string &_name, int _id, AbstractFrame *_parent) :
+		framemanager(_framemanager), name(_name), id(_id), parent(_parent),
 		parent_fp_parameter(NULL), parent_fp_memory_storage(NULL)
 	{}
 	
@@ -67,6 +70,9 @@ public:
 		{return parameter_store_prologue;}
 	void addParentFpParamVariable(bool cant_be_register);
 	virtual IR::VirtualRegister *getFramePointer() = 0;
+	const std::string &getName() {return name;}
+	int getId() {return id;}
+	AbstractFrame *getParent() {return parent;}
 	
 	AbstractVarLocation *getParentFpForUs()
 	{
@@ -94,8 +100,9 @@ private:
 		return new DummyVarLocation(this);
 	}
 public:
-	DummyFrame(AbstractFrameManager *_framemanager, const std::string &name) :
-		AbstractFrame(_framemanager, name) {}
+	DummyFrame(AbstractFrameManager *_framemanager, const std::string &name,
+		int id, DummyFrame *parent) :
+		AbstractFrame(_framemanager, name, id, parent) {}
 	virtual IR::VirtualRegister *getFramePointer() {return NULL;}
 };
 
@@ -117,12 +124,12 @@ public:
 	
 	virtual DummyFrame *rootFrame()
 	{
-		return new DummyFrame(this, ".root");
+		return new DummyFrame(this, ".root", 0, NULL);
 	}
 	
 	virtual DummyFrame *newFrame(AbstractFrame *parent, const std::string &name)
 	{
-		return new DummyFrame(this, name);
+		return new DummyFrame(this, name, 0, (DummyFrame *)parent);
 	}
 	
 	virtual int getVarSize(Semantic::Type *type)
@@ -151,6 +158,7 @@ private:
 	VariablesAccessInfoPrivate *impl;
 	std::list<int> func_stack;
 	
+	void handleCall(Syntax::Tree function_exp, ObjectId current_function_id);
 public:
 	VariablesAccessInfo();
 	~VariablesAccessInfo();

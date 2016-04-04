@@ -49,7 +49,7 @@ private:
 	typedef std::map<std::string, IR::Blob *> BlobsMap;
 	BlobsMap blobs_by_string;
 	
-	Function *getmem_func, *getmem_fill_func;
+	Function *getmem_func, *getmem_fill_func, *strcmp_func;
 	
 	void newLayer();
 	void removeLastLayer();
@@ -82,10 +82,17 @@ private:
 	void translateArrayInstantiation(Syntax::ArrayInstantiation *expression,
 		IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
 		IR::AbstractFrame *currentFrame);
+	bool translateIf_IfElse_Then(Syntax::IfElse *condition,
+		Syntax::Tree action, IR::Code *&translated,
+		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
+	bool translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
+		Syntax::Tree action, Syntax::Tree elseaction, IR::Code *&translated,
+		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateIf(Syntax::If *expression, IR::Code *&translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateIfElse(Syntax::IfElse *expression, IR::Code *&translated,
-		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
+		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
+		bool expect_comparison_in_actions);
 	void translateWhile(Syntax::While *expression, IR::Code *&translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
 	void translateFor(Syntax::For *expression, IR::Code *&translated,
@@ -96,7 +103,7 @@ private:
 	void translateRecordField(Syntax::RecordField *expression, IR::Code *&translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void makeCallCode(Function *function, std::list<IR::Code *>arguments,
-		IR::Code *&result);
+		IR::Code *&result, IR::AbstractFrame *currentFrame);
 	void translateFunctionCall(Syntax::FunctionCall *expression, IR::Code *&translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateRecordInstantiation(Syntax::RecordInstantiation *expression, IR::Code *&translated,
@@ -115,7 +122,8 @@ public:
 	
 	void translateExpression(Syntax::Tree expression,
 		IR::Code *&translated, Type *&type,
-		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
+		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
+		bool expect_comparison);
 };
 
 TypesEnvironment::TypesEnvironment(IR::AbstractFrameManager *_framemanager)
@@ -214,9 +222,14 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 {
 	unknown_types.clear();
 	std::list<Type *> new_records;
+	std::set<std::string> types_in_the_batch;
 	for (std::list<Syntax::Tree>::iterator i = begin; i != end; i++) {
 		assert((*i)->type == Syntax::TYPEDECLARATION);
 		Syntax::TypeDeclaration *declaration = (Syntax::TypeDeclaration *)*i;
+		if (types_in_the_batch.find(declaration->name->name) != types_in_the_batch.end())
+			Error::error("Type " + declaration->name->name +
+				"redefined in a same batch of consequtive types", declaration->name->linenumber);
+		types_in_the_batch.insert(declaration->name->name);
 		Type *type = getType(declaration->definition, true);
 		assert(type != NULL);
 		if (type->basetype == TYPE_RECORD)
@@ -226,9 +239,6 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 			if ((existing->basetype == TYPE_NAMEREFERENCE) &&
 				(((ForwardReferenceType *)existing)->meaning == NULL)) {
 				((ForwardReferenceType *)existing)->meaning = type;
-			} else {
-				Error::error(std::string("Type redefined in the same scope: ") +
-					declaration->name->name, declaration->name->linenumber);
 			}
 		} else
 			typenames.add(declaration->name->name, type);
@@ -341,15 +351,21 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	functions.push_back(Function("getmem", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem"), false));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
-	func_and_var_names.add("getmem", &(functions.back()));
+	//func_and_var_names.add("getmem", &(functions.back()));
 	getmem_func = &(functions.back());
 
 	functions.push_back(Function("getmem_fill", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem_fill"), false));
 	functions.back().addArgument("elemcount", type_environment->getIntType(), NULL);
 	functions.back().addArgument("value", type_environment->getIntType(), NULL);
-	func_and_var_names.add("getmem", &(functions.back()));
+	//func_and_var_names.add("getmem_fill", &(functions.back()));
 	getmem_fill_func = &(functions.back());
+
+	functions.push_back(Function("strcmp", type_environment->getIntType(),
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__strcmp"), false));
+	functions.back().addArgument("size", type_environment->getIntType(), NULL);
+	strcmp_func = &(functions.back());
+
 }
 
 TranslatorPrivate::~TranslatorPrivate()
@@ -436,7 +452,7 @@ void TranslatorPrivate::processVariableDeclaration(
 	Type *exprtype;
 	IR::Code *translatedValue;
 	translateExpression(declaration->value, translatedValue, exprtype, NULL,
-		currentFrame);
+		currentFrame, true);
 	if (exprtype->basetype == TYPE_VOID) {
 		Error::error("Statement without value assigned to a variable",
 					 declaration->linenumber);
@@ -502,9 +518,14 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 	std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame)
 {
 	std::list<Function *> recent_functions;
+	std::set<std::string> names_in_batch;
 	for (std::list<Syntax::Tree>::iterator f = begin; f != end; f++) {
 		assert((*f)->type == Syntax::FUNCTION);
 		Syntax::Function *declaration = (Syntax::Function *) *f;
+		if (names_in_batch.find(declaration->name->name) != names_in_batch.end())
+			Error::error("Function " + declaration->name->name +
+				"redefined in a successive batch of functions", declaration->name->linenumber);
+		names_in_batch.insert(declaration->name->name);
 		Type *return_type;
 		if (declaration->type == NULL)
 			return_type = type_environment->getVoidType();
@@ -517,6 +538,8 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			framemanager->newFrame(currentFrame, function_label->getName()),
 			function_label, variables_extra_info.functionNeedsParentFp(declaration)));
 		Function *function = &(functions.back());
+		debug("New frame %s, id %d", function->frame->getName().c_str(),
+				function->frame->getId());
 		if (variables_extra_info.functionNeedsParentFp(declaration))
 			function->frame->addParentFpParamVariable(
 				variables_extra_info.isFunctionParentFpAccessedByChildren(declaration));
@@ -554,12 +577,17 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 				param != (*fcn)->arguments.end(); param++)
 			func_and_var_names.add((*param).name, &(*param));
 		translateExpression((*fcn)->raw_body, ((*fcn)->body), actual_return_type,
-			NULL, (*fcn)->frame);
+			NULL, (*fcn)->frame, true);
 		func_and_var_names.removeLastLayer();
 		prependPrologue((*fcn)->body, (*fcn)->frame);
 		if (((*fcn)->return_type->basetype != TYPE_VOID) &&
 			! CheckAssignmentTypes((*fcn)->return_type, actual_return_type))
 			Error::error("Type of function body doesn't match specified return type",
+				(*fcn)->raw_body->linenumber);
+		else if (((*fcn)->return_type->basetype == TYPE_VOID) &&
+				(actual_return_type->basetype != TYPE_VOID) &&
+				(actual_return_type->basetype != TYPE_ERROR))
+			Error::error("Body of a function without return value produces a value",
 				(*fcn)->raw_body->linenumber);
 	}
 }
@@ -763,10 +791,26 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 	IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
 	IR::AbstractFrame *currentFrame)
 {
+	if (expression->operation == SYM_AND) {
+		Syntax::IntValue zero(0);
+		Syntax::IfElse replacement(expression->left,
+			expression->right, &zero);
+		translateIfElse(&replacement, translated, type, last_loop_exit,
+			currentFrame, true);
+		return;
+	} else if (expression->operation == SYM_OR) {
+		Syntax::IntValue one(1);
+		Syntax::IfElse replacement(expression->left,
+			&one, expression->right);
+		translateIfElse(&replacement, translated, type, last_loop_exit,
+			currentFrame, true);
+		return;
+	}
+	
 	IR::Code *left, *right;
 	Type *leftType, *rightType;
-	translateExpression(expression->left, left, leftType, last_loop_exit, currentFrame);
-	translateExpression(expression->right, right, rightType, last_loop_exit, currentFrame);
+	translateExpression(expression->left, left, leftType, last_loop_exit, currentFrame, true);
+	translateExpression(expression->right, right, rightType, last_loop_exit, currentFrame, true);
 	bool bullshit = false;
 	if (leftType->basetype == TYPE_VOID) {
 		Error::error("Statement without value used in expression",
@@ -801,9 +845,21 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 		case SYM_LESSEQUAL:
 		case SYM_GREATER:
 		case SYM_GREATEQUAL: {
-			IR::Expression *left_expr = IRenvironment->killCodeToExpression(left);
-			IR::Expression *right_expr = IRenvironment->killCodeToExpression(right);
-			IR::CondJumpStatement *compare_statm = new IR::CondJumpStatement(
+			IR::CondJumpStatement *compare_statm;
+			IR::Expression *left_expr, *right_expr;
+			if (leftType->basetype == TYPE_STRING) {
+				std::list<IR::Code *> args;
+				args.push_back(left);
+				args.push_back(right);
+				IR::Code *strcmp_call;
+				makeCallCode(strcmp_func, args, strcmp_call, currentFrame);
+				left_expr = IRenvironment->killCodeToExpression(strcmp_call);
+				right_expr = new IR::IntegerExpression(0);
+			} else {
+				left_expr = IRenvironment->killCodeToExpression(left);
+				right_expr = IRenvironment->killCodeToExpression(right);
+			}
+			compare_statm = new IR::CondJumpStatement(
 				getIRComparisonOp(expression->operation), left_expr, right_expr,
 				NULL, NULL);
 			IR::CondJumpPatchesCode *result = new IR::CondJumpPatchesCode(compare_statm);
@@ -840,7 +896,7 @@ void TranslatorPrivate::translateSequence(const std::list<Syntax::Tree> &express
 		std::list<Syntax::Tree>::const_iterator next = e;
 		next++;
 		IR::Code *item_code;
-		translateExpression(*e, item_code, type, last_loop_exit, currentFrame);
+		translateExpression(*e, item_code, type, last_loop_exit, currentFrame, false);
 		if ((next != expressions.end()) || type->basetype == TYPE_VOID)
 			sequence->addStatement(IRenvironment->killCodeToStatement(item_code));
 		else
@@ -863,10 +919,10 @@ void TranslatorPrivate::translateArrayIndexing(
 {
 	IR::Code *array, *index;
 	Type *arrayType, *indexType;
-	translateExpression(expression->array, array, arrayType, last_loop_exit, currentFrame);
+	translateExpression(expression->array, array, arrayType, last_loop_exit, currentFrame, true);
 	if (! IsArray(arrayType))
 		Error::error("Not an array got indexed", expression->array->linenumber);
-	translateExpression(expression->index, index, indexType, last_loop_exit, currentFrame);
+	translateExpression(expression->index, index, indexType, last_loop_exit, currentFrame, true);
 	if (! IsInt(indexType))
 		Error::error("Index is not an integer", expression->index->linenumber);
 	if (arrayType->basetype == TYPE_ARRAY) {
@@ -907,13 +963,13 @@ void TranslatorPrivate::translateArrayInstantiation(
 	IR::Code *length;
 	Type *lengthType;
 	translateExpression(expression->arraydef->index, length, lengthType, last_loop_exit,
-		currentFrame);
+		currentFrame, true);
 	if (! IsInt(lengthType))
 		Error::error("Not an integer as array length", expression->arraydef->index->linenumber);
 
 	IR::Code *value;
 	Type *valueType;
-	translateExpression(expression->value, value, valueType, last_loop_exit, currentFrame);
+	translateExpression(expression->value, value, valueType, last_loop_exit, currentFrame, true);
 	if ((elem_type != NULL) && ! CheckAssignmentTypes(elem_type, valueType))
 		Error::error("Value type doesn't match array element type",
 			expression->value->linenumber);
@@ -922,9 +978,17 @@ void TranslatorPrivate::translateArrayInstantiation(
 		std::list<IR::Code *> args;
 		args.push_back(length);
 		args.push_back(value);
-		makeCallCode(getmem_fill_func, args, translated);
+		makeCallCode(getmem_fill_func, args, translated, currentFrame);
 	} else
 		translated = ErrorPlaceholderCode();
+}
+
+bool TranslatorPrivate::translateIf_IfElse_Then(Syntax::IfElse *condition,
+	Syntax::Tree action, IR::Code *&translated,
+	IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
+{
+	Error::warning("Suboptimal implementation of nested if's", condition->linenumber);
+	return false;
 }
 
 void TranslatorPrivate::translateIf(
@@ -932,14 +996,22 @@ void TranslatorPrivate::translateIf(
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	type = type_environment->getVoidType();
+	if (expression->condition->type == Syntax::IFELSE) {
+		if (translateIf_IfElse_Then((Syntax::IfElse *)expression->condition,
+				expression->action, translated,
+				last_loop_exit, currentFrame))
+			return;
+	}
 	Type *conditionType, *actionType;
 	IR::Code *condition, *action;
 	translateExpression(expression->condition, condition, conditionType, last_loop_exit,
-		currentFrame);
+		currentFrame, true);
 	if (! IsInt(conditionType))
 		Error::error("If condition not integer", expression->condition->linenumber);
 	translateExpression(expression->action, action, actionType, last_loop_exit,
-		currentFrame);
+		currentFrame, false);
+	if ((actionType->basetype != TYPE_VOID) && (actionType->basetype != TYPE_ERROR))
+		Error::error("Body of if-then statement is not valueless", expression->action->linenumber);
 	
 	if (conditionType->basetype == TYPE_INT) {
 		std::list<IR::Label**> replace_true, replace_false;
@@ -958,23 +1030,40 @@ void TranslatorPrivate::translateIf(
 		translated = ErrorPlaceholderCode();
 }
 
-void TranslatorPrivate::translateIfElse(
-	Syntax::IfElse *expression, IR::Code *&translated,
+bool TranslatorPrivate::translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
+	Syntax::Tree action, Syntax::Tree elseaction, IR::Code *&translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
+	Error::warning("Suboptimal implementation of nested if's", condition->linenumber);
+	return false;
+}
+
+void TranslatorPrivate::translateIfElse(
+	Syntax::IfElse *expression, IR::Code *&translated,
+	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
+	bool expect_comparison_in_actions)
+{
+	if (expression->condition->type == Syntax::IFELSE) {
+		translateIf_IfElse_ThenElse((Syntax::IfElse *)expression->condition,
+			expression->action, expression->elseaction, translated, type,
+			last_loop_exit, currentFrame);
+		return;
+	}
 	Type *conditionType, *actionType, *elseType;
 	IR::Code *condition_code, *action_code, *elseaction_code;
 	translateExpression(expression->condition, condition_code, conditionType, last_loop_exit,
-		currentFrame);
+		currentFrame, true);
 	if (! IsInt(conditionType))
 		Error::error("If condition not integer", expression->condition->linenumber);
 	translateExpression(expression->action, action_code, actionType, last_loop_exit,
-		currentFrame);
+		currentFrame, expect_comparison_in_actions);
 	translateExpression(expression->elseaction, elseaction_code, elseType, last_loop_exit,
-		currentFrame);
+		currentFrame, expect_comparison_in_actions);
 	if ((actionType->basetype == TYPE_VOID) && (elseType->basetype == TYPE_VOID) ||
 			CheckComparisonTypes(actionType, elseType)) {
-		if (actionType->basetype == TYPE_NIL)
+		if (conditionType->basetype == TYPE_ERROR)
+			actionType = type_environment->getErrorType();
+		else if (actionType->basetype == TYPE_NIL)
 			type = elseType;
 		else
 			type = actionType;
@@ -1034,11 +1123,13 @@ void TranslatorPrivate::translateWhile(
 	IR::Code *condition, *action;
 	IR::Label *exit_label = IRenvironment->addLabel();
 	translateExpression(expression->condition, condition, conditionType, exit_label,
-		currentFrame);
+		currentFrame, true);
 	if (! IsInt(conditionType))
 		Error::error("While condition not integer", expression->condition->linenumber);
 	translateExpression(expression->action, action, actionType, exit_label,
-		currentFrame);
+		currentFrame, false);
+	if ((actionType->basetype != TYPE_VOID) && (actionType->basetype != TYPE_ERROR))
+		Error::error("Body of while loop is not valueless", expression->action->linenumber);
 	if (conditionType->basetype == TYPE_INT) {
 		IR::Label *loop_label = IRenvironment->addLabel();
 		IR::Label *proceed_label = IRenvironment->addLabel();
@@ -1046,6 +1137,8 @@ void TranslatorPrivate::translateWhile(
 		IR::Statement *cond_jump = IRenvironment->killCodeToCondJump(condition,
 			replace_true, replace_false);
 		IR::putLabels(replace_true, replace_false, proceed_label, exit_label);
+		if (cond_jump->kind == IR::IR_COND_JUMP)
+			FlipComparison(ToCondJumpStatement(cond_jump));
 		IR::StatementSequence *sequence = new IR::StatementSequence;
 		sequence->addStatement(new IR::LabelPlacementStatement(loop_label));
 		sequence->addStatement(cond_jump);
@@ -1068,11 +1161,11 @@ void TranslatorPrivate::translateFor(
 	IR::Code *from_code, *to_code, *action_code;
 	IR::Label *exit_label = IRenvironment->addLabel();
 	translateExpression(expression->start, from_code, from_type, exit_label,
-		currentFrame);
+		currentFrame, false);
 	if (! IsInt(from_type))
 		Error::error("For loop start not integer", expression->start->linenumber);
 	translateExpression(expression->stop, to_code, to_type, exit_label,
-		currentFrame);
+		currentFrame, false);
 	if (! IsInt(to_type))
 		Error::error("For loop 'to' not integer", expression->stop->linenumber);
 	func_and_var_names.newLayer();
@@ -1090,7 +1183,7 @@ void TranslatorPrivate::translateFor(
 	Variable *loopvar = &(variables.back());
 	func_and_var_names.add(expression->variable->name, loopvar);
 	translateExpression(expression->action, action_code, actionType, exit_label,
-		currentFrame);
+		currentFrame, false);
 	if ((from_type->basetype == TYPE_INT) && (to_type->basetype == TYPE_INT)) {
 		IR::StatementSequence *sequence = new IR::StatementSequence;
 		IR::VirtualRegister *upper_bound = IRenvironment->addRegister();
@@ -1170,7 +1263,7 @@ void TranslatorPrivate::translateRecordField(
 	Type *recType;
 	IR::Code *record_code;
 	translateExpression(expression->record, record_code, recType, last_loop_exit,
-		currentFrame);
+		currentFrame, true);
 	if (recType->basetype != TYPE_RECORD) {
 		if (recType->basetype != TYPE_ERROR)
 			Error::error("What is being got field of is not a record",
@@ -1196,11 +1289,31 @@ void TranslatorPrivate::translateRecordField(
 }
 
 void TranslatorPrivate::makeCallCode(Function *function,
-	std::list<IR::Code *>arguments, IR::Code *&result)
+	std::list<IR::Code *>arguments, IR::Code *&result,
+	IR::AbstractFrame *currentFrame)
 {
+	IR::Expression *callee_parentfp = NULL;
+	if (function->needs_parent_fp) {
+		IR::AbstractFrame *callee_frame = function->frame;
+		if (callee_frame->getParent()->getId() == currentFrame->getId())
+			callee_parentfp = new IR::RegisterExpression(currentFrame->getFramePointer());
+		else if (callee_frame->getParent()->getId() ==
+				currentFrame->getParent()->getId()) {
+			if (currentFrame->getParentFpForUs() != NULL)
+				callee_parentfp =
+					currentFrame->getParentFpForUs()->createCode(currentFrame);
+		} else {
+			IR::AbstractFrame *parent_sibling_with_callee = currentFrame;
+			while (parent_sibling_with_callee->getParent()->getId() !=
+					callee_frame->getParent()->getId())
+				parent_sibling_with_callee = parent_sibling_with_callee->getParent();
+			callee_parentfp = parent_sibling_with_callee->getParentFpForChildren()->
+				createCode(currentFrame);
+		}
+	}
 	IR::CallExpression *call = new IR::CallExpression(
 		new IR::LabelAddressExpression(function->label),
-		function->needs_parent_fp);
+		callee_parentfp);
 	for (std::list<IR::Code *>::iterator arg = arguments.begin();
 			arg != arguments.end(); arg++)
 		 call->addArgument(IRenvironment->killCodeToExpression(*arg));
@@ -1239,7 +1352,7 @@ void TranslatorPrivate::translateFunctionCall(
 		Type *passed_type;
 		IR::Code *argument_code;
 		translateExpression(*passed_arg, argument_code, passed_type, NULL,
-			currentFrame);
+			currentFrame, true);
 		arguments_code.push_back(argument_code);
 		if (! already_too_many && (function_arg == function->arguments.end())) {
 			already_too_many = true;
@@ -1259,7 +1372,7 @@ void TranslatorPrivate::translateFunctionCall(
 	if (function_arg != function->arguments.end())
 		Error::error("Not enough arguments to the function",
 			expression->linenumber);
-	makeCallCode(function, arguments_code, translated);
+	makeCallCode(function, arguments_code, translated, currentFrame);
 }
 
 void TranslatorPrivate::translateRecordInstantiation(
@@ -1287,7 +1400,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 	alloc_argument.push_back(new IR::ExpressionCode(new IR::IntegerExpression(
 		record->data_size)));
 	IR::Code *alloc_code;
-	makeCallCode(getmem_func, alloc_argument, alloc_code);
+	makeCallCode(getmem_func, alloc_argument, alloc_code, currentFrame);
 	sequence->addStatement(new IR::MoveStatement(
 		new IR::RegisterExpression(record_address),
 		IRenvironment->killCodeToExpression(alloc_code)));
@@ -1314,7 +1427,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 			Type *valueType;
 			IR::Code *value_code;
 			translateExpression(fieldvalue->right, value_code, valueType, last_loop_exit,
-				currentFrame);
+				currentFrame, true);
 			if (! CheckAssignmentTypes(field_type, valueType)) {
 				Error::error("Incompatible type for this field value",
 					fieldvalue->right->linenumber);
@@ -1362,7 +1475,8 @@ const char *NODETYPENAMES[] = {
 
 void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 	IR::Code *&translated, Type*& type,
-	IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
+	IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
+	bool expect_comparison)
 {
 	translated = NULL;
 	switch (expression->type) {
@@ -1382,10 +1496,15 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 			type = type_environment->getNilType();
 			translateIntValue(0, translated);
 			break;
-		case Syntax::BINARYOP:
+		case Syntax::BINARYOP: {
+			if (! expect_comparison &&
+					((Syntax::BinaryOp *)expression)->operation == SYM_EQUAL)
+				Error::warning("Might have written comparison instead of assignment",
+					expression->linenumber);
 			translateBinaryOperation((Syntax::BinaryOp *)expression, translated,
 				type, last_loop_exit, currentFrame);
 			break;
+		}
 		case Syntax::SEQUENCE:
 			translateSequence(((Syntax::Sequence *)expression)->content->expressions, translated, type,
 				last_loop_exit, currentFrame);
@@ -1404,7 +1523,7 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 			break;
 		case Syntax::IFELSE:
 			translateIfElse((Syntax::IfElse *)expression, translated, type, last_loop_exit,
-				currentFrame);
+				currentFrame, false);
 			break;
 		case Syntax::WHILE:
 			translateWhile((Syntax::While *)expression, translated, type, currentFrame);
@@ -1458,7 +1577,7 @@ void Translator::translateProgram(Syntax::Tree expression,
 	IR::Code *code;
 	impl->variables_extra_info.processExpression(expression, INVALID_OBJECT_ID);
 	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
-	impl->translateExpression(expression, code, type, NULL, frame);
+	impl->translateExpression(expression, code, type, NULL, frame, false);
 	result = impl->IRenvironment->killCodeToStatement(code);
 }
 

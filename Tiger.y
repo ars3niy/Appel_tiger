@@ -94,8 +94,8 @@ expression: lvalue
           | expression SYM_LESSEQUAL expression {$$ = new Syntax::BinaryOp(SYM_LESSEQUAL, $1, $3);}
           | expression SYM_GREATER expression {$$ = new Syntax::BinaryOp(SYM_GREATER, $1, $3);}
           | expression SYM_GREATEQUAL expression {$$ = new Syntax::BinaryOp(SYM_GREATEQUAL, $1, $3);}
-          | expression SYM_AND expression {$$ = new Syntax::IfElse($1, $3, new Syntax::IntValue(0));}
-          | expression SYM_OR expression {$$ = new Syntax::IfElse($1, new Syntax::IntValue(1), $3);}
+          | expression SYM_AND expression {$$ = new Syntax::BinaryOp(SYM_AND, $1, $3);}
+          | expression SYM_OR expression {$$ = new Syntax::BinaryOp(SYM_OR, $1, $3);}
           | record_value
           | index_expression SYM_OF expression {
               Syntax::ArrayInstantiation *a = new Syntax::ArrayInstantiation($1, $3);

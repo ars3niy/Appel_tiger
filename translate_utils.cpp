@@ -56,6 +56,7 @@ namespace Semantic {
 struct VarAccessDefInfo {
 	ObjectId object_id;
 	ObjectId owner_func_id;
+	bool is_function;
 	
 	/**
 	 * If it actually describes a function not a variable
@@ -63,8 +64,8 @@ struct VarAccessDefInfo {
 	bool func_needs_parent_fp;
 	bool func_exports_parent_fp_to_children;
 	
-	VarAccessDefInfo(ObjectId _id, ObjectId _owner_func_id) :
-		object_id(_id), owner_func_id(_owner_func_id),
+	VarAccessDefInfo(ObjectId _id, ObjectId _owner_func_id, bool _is_func) :
+		object_id(_id), owner_func_id(_owner_func_id), is_function(_is_func),
 		func_needs_parent_fp(false), func_exports_parent_fp_to_children(false) {}
 };
 
@@ -72,10 +73,9 @@ class VariablesAccessInfoPrivate {
 public:
 	std::list<VarAccessDefInfo> variables, functions;
 	LayeredMap variable_names;
-	VarAccessDefInfo function_info;
 	IdMap var_info;
 	
-	VariablesAccessInfoPrivate() : function_info(INVALID_OBJECT_ID, INVALID_OBJECT_ID) {}
+	VariablesAccessInfoPrivate() {}
 };
 
 VariablesAccessInfo::VariablesAccessInfo()
@@ -89,6 +89,29 @@ VariablesAccessInfo::~VariablesAccessInfo()
 	delete impl;
 }
 
+void VariablesAccessInfo::handleCall(Syntax::Tree function_exp,
+	ObjectId current_function_id)
+{
+	return;
+	if (function_exp->type != Syntax::IDENTIFIER)
+		return;
+	VarAccessDefInfo *callee_info = (VarAccessDefInfo *)impl->variable_names.
+		lookup(((Syntax::Identifier *)function_exp)->name);
+		
+	if (callee_info == NULL)
+		return;
+	
+	int callee_parent = callee_info->owner_func_id;
+	int id = current_function_id;
+	while ((id >= 0) && (id != callee_parent)) {
+		VarAccessDefInfo *func_info =
+			(VarAccessDefInfo *)impl->var_info.lookup(current_function_id);
+		assert(func_info != NULL);
+		func_info->func_needs_parent_fp = true;
+	}
+}
+
+
 void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 	ObjectId current_function_id)
 {
@@ -98,14 +121,28 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 		case Syntax::VARDECLARATION:
 			impl->variables.push_back(VarAccessDefInfo(
 				((Syntax::VariableDeclaration *)declaration)->id,
-				current_function_id));
+				current_function_id, false));
 			impl->variable_names.add(((Syntax::VariableDeclaration *)declaration)->name->name,
 				&(impl->variables.back()));
 			break;
 		case Syntax::FUNCTION: {
 			Syntax::Function *func_declaration = (Syntax::Function *)declaration;
+			impl->functions.push_back(VarAccessDefInfo(
+				func_declaration->id,
+				current_function_id, true));
+			impl->functions.back().func_needs_parent_fp = true;
+			if (current_function_id >= 0) {
+				VarAccessDefInfo *our_info = 
+					(VarAccessDefInfo *)impl->var_info.lookup(current_function_id);
+				assert(our_info != NULL);
+				
+				our_info->func_exports_parent_fp_to_children = true;
+			}
+			
 			impl->variable_names.add(func_declaration->name->name,
-				&(impl->function_info));
+				&(impl->functions.back()));
+			impl->var_info.add(func_declaration->id, &(impl->functions.back()));
+			
 			impl->variable_names.newLayer();
 			for (std::list<Syntax::Tree>::iterator param = func_declaration->parameters->expressions.begin();
 					param != func_declaration->parameters->expressions.end();
@@ -113,7 +150,7 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 				assert((*param)->type == Syntax::PARAMETERDECLARATION);
 				impl->variables.push_back(VarAccessDefInfo(
 					((Syntax::ParameterDeclaration *) *param)->id,
-					func_declaration->id));
+					func_declaration->id, false));
 				impl->variable_names.add(((Syntax::VariableDeclaration *) *param)->name->name,
 					&(impl->variables.back()));
 			}
@@ -135,21 +172,16 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 		case Syntax::IDENTIFIER: {
 			VarAccessDefInfo *variable = (VarAccessDefInfo *)impl->variable_names.
 				lookup(((Syntax::Identifier *)expression)->name);
-			if ((variable != NULL) && (variable->object_id != INVALID_OBJECT_ID) &&
+			if ((variable != NULL) && (! variable->is_function) &&
 					(variable->owner_func_id != current_function_id)) {
-				impl->var_info.add(variable->object_id, expression);
+				impl->var_info.add(variable->object_id, variable);
 				std::list<int>::reverse_iterator func_in_stack =
 					func_stack.rbegin();
 				while ((func_in_stack != func_stack.rend()) &&
 						(*func_in_stack != variable->owner_func_id)) {
 					VarAccessDefInfo *func_info =
 						(VarAccessDefInfo *)impl->var_info.lookup(*func_in_stack);
-					if (func_info == NULL) {
-						impl->functions.push_back(VarAccessDefInfo(
-							INVALID_OBJECT_ID, INVALID_OBJECT_ID));
-						func_info = & impl->functions.back();
-						impl->var_info.add(*func_in_stack, func_info);
-					}
+					assert(func_info != NULL);
 					func_info->func_needs_parent_fp = true;
 					if (*func_in_stack != current_function_id)
 						func_info->func_exports_parent_fp_to_children = true;
@@ -198,7 +230,7 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 			break;
 		case Syntax::FOR:
 			impl->variables.push_back(VarAccessDefInfo(
-				((Syntax::For *)expression)->variable_id, current_function_id));
+				((Syntax::For *)expression)->variable_id, current_function_id, false));
 			impl->variable_names.add(((Syntax::For *)expression)->variable->name,
 				&(impl->variables.back()));
 			processExpression(((Syntax::For *)expression)->start, current_function_id);
@@ -225,6 +257,7 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 			break;
 		case Syntax::FUNCTIONCALL:
 			processExpression(((Syntax::FunctionCall *)expression)->function, current_function_id);
+			handleCall(((Syntax::FunctionCall *)expression)->function, current_function_id); 
 			for (std::list<Syntax::Tree>::iterator child =
 					((Syntax::FunctionCall *)expression)->arguments->expressions.begin();
 					child != ((Syntax::FunctionCall *)expression)->arguments->expressions.end();

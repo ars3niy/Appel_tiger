@@ -38,13 +38,10 @@ private:
 	int param_stack_size;
 	VirtualRegister *framepointer;
 public:
-	X86_64Frame *parent;
-
 	X86_64Frame(AbstractFrameManager *_framemanager, const std::string &name,
-		X86_64Frame *_parent, IREnvironment *_ir_env,
+		int _id, X86_64Frame *_parent, IREnvironment *_ir_env,
 		VirtualRegister *_framepointer) :
-		AbstractFrame(_framemanager, name),
-		parent(_parent),
+		AbstractFrame(_framemanager, name, _id, _parent),
 		ir_env(_ir_env),
 		framepointer(_framepointer),
 		frame_size(0),
@@ -66,11 +63,13 @@ public:
 class X86_64FrameManager: public AbstractFrameManager {
 private:
 	X86_64Frame *root_frame;
+	int framecount;
 public:
 	X86_64FrameManager(IREnvironment *env) : AbstractFrameManager(env)
 	{
-		root_frame = new X86_64Frame(this, ".root", NULL, IR_env,
+		root_frame = new X86_64Frame(this, ".root", 0, NULL, IR_env,
 			IR_env->addRegister("fp"));
+		framecount = 1;
 	}
 	
 	~X86_64FrameManager()
@@ -85,8 +84,8 @@ public:
 	
 	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name)
 	{
-		return new X86_64Frame(this, name, (X86_64Frame *)parent, IR_env,
-			IR_env->addRegister("fp"));
+		return new X86_64Frame(this, name, framecount++, (X86_64Frame *)parent,
+			IR_env, IR_env->addRegister("fp"));
 	}
 	
 	virtual int getVarSize(Semantic::Type *type)

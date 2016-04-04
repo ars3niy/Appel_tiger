@@ -476,6 +476,7 @@ void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 	
 	while (! remaining_blocks.empty()) {
 		StatementBlock *current_block = remaining_blocks.front();
+		debug("Picking block starting with %s", current_block->start_label->getName().c_str());
 		assert(! current_block->used_in_trace);
 		current_block->used_in_trace = true;
 		new_order.push_back(current_block);
@@ -488,16 +489,27 @@ void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 			if (jump_statement->kind == IR_JUMP) {
 				assert(! ToJumpStatement(jump_statement)->possible_results.empty());
 				jump_label = ToJumpStatement(jump_statement)->possible_results.front();
-			} else
+				debug("Unconditionally jumps to %s", jump_label->getName().c_str());
+			} else {
 				jump_label = ToCondJumpStatement(jump_statement)->false_dest;
+				debug("Conditionally jumps, true destination %s, false destination %s",
+					ToCondJumpStatement(jump_statement)->true_dest->getName().c_str(),
+					jump_label->getName().c_str());
+			}
 			assert(blocks_info_by_labelid.find(jump_label->getIndex()) != 
 				blocks_info_by_labelid.end());
 			
 			BlockInfo &blockinfo = blocks_info_by_labelid.at(jump_label->getIndex());
 			if ((blockinfo.block == NULL) // block jumps to the end of the sequence
 										  // rather than another block
-					|| blockinfo.block->used_in_trace)
+					|| blockinfo.block->used_in_trace) {
+				if (blockinfo.block == NULL)
+					debug("Reached the end of sequence");
+				else
+					debug("Reached already used block %s", blockinfo.block->start_label->getName().c_str());
 				break;
+			}
+			debug("Following to block %s", jump_label->getName().c_str());
 			current_block = blockinfo.block;
 			current_block->used_in_trace = true;
 			new_order.push_back(current_block);
@@ -529,30 +541,7 @@ void IRTransformer::arrangeJumps(StatementSequence* sequence)
 				;
 			else if ((*block)->start_label->getIndex() ==
 					last_cond_jump->true_dest->getIndex()) {
-				last_cond_jump->true_dest = last_cond_jump->false_dest;
-				last_cond_jump->false_dest = (*block)->start_label;
-				switch (last_cond_jump->comparison) {
-					case OP_EQUAL:
-						last_cond_jump->comparison = OP_NONEQUAL;
-					case OP_NONEQUAL:
-						last_cond_jump->comparison = OP_EQUAL;
-					case OP_LESS:
-						last_cond_jump->comparison = OP_GREATEQUAL;
-					case OP_GREATER:
-						last_cond_jump->comparison = OP_LESSEQUAL;
-					case OP_LESSEQUAL:
-						last_cond_jump->comparison = OP_GREATER;
-					case OP_GREATEQUAL:
-						last_cond_jump->comparison = OP_LESS;
-					case OP_ULESS:
-						last_cond_jump->comparison = OP_UGREATEQUAL;
-					case OP_UGREATER:
-						last_cond_jump->comparison = OP_ULESSEQUAL;
-					case OP_ULESSEQUAL:
-						last_cond_jump->comparison = OP_UGREATER;
-					case OP_UGREATEQUAL:
-						last_cond_jump->comparison = OP_ULESS;
-				}
+				FlipComparison(last_cond_jump);
 			} else {
 				Label *immediate_false = ir_env->addLabel();
 				sequence->addStatement(new LabelPlacementStatement(immediate_false));

@@ -60,7 +60,6 @@ struct CodeInfo {
 
 void ProcessTree(Syntax::Tree tree)
 {
-	system("rm -f *.log");
 	//Syntax::PrintTree(tree);
 	IR::IREnvironment IR_env;
 	IR::X86_64FrameManager framemanager(&IR_env);
@@ -72,25 +71,31 @@ void ProcessTree(Syntax::Tree tree)
 	translator.translateProgram(tree, program_body, body_frame);
 	Syntax::DestroySyntaxTree(tree);
 	if (Error::getErrorCount() == 0) {
+#ifdef DEBUG
 		FILE *f = fopen("intermediate", "w");
 		translator.printFunctions(f);
 		IR::PrintStatement(f, program_body);
 		IR_env.printBlobs(f);
 		fclose(f);
+#endif
 		
-		translator.canonicalizeProgram(program_body);
 		translator.canonicalizeFunctions();
+		translator.canonicalizeProgram(program_body);
 		
+#ifdef DEBUG
 		f = fopen("canonical", "w");
 		translator.printFunctions(f);
 		IR::PrintStatement(f, program_body);
 		IR_env.printBlobs(f);
 		fclose(f);
+#endif
 		
 		Asm::X86_64Assembler assembler(&IR_env);
 		std::list<Asm::Instructions> code;
 		std::list<CodeInfo> chunks;
+#ifdef DEBUG
 		f = fopen("liveness", "w");
+#endif
 		
 		for (std::list<Semantic::Function>::const_iterator func =
 				translator.getFunctions().begin(); 
@@ -100,21 +105,26 @@ void ProcessTree(Syntax::Tree tree)
 				chunks.push_back(CodeInfo());
 				assembler.translateFunctionBody((*func).body, (*func).label,
 					(*func).frame, code.back());
+#ifdef DEBUG
 				Optimize::PrintLivenessInfo(f, code.back(), (*func).frame);
+#endif
 				chunks.back().code = &code.back();
 				chunks.back().frame = (*func).frame;
 				chunks.back().funclabel = (*func).label;
 			}
 		code.push_back(Asm::Instructions());
 		assembler.translateProgram(program_body, body_frame, code.back());
+#ifdef DEBUG
 		Optimize::PrintLivenessInfo(f, code.back(), body_frame);
 		fclose(f);
+#endif
 
+#ifdef DEBUG
 		f = fopen("assembler_raw", "w");
 		assembler.outputCode(f, code, NULL);
 		assembler.outputBlobs(f, IR_env.getBlobs());
 		fclose(f);
-		
+#endif
 			
 		const std::vector<IR::VirtualRegister *> &machine_registers =
 			assembler.getAvailableRegisters();
@@ -123,13 +133,11 @@ void ProcessTree(Syntax::Tree tree)
 		for (std::list<CodeInfo>::iterator chunk = chunks.begin();
 				chunk != chunks.end(); chunk++) {
 			IR::RegisterMap vreg_map;
-			printf("Optimiving %s\n", (*chunk).funclabel->getName().c_str());
 			Optimize::AssignRegisters(*(*chunk).code,
 				assembler,
 				(*chunk).frame,
 				machine_registers,
 				vreg_map);
-			printf("done\n");
 
 			MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
 			
@@ -150,14 +158,11 @@ void ProcessTree(Syntax::Tree tree)
 		
 		std::string asm_name = basename + ".s";
 	
-		f = fopen(asm_name.c_str(), "w");
-		assembler.outputCode(f, code, &virtual_register_map);
-		assembler.outputBlobs(f, IR_env.getBlobs());
-		fclose(f);
+		FILE *asm_out = fopen(asm_name.c_str(), "w");
+		assembler.outputCode(asm_out, code, &virtual_register_map);
+		assembler.outputBlobs(asm_out, IR_env.getBlobs());
+		fclose(asm_out);
 		
-// 		fwrite(assembler.debug_output.c_str(), assembler.debug_output.size(),
-// 		   1, stdout);
-	
 		std::string obj_name = basename + ".o";
 		std::string asm_cmd = "as -o " + obj_name + " " + asm_name;
 		if (system(asm_cmd.c_str()) != 0)
@@ -169,6 +174,9 @@ void ProcessTree(Syntax::Tree tree)
 			"-lc /usr/lib64/crtn.o";
 		int ret = system(link_cmd.c_str());
 		unlink(obj_name.c_str());
+#ifndef DEBUG
+		unlink(asm_name.c_str());
+#endif
 		if (ret != 0)
 			Error::fatalError("Linker error");
 	}

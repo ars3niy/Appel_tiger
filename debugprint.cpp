@@ -2,24 +2,38 @@
 #include "syntaxtree.h"
 #include "debugprint.h"
 #include <stdarg.h>
+#include <map>
+
+#ifdef DEBUG
+std::map<std::string, FILE*> open_files;
+#endif
 
 DebugPrinter::DebugPrinter(const char* filename)
 {
-	f = fopen(filename, "a");
+#ifdef DEBUG
+	name = filename;
+	if (open_files.find(std::string(filename)) == open_files.end()) {
+		f = fopen(filename, "w");
+		open_files[std::string(filename)] = f;
+	} else
+		f = open_files[std::string(filename)];
+#endif
 }
 
 DebugPrinter::~DebugPrinter()
 {
-	fclose(f);
 }
 
 void DebugPrinter::debug(const char *msg, ...)
 {
+#ifdef DEBUG
 	va_list ap;
 	va_start(ap, msg);
 	vfprintf(f, msg, ap);
 	fputc('\n', f);
+	fflush(f);
 	va_end(ap);
+#endif
 }
 
 namespace IR {
@@ -85,7 +99,9 @@ void PrintExpression(FILE *out, Expression *exp, int indent, const char *prefix 
 		break;
 	case IR_FUN_CALL: 
 		fprintf(out, "Function call\n");
-		PrintExpression(out, ((CallExpression *)exp)->function, indent+4, "Call address: ");
+		if (ToCallExpression(exp)->callee_parentfp != NULL)
+			PrintExpression(out, ToCallExpression(exp)->callee_parentfp, indent+4, "Parent FP parameter: ");
+		PrintExpression(out, ToCallExpression(exp)->function, indent+4, "Call address: ");
 		for (std::list<Expression *>::iterator arg = ((CallExpression *)exp)->arguments.begin(); 
 				arg != ((CallExpression *)exp)->arguments.end(); arg++)
 			 PrintExpression(out, *arg, indent+4, "Argument: ");

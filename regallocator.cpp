@@ -22,6 +22,7 @@ private:
 	};
 	std::map<int, VirtualRegInfo> virt_indices_by_id;
 	int max_virt_reg_id;
+	const FlowGraph *flowgraph;
 public:
 	std::vector<IR::VirtualRegister *> virtuals;
 	
@@ -145,6 +146,11 @@ private:
 	std::vector<int> coalesced_with;
 	std::vector<int> colors;
 	
+	const char *NodeName(int n)
+	{
+		return liveness->virtuals[n]->getName().c_str();
+	}
+	
 	void buildGraph();
 	void classifyNodes();
 	void getRemainingAdjacent(int n, Intlist &nodes);
@@ -171,7 +177,8 @@ private:
 	void printStatus();
 	void checkColors();
 public:
-	PartialRegAllocator(const LivenessInfo *_liveness, int _colorcount);
+	PartialRegAllocator(const LivenessInfo *_liveness, int _colorcount,
+		const std::string &funcname);
 	~PartialRegAllocator();
 	void precolor(int node, int color);
 	void tryColoring();
@@ -231,6 +238,7 @@ int LivenessInfo::getVirtualRegisterIndex(IR::VirtualRegister* vreg)
 
 LivenessInfo::LivenessInfo(const FlowGraph& flowgraph) : DebugPrinter("liveness.log")
 {
+	this->flowgraph = &flowgraph;
 	nodecount = flowgraph.nodeCount();
 	int n_virtreg = 0;
 	used_at_node.resize(flowgraph.nodeCount());
@@ -245,6 +253,8 @@ LivenessInfo::LivenessInfo(const FlowGraph& flowgraph) : DebugPrinter("liveness.
 			  (*node).next.size(), (*node).previous.size());
 		{
 		const std::vector<IR::VirtualRegister *> &regs = (*node).usedRegisters();
+		if ((*node).isRegToRegAssignment())
+			assert(regs.size() == 1);
 		node_is_reg_reg_move[(*node).index] = (*node).isRegToRegAssignment();
 		used_at_node[(*node).index].resize(regs.size());
 		for (int i = 0; i < regs.size(); i++) {
@@ -370,9 +380,9 @@ void NodeMoveManager::setNodeStatus(int n, NodeStatus status)
 
 void PartialRegAllocator::printRegisters()
 {
-	debug("Registers:");
-	for (int i = 0; i < nodecount; i++)
-		debug("%d: %s", i, liveness->virtuals[i]->getName().c_str());
+// 	debug("Registers:");
+// 	for (int i = 0; i < nodecount; i++)
+// 		debug("%d: %s", i, liveness->virtuals[i]->getName().c_str());
 }
 
 void PartialRegAllocator::printColors()
@@ -401,38 +411,54 @@ const char *move_status_names[] = {
 	"active",
 };
 
+static std::string IntToStr(int x)
+{
+	char buf[30];
+	sprintf(buf, "%d", x);
+	return std::string(buf);
+}
+
 void PartialRegAllocator::printStatus()
 {
 	for (NodeStatus ns = (NodeStatus)0; ns < MAX_NODESTATUS; ns = (NodeStatus)((int)ns+1)) {
 		debug("%s nodes:", node_status_names[(int)ns]);
 		const Intlist &nodes = status.getNodes(ns);
-		for (Intlist::const_iterator n = nodes.begin(); n != nodes.end(); n++)
-			if ((ns == S_COLORED) || (ns == S_PRECOLORED))
-				debug("%d, color %d", *n, colors[*n]);
-			else
-				debug("%d", *n);
+		for (Intlist::const_iterator n = nodes.begin(); n != nodes.end(); n++) {
+			std::string message = NodeName(*n);
+			if ((ns == S_COLORED) || (ns == S_PRECOLORED)) {
+				message = message + ", color " + IntToStr(colors[*n]);
+			}
+			if (ns != S_PRECOLORED)
+				message = message + ", degree " + IntToStr(node_degrees[*n]);
+			message = message + " interferes with";
+			for (int n2 = 0; n2 < nodecount; n2++)
+				if ((n2 != *n) && isAdjacent(*n, n2))
+					message = message + " " + NodeName(n2);
+			debug("%s", message.c_str());
+		}
 	}
 	for (MoveStatus ms = (MoveStatus)0; ms < MAX_MOVESTATUS; ms = (MoveStatus)((int)ms+1)) {
 		debug("%s moves:", move_status_names[(int)ms]);
 		const Intlist &moves = status.getMoves(ms);
 		for (Intlist::const_iterator m = moves.begin(); m != moves.end(); m++) {
-			debug("%d: %d -> %d", *m, liveness->used_at_node[*m][0],
-				liveness->assigned_at_node[*m][0]);
+			debug("%d: %s -> %s", *m,
+				NodeName(liveness->used_at_node[*m][0]),
+				NodeName(liveness->assigned_at_node[*m][0]));
 		}
 	}
 }
 
 PartialRegAllocator::PartialRegAllocator(const LivenessInfo *_liveness,
-	int _colorcount) :
+	int _colorcount, const std::string &funcname) :
 	liveness(_liveness),
-	DebugPrinter("allocator.log")
+	DebugPrinter(("allocator_" + funcname + ".log").c_str())
 {
 	colorcount = _colorcount;
 	nodecount = liveness->virtuals.size();
 	table.resize(nodecount*nodecount, false);
 	list.resize(nodecount);
 	no_list.resize(nodecount, false);
-	used_in_moves.resize(nodecount, true);
+	used_in_moves.resize(nodecount, false);
 	node_degrees.resize(nodecount, 0);
 	moves_per_node.resize(nodecount);
 	coalesced_with.resize(nodecount, -1);
@@ -498,7 +524,8 @@ void PartialRegAllocator::buildGraph()
 			
 			int r1 = liveness->used_at_node[i][0];
 			int r2 = liveness->assigned_at_node[i][0];
-			if (r1 != r2) { // TODO: eliminate useless moves somehow
+			if (r1 != r2) {
+				debug("move %s -> %s", NodeName(r1), NodeName(r2));
 				assignment_source = r1;
 				used_in_moves[r1] = true;
 				used_in_moves[r2] = true;
@@ -519,8 +546,8 @@ void PartialRegAllocator::buildGraph()
 					if ((*livehere != assigned_here) &&
 							(*livehere != assignment_source)) {
 						debug("Line %d, Assigned node %s, collides with live node %s",
-							  i, liveness->virtuals[assigned_here]->getName().c_str(),
-							  liveness->virtuals[*livehere]->getName().c_str());
+							  i, NodeName(assigned_here),
+							  NodeName(*livehere));
 						connect(assigned_here, *livehere);
 					}
 				}
@@ -536,11 +563,13 @@ void PartialRegAllocator::classifyNodes()
 {
 	for (int n = 0; n < nodecount; n++)
 		if (colors[n] < 0) {
-			if (node_degrees[n] >= colorcount)
+			if (node_degrees[n] >= colorcount) {
+				debug("Node %s is SPILLABLE", NodeName(n));
 				status.addNode(n, S_SPILLABLE);
-			else if (used_in_moves[n])
+			} else if (used_in_moves[n]) {
+				debug("Node %s is FREEZEABLE", NodeName(n));
 				status.addNode(n, S_FREEZEABLE);
-			else
+			} else
 				status.addNode(n, S_REMOVABLE);
 		}
 	printStatus();
@@ -580,6 +609,7 @@ void PartialRegAllocator::remove_one_removable()
 	if (status.getNodes(S_REMOVABLE).empty())
 		return;
 	int n = status.getNodes(S_REMOVABLE).front();
+	debug("Removing node %s", NodeName(n));
 	status.setNodeStatus(n, S_SELECTED);
 	Intlist adjacent;
 	getRemainingAdjacent(n, adjacent);
@@ -589,6 +619,10 @@ void PartialRegAllocator::remove_one_removable()
 
 void PartialRegAllocator::decrementDegree(int n)
 {
+	if (status.nodeStatus(n) == S_PRECOLORED)
+		return;
+	debug("decrementDegree: node %s is initially %d", 
+		  NodeName(n), node_degrees[n]);
 	node_degrees[n]--;
 	if (node_degrees[n] == colorcount-1) {
 		Intlist neighbours;
@@ -596,10 +630,14 @@ void PartialRegAllocator::decrementDegree(int n)
 		neighbours.push_front(n);
 		enableMoves(neighbours);
 		assert(status.nodeStatus(n) == S_SPILLABLE);
-		if (hasRemainingMoves(n))
+		if (hasRemainingMoves(n)) {
+			debug("DecrementDegree: setting node %s to freezeable",
+				NodeName(n));
 			status.setNodeStatus(n, S_FREEZEABLE);
-		else
+		} else {
+			debug("DecrementDegree: Can now remove node %s", NodeName(n));
 			status.setNodeStatus(n, S_REMOVABLE);
+		}
 	}
 }
 
@@ -632,6 +670,9 @@ void PartialRegAllocator::coalesce_one()
 	int move = status.getMoves(M_COALESCABLE).front();
 	int n1 = liveness->used_at_node[move][0];
 	int n2 = liveness->assigned_at_node[move][0];
+	debug("coalesce_one: merging %s and %s",
+		NodeName(n1),
+		NodeName(n2));
 	
 	n1 = getRemaingFromCoalescedGroup(n1);
 	n2 = getRemaingFromCoalescedGroup(n2);
@@ -643,11 +684,15 @@ void PartialRegAllocator::coalesce_one()
 	}
 	
 	if (n1 == n2) {
+		debug("Already coalesced");
 		status.setMoveStatus(move, M_COALESCED);
 		possiblyUnfreeze(n1);
-	} else if ((status.nodeStatus(n1) == S_PRECOLORED) &&
-			(status.nodeStatus(n2) == S_PRECOLORED) ||
+	} else if ((status.nodeStatus(n2) == S_PRECOLORED) ||
 			isAdjacent(n1, n2)) {
+		if (status.nodeStatus(n2) == S_PRECOLORED)
+			debug("Cannot coalesce, two precolored nodes");
+		else
+			debug("Cannot coalesce, two interfering nodes");
 		status.setMoveStatus(move, M_CONSTRAINED);
 		possiblyUnfreeze(n1);
 		possiblyUnfreeze(n2);
@@ -657,10 +702,12 @@ void PartialRegAllocator::coalesce_one()
 			(status.nodeStatus(n1) != S_PRECOLORED) &&
 				canCoalesce_bothAdjacentLists(n1, n2)
 		   ) {
+		debug("Safe to coalesce, proceed");
 		status.setMoveStatus(move, M_COALESCED);
 		combineNodes(n1, n2);
 		possiblyUnfreeze(n1);
 	} else {
+		debug("Afraid to coalesce, maybe later");
 		status.setMoveStatus(move, M_ACTIVE);
 	}
 }
@@ -684,8 +731,14 @@ bool PartialRegAllocator::canCoalesce_noAdjacentListfor1(int n1, int n2)
 			(node_degrees[*neighbour2] < colorcount) ||
 			(status.nodeStatus(*neighbour2) == S_PRECOLORED) ||
 			isAdjacent(*neighbour2, n1)
-		))
+		)) {
+			debug("Afraid to coalesce %s and %s",
+				NodeName(n1), NodeName(n2));
+			debug("... because %s has neighbour %s of degree %d not precolored and not adjacent to %s",
+					NodeName(n2), NodeName(*neighbour2), node_degrees[*neighbour2],
+					NodeName(n1));
 			return false;
+		}
 	}
 	return true;
 }
@@ -704,6 +757,7 @@ bool PartialRegAllocator::canCoalesce_bothAdjacentLists(int n1, int n2)
 			neighbour != adjacent2.end(); neighbour++)
 		if (node_degrees[*neighbour] >= colorcount)
 			n_bigdegree++;
+	return n_bigdegree < colorcount;
 }
 
 void PartialRegAllocator::combineNodes(int remain, int remove)
@@ -722,12 +776,30 @@ void PartialRegAllocator::combineNodes(int remain, int remove)
 	getRemainingAdjacent(remove, adjacent);
 	for (Intlist::iterator neighbour = adjacent.begin(); neighbour != adjacent.end();
 			neighbour++) {
-		connect(*neighbour, remain);
-		decrementDegree(*neighbour);
+		if (! isAdjacent(*neighbour, remain)) {
+			debug("combineNodes: Connecting %s with %s, degrees initially %d and %d",
+				NodeName(*neighbour),
+				NodeName(remain),
+				node_degrees[*neighbour], node_degrees[remain]
+				);
+			connect(*neighbour, remain);
+			//decrementDegree(*neighbour);
+			if (status.nodeStatus(*neighbour) != S_PRECOLORED)
+				node_degrees[*neighbour]--;
+			debug("combineNodes: Connected, degrees are now %s = %d  %s = %d",
+				NodeName(*neighbour),
+				node_degrees[*neighbour], 
+				NodeName(remain),
+				node_degrees[remain]
+				);
+		}
 	}
 	if ((node_degrees[remain] >= colorcount) &&
-			status.nodeStatus(remain) == S_FREEZEABLE)
+			status.nodeStatus(remain) == S_FREEZEABLE) {
+		debug("CombineNodes: node %s has now degree %d thus SPILLABLE",
+			  NodeName(remain), node_degrees[remain]);
 		status.setNodeStatus(remain, S_SPILLABLE);
+	}
 }
 
 void PartialRegAllocator::freezeOne()
@@ -741,6 +813,7 @@ void PartialRegAllocator::freezeOne()
 
 void PartialRegAllocator::freezeMoves(int node)
 {
+	debug("freezeMoves for node %s", NodeName(node));
 	Intlist moves;
 	getRemainingMoves(node, moves);
 	for (Intlist::iterator move = moves.begin(); move != moves.end(); move++) {
@@ -751,9 +824,13 @@ void PartialRegAllocator::freezeMoves(int node)
 			node2 = n1;
 		else
 			node2 = n2;
+		debug("Freezing move %s -> %s",
+			NodeName(liveness->used_at_node[*move][0]),
+			NodeName(liveness->assigned_at_node[*move][0]));
 		assert(status.moveStatus(*move) == M_ACTIVE);
 		status.setMoveStatus(*move, M_FROZEN);
-		if (! hasRemainingMoves(node2) && (node_degrees[node2] < colorcount)) {
+		if (! hasRemainingMoves(node2) && (node_degrees[node2] < colorcount) &&
+				(status.nodeStatus(node2) != S_PRECOLORED)) {
 			assert(status.nodeStatus(node2) == S_FREEZEABLE);
 			status.setNodeStatus(node2, S_REMOVABLE);
 		}
@@ -774,14 +851,14 @@ void PartialRegAllocator::prespillOne()
 			node != status.getNodes(S_SPILLABLE).end(); node++) {
 		float badness = getSpillBadness(*node);
 		debug("Spillable node %s, badness %g",
-			  liveness->virtuals[*node]->getName().c_str(), badness);
+			  NodeName(*node), badness);
 		if ((node_to_spill < 0) || (badness < best_badness)) {
 			node_to_spill = *node;
 			best_badness = badness;
 		}
 	}
 	debug("Spilling node %s, (badness %g)",
-			liveness->virtuals[node_to_spill]->getName().c_str(),
+			NodeName(node_to_spill),
 			best_badness);
 	status.setNodeStatus(node_to_spill, S_REMOVABLE);
 	freezeMoves(node_to_spill);
@@ -832,9 +909,12 @@ void PartialRegAllocator::tryColoring()
 			remove_one_removable();
 		else if (! status.getMoves(M_COALESCABLE).empty())
 			coalesce_one();
-		else if (! status.getNodes(S_FREEZEABLE).empty())
+		else if (! status.getNodes(S_FREEZEABLE).empty()) {
+			debug("================ Freezing phase");
+			printStatus();
 			freezeOne();
-		else if (! status.getNodes(S_SPILLABLE).empty())
+			debug("================ Freezing done");
+		} else if (! status.getNodes(S_SPILLABLE).empty())
 			prespillOne();
 	} while (
 		! status.getNodes(S_REMOVABLE).empty() ||
@@ -910,7 +990,8 @@ void AssignRegisters(Asm::Instructions& code,
 		delete allocator;
 		graph = new FlowGraph(code, frame->getFramePointer());
 		liveness = new LivenessInfo(*graph);
-		allocator = new PartialRegAllocator(liveness, machine_registers.size());
+		allocator = new PartialRegAllocator(liveness, machine_registers.size(),
+			frame->getName());
 		allocator->debug("%d colors", machine_registers.size());
 		bool found_fp = false;
 		for (int i = 0; i < machine_registers.size(); i++)
@@ -924,6 +1005,10 @@ void AssignRegisters(Asm::Instructions& code,
 		allocator->tryColoring();
 		spilled = & allocator->getSpilled();
 		colors = & allocator->getColors();
+		
+		if (! spilled->empty()) {
+			allocator->debug("================================ SPILLING AND RESTARTING");
+		}
 		
 		for (Intlist::const_iterator n = spilled->begin(); n != spilled->end();
 				n++)

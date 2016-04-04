@@ -7,7 +7,6 @@ tests = [ \
 	["merge.tig", True], \
 	["nest.tig", True], \
 	["primes.tig", True], \
-	["queens.tig", True], \
 	["test10.tig", False], \
 	["test11.tig", False], \
 	["test12.tig", True], \
@@ -62,8 +61,19 @@ tests = [ \
 expected_outputs = [ \
 	["nest.elf", "F\n"], \
 	["denest.elf", "F\n"], \
-	["primes.elf", " 2 3 4 5 6 7 8 10 11 13 14 17 19 22 23 26 29 31\n"] \
+	["primes.elf", " 2 3 4 5 6 7 8 10 11 13 14 17 19 22 23 26 29 31\n"], \
+	["echo 11 33 55 777 + 22 44 66 888 + | ./merge.elf", "11 22 33 44 55 66 777 888 \n"], \
 ]
+
+def add(name, output):
+	global tests
+	global expected_outputs
+	tests += [[name+".tig", True]]
+	expected_outputs += [[name+".elf", output]]
+
+add("recursion", open("recursion.out", "r").read())
+add("emptyrecursion", "")
+add("queens", open("queens.out", "r").read())
 
 os.system("rm -f *.elf test.log")
 
@@ -85,14 +95,20 @@ for test in tests:
 		ok = False
 
 for test in expected_outputs:
-	ret = os.system("./%s >&test.out" % (test[0]))
+	cmd = test[0] + " >&test.out"
+	if not cmd.startswith("echo "):
+	    cmd = "./" + cmd
+	ret = os.system(cmd )
 	output = open("test.out").read()
+	if (len(test) == 2) and (ret != 0):
+		ok = False
+		print "Test %s got runtime errer" % (test[0])
 	open("test.log", "a").write("running " + test[0] + "\n" + output + "\n")
 	if output != test[1]:
 		ok = False
 		print "Test %s got wrong answer" % (test[0])
 
-os.system("rm -f *.elf *.s")
+os.system("rm -f *.elf")
 os.unlink("test.out")
 
 if not ok:

@@ -14,6 +14,12 @@ private:
 	 * Instruction outputs without the ignored node
 	 */
 	std::vector<IR::VirtualRegister *> used;
+	
+	/**
+	 * Same as instruction->is_reg_to_reg_assign, except if assignment
+	 * source is the ignored register this will be false instead
+	 */
+	bool is_reg_to_reg_assign;
 public:
 	int index;
 	std::list<FlowGraphNode *> previous, next;
@@ -23,7 +29,7 @@ public:
 	
 	const std::vector<IR::VirtualRegister *> &usedRegisters() const;
 	const std::vector<IR::VirtualRegister *> &assignedRegisters() const;
-	bool isRegToRegAssignment() const {return instruction->is_reg_to_reg_assign;}
+	bool isRegToRegAssignment() const {return is_reg_to_reg_assign;}
 };
 
 class FlowGraph {

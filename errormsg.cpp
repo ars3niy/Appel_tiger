@@ -30,12 +30,19 @@ void error(const std::string &message, int _linenumber)
 	errorCount++;
 }
 
+void warning(const std::string &message, int _linenumber)
+{
+    printf("Warning, line %d: %s\n",
+		   _linenumber > 0 ? _linenumber : Error::linenumber,
+		   message.c_str());
+}
+
 void fatalError(const std::string &message, int _linenumber)
 {
     printf("Fatal error, line %d: %s\n",
 		   _linenumber > 0 ? _linenumber : Error::linenumber,
 		   message.c_str());
-	exit(1);
+	exit(127);
 }
 
 }

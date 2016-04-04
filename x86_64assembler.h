@@ -50,9 +50,11 @@ protected:
 	virtual void getCodeSectionHeader(std::string &header);
 	virtual void getBlobSectionHeader(std::string &header);
 	virtual void functionPrologue(IR::Label *fcn_label,
-		IR::AbstractFrame *frame, Instructions &result);
-	virtual void functionEpilogue(IR::AbstractFrame *frame,
+		IR::AbstractFrame *frame, Instructions &result,
+		std::vector<IR::VirtualRegister *> &prologue_regs);
+	virtual void functionEpilogue(IR::AbstractFrame *frame, 
 		IR::VirtualRegister *result_storage,
+		std::vector<IR::VirtualRegister *> &prologue_regs,
 		Instructions &result);
 	virtual void framePrologue(IR::Label *label, IR::AbstractFrame *frame,
 		Instructions &result);

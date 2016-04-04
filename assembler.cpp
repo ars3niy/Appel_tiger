@@ -100,6 +100,15 @@ void Assembler::addTemplate(int code, IR::Statement *statm)
 	list->push_back(InstructionTemplate(code, statm));
 }
 
+bool Assembler::MatchMoveDestination(IR::Expression *expression, IR::Expression *templ,
+	int &nodecount, std::list<TemplateChildInfo> *children,
+	IR::Expression **template_instantiation)
+{
+	if (templ->kind != expression->kind)
+		return false;
+	return MatchExpression(expression, templ, nodecount, children, template_instantiation);
+}
+
 bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *templ,
 	int &nodecount, std::list<TemplateChildInfo> *children,
 	IR::Expression **template_instantiation)
@@ -148,7 +157,7 @@ bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *temp
 			IR::CallExpression *call_inst = NULL;
 			IR::Expression **func_inst = NULL;
 			if (template_instantiation != NULL) {
-				call_inst = new IR::CallExpression(NULL, call_expr->needs_parent_fp);
+				call_inst = new IR::CallExpression(NULL, call_expr->callee_parentfp);
 				func_inst = &call_inst->function;
 				*template_instantiation = call_inst;
 			}
@@ -229,7 +238,7 @@ bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
 				to_inst = &move_inst->to;
 				from_inst = &move_inst->from;
 			}
-			return MatchExpression(move_statm->to, move_templ->to, 
+			return MatchMoveDestination(move_statm->to, move_templ->to, 
 					nodecount, children, to_inst) &&
 				MatchExpression(move_statm->from, move_templ->from, 
 					nodecount, children, from_inst);
@@ -415,9 +424,13 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 						MapRegister(register_map, (*inst).outputs[0])->getIndex())
 					continue;
 			}
+			int len = 0;
+			if ((s.size() > 0) && (s[s.size()-1] != ':')) {
+				fputs("    ", output);
+				len += 4;
+			}
 		
 			int i = 0;
-			int len = 0;
 			while (i < s.size()) {
 				if (s[i] != '&') {
 					fputc(s[i], output);
@@ -448,7 +461,7 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 					}
 				}
 			}
-			for (int i = 0; i < 30-len; i++)
+			for (int i = 0; i < 35-len; i++)
 				fputc(' ', output);
 			fprintf(output, " # %2d ", line);
 			if ((*inst).is_reg_to_reg_assign)
@@ -500,17 +513,20 @@ void Assembler::translateFunctionBody(IR::Code* code, IR::Label *fcn_label,
 	switch (code->kind) {
 		case IR::CODE_EXPRESSION: {
 			IR::VirtualRegister *result_storage = IRenvironment->addRegister();
-			functionPrologue(fcn_label, frame, result);
+			std::vector<IR::VirtualRegister *> prologue_regs;
+			functionPrologue(fcn_label, frame, result, prologue_regs);
 			translateExpression(((IR::ExpressionCode *)code)->exp,
 				frame, result_storage, result);
-			functionEpilogue(frame, result_storage, result);
+			functionEpilogue(frame, result_storage, prologue_regs, result);
 			break;
 		}
-		case IR::CODE_STATEMENT:
-			functionPrologue(fcn_label, frame, result);
+		case IR::CODE_STATEMENT: {
+			std::vector<IR::VirtualRegister *> prologue_regs;
+			functionPrologue(fcn_label, frame, result, prologue_regs);
 			translateStatement(((IR::StatementCode *)code)->statm, frame, result);
-			functionEpilogue(frame, NULL, result);
+			functionEpilogue(frame, NULL, prologue_regs, result);
 			break;
+		}
 		default:
 			Error::fatalError("Assembler::translateFunctionBody strange body code");
 	}

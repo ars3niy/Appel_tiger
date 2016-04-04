@@ -2,10 +2,11 @@
 #define _IR_TRANSFORMER_H
 
 #include "intermediate.h"
+#include "debugprint.h"
 
 namespace IR {
 
-class IRTransformer {
+class IRTransformer: public DebugPrinter {
 private:
 	IREnvironment *ir_env;
 
@@ -48,7 +49,8 @@ private:
 	void arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 		BlockOrdering &new_order);
 public:
-	IRTransformer(IREnvironment *_ir_env) : ir_env(_ir_env) {}
+	IRTransformer(IREnvironment *_ir_env) : ir_env(_ir_env),
+		DebugPrinter("canonicalize.log") {}
 
 	/**
 	 * Either parentExpression or parentStatement (or both) must be NULL

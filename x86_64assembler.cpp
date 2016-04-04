@@ -158,8 +158,8 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	make_comparison(I_CMPJUGE, IR::OP_UGREATEQUAL);
 	make_assignment();
 	
-	addTemplate(I_CALL, new IR::CallExpression(new IR::LabelAddressExpression(NULL), false));
-	addTemplate(I_CALL, new IR::CallExpression(new IR::RegisterExpression(NULL), false));
+	addTemplate(I_CALL, new IR::CallExpression(new IR::LabelAddressExpression(NULL), NULL));
+	addTemplate(I_CALL, new IR::CallExpression(new IR::RegisterExpression(NULL), NULL));
 	addTemplate(I_JMP, new IR::JumpStatement(new IR::LabelAddressExpression(NULL)));
 	addTemplate(I_JMP, new IR::JumpStatement(new IR::RegisterExpression(NULL)));
 	
@@ -261,7 +261,7 @@ void X86_64Assembler::make_assignment()
 	}
 }
 
-std::string IntToStr(int x)
+static std::string IntToStr(int x)
 {
 	char buf[30];
 	sprintf(buf, "%d", x);
@@ -422,34 +422,44 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 		case IR::IR_LABELADDR:
 		case IR::IR_REGISTER:
 		case IR::IR_MEMORY:
-			if (value_storage != NULL)
+			if (value_storage != NULL) {
 				addInstruction(result, "movq ", templ,
 					", " + Instruction::Output(0), value_storage);
+				debug("Simple expression type %d, translated as %s", templ->kind,
+					result.back().notation.c_str());
+			}
 			break;
 		case IR::IR_BINARYOP:
 			if (value_storage != NULL) {
 				IR::BinaryOpExpression *bin_op = IR::ToBinaryOpExpression(templ);
+				debug("Translating binary operation %d translated as:", bin_op->operation);
 				switch (bin_op->operation) {
 					case IR::OP_PLUS:
 						addInstruction(result, "movq ", bin_op->left,
 							", " + Instruction::Output(0), value_storage);
+						debug("\t%s", result.back().notation.c_str());
 						addInstruction(result, "addq ", bin_op->right,
 							", " + Instruction::Output(0), value_storage);
+						debug("\t%s", result.back().notation.c_str());
 						break;
 					case IR::OP_MINUS:
 						addInstruction(result, "movq ", bin_op->left,
 							", " + Instruction::Output(0), value_storage);
+						debug("\t%s", result.back().notation.c_str());
 						addInstruction(result, "subq ", bin_op->right,
 							", " + Instruction::Output(0), value_storage);
+						debug("\t%s", result.back().notation.c_str());
 						break;
 					case IR::OP_MUL:
 						addInstruction(result, "movq ", bin_op->left,
 							", " + Instruction::Output(0), machine_registers[RAX]);
+						debug("\t%s", result.back().notation.c_str());
 						if ((bin_op->right->kind == IR::IR_INTEGER) ||
 							(bin_op->right->kind == IR::IR_LABELADDR)) {
 							IR::VirtualRegister *tmp_reg = IRenvironment->addRegister();
 							addInstruction(result, "movq ", bin_op->right,
 								", " + Instruction::Output(0), tmp_reg);
+							debug("\t%s", result.back().notation.c_str());
 							IR::VirtualRegister *inputs[] = {
 								machine_registers[RAX],
 								tmp_reg};
@@ -459,42 +469,54 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 							result.push_back(Instruction(
 								"imulq " + Instruction::Input(1),
 								2, &inputs[0], 2, &outputs[0]));
-						} else
+							debug("\t%s", result.back().notation.c_str());
+						} else {
 							addInstruction(result, "imulq ", bin_op->right,
 								"", machine_registers[RAX],
 								machine_registers[RAX], machine_registers[RDX]);
+							debug("\t%s", result.back().notation.c_str());
+						}
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
 							1, &machine_registers[RAX], 1, &value_storage,
 							1, NULL, true));
+						debug("\t%s", result.back().notation.c_str());
 						break;
 					case IR::OP_DIV:
 						addInstruction(result, "movq ", bin_op->left,
 							", " + Instruction::Output(0), machine_registers[RAX]);
+						debug("\t%s", result.back().notation.c_str());
 						result.push_back(Instruction("cqo",
 							0, NULL, 1, &machine_registers[RDX]));
+						debug("\t%s", result.back().notation.c_str());
 						if ((bin_op->right->kind == IR::IR_INTEGER) ||
 							(bin_op->right->kind == IR::IR_LABELADDR)) {
 							IR::VirtualRegister *tmp_reg = IRenvironment->addRegister();
 							addInstruction(result, "movq ", bin_op->right,
 								", " + Instruction::Output(0), tmp_reg);
+							debug("\t%s", result.back().notation.c_str());
 							IR::VirtualRegister *inputs[] = {
 								machine_registers[RAX],
+								machine_registers[RDX],
 								tmp_reg};
 							IR::VirtualRegister *outputs[] = {
 								machine_registers[RAX],
 								machine_registers[RDX]};
 							result.push_back(Instruction(
-								"idivq " + Instruction::Input(1),
-								2, &inputs[0], 2, &outputs[0]));
-						} else
-							addInstruction(result, "imulq ", bin_op->right,
-								", " + Instruction::Output(0), machine_registers[RAX],
+								"idivq " + Instruction::Input(2),
+								3, &inputs[0], 2, &outputs[0]));
+						debug("\t%s", result.back().notation.c_str());
+						} else {
+							addInstruction(result, "idivq ", bin_op->right,
+								"", machine_registers[RAX],
 								machine_registers[RAX], machine_registers[RDX]);
+							debug("\t%s", result.back().notation.c_str());
+						}
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
 							1, &machine_registers[RAX], 1, &value_storage,
 							1, NULL, true));
+						debug("\t%s", result.back().notation.c_str());
 						break;
 					default:
 						Error::fatalError("X86_64Assembler::translateExpressionTemplate unexpected binary operation");
@@ -503,11 +525,9 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			break;
 		case IR::IR_FUN_CALL: {
 			IR::CallExpression *call = IR::ToCallExpression(templ);
-			if (call->needs_parent_fp) {
-				IR::VirtualRegister *fp = frame->getFramePointer();
-				result.push_back(Instruction(
-					"movq " + Instruction::Input(0) + ", " + Instruction::Output(0),
-					1, &fp, 1, &machine_registers[R10]));
+			if (call->callee_parentfp != NULL) {
+				translateExpression(call->callee_parentfp, frame, 
+					machine_registers[R10], result);
 			}
 			placeCallArguments(call->arguments, result);
 			assert(call->function->kind == IR::IR_LABELADDR);
@@ -642,11 +662,19 @@ void X86_64Assembler::frameEpilogue(IR::AbstractFrame *frame, Instructions &resu
 }
 
 void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
-	IR::AbstractFrame *frame, Instructions &result)
+	IR::AbstractFrame *frame, Instructions &result,
+	std::vector<IR::VirtualRegister *> &prologue_regs)
 {
 	IR::VirtualRegister **calleesave = calleesave_registers.data();
 	result.push_back(Instruction("# callee-save registers",
 		0, NULL, calleesave_count, calleesave));
+	prologue_regs.resize(calleesave_count);
+	for (int i = 0; i < calleesave_count; i++) {
+		prologue_regs[i] = IRenvironment->addRegister();
+		result.push_back(Instruction("movq " + Instruction::Input(0) +
+			", " + Instruction::Output(0),
+			1, &calleesave_registers[i], 1, &prologue_regs[i], 1, NULL, true));
+	}
 	
 	const std::list<IR::AbstractVarLocation *>parameters =
 		frame->getParameters();
@@ -679,13 +707,21 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 
 void X86_64Assembler::functionEpilogue(IR::AbstractFrame *frame,
 	IR::VirtualRegister* result_storage,
+	std::vector<IR::VirtualRegister *> &prologue_regs,
 	Instructions &result)
 {
 	if (result_storage != NULL)
 		result.push_back(Instruction("movq " + Instruction::Input(0) + ", " +
 			Instruction::Output(0), 1, &result_storage, 1, &machine_registers[RAX],
 			1, NULL, true));
+
 	IR::VirtualRegister **calleesave = calleesave_registers.data();
+	assert(prologue_regs.size() == calleesave_registers.size());
+	for (int i = 0; i < calleesave_count; i++) {
+		result.push_back(Instruction("movq " + Instruction::Input(0) +
+			", " + Instruction::Output(0),
+			1, &prologue_regs[i], 1, &calleesave_registers[i], 1, NULL, true));
+	}
 	result.push_back(Instruction("# callee-save registers",
 		calleesave_count, calleesave, 0, NULL));
 }

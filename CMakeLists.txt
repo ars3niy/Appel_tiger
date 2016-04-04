@@ -3,8 +3,6 @@ project(compiler)
 find_package(FLEX)
 find_package(BISON)
 
-set(CMAKE_CXX_FLAGS "-O0")
-
 BISON_TARGET(TigerParser Tiger.y ${CMAKE_CURRENT_BINARY_DIR}/parser.cpp)
 FLEX_TARGET(TigerScanner Tiger.lex ${CMAKE_CURRENT_BINARY_DIR}/lexer.cpp)
 ADD_FLEX_BISON_DEPENDENCY(TigerScanner TigerParser)

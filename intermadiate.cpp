@@ -4,8 +4,48 @@
 
 namespace IR {
 
+void FlipComparison(CondJumpStatement *jump)
+{
+	Label *tmp = jump->true_dest;
+	jump->true_dest = jump->false_dest;
+	jump->false_dest = tmp;
+	switch (jump->comparison) {
+		case OP_EQUAL:
+			jump->comparison = OP_NONEQUAL;
+			break;
+		case OP_NONEQUAL:
+			jump->comparison = OP_EQUAL;
+			break;
+		case OP_LESS:
+			jump->comparison = OP_GREATEQUAL;
+			break;
+		case OP_GREATER:
+			jump->comparison = OP_LESSEQUAL;
+			break;
+		case OP_LESSEQUAL:
+			jump->comparison = OP_GREATER;
+			break;
+		case OP_GREATEQUAL:
+			jump->comparison = OP_LESS;
+			break;
+		case OP_ULESS:
+			jump->comparison = OP_UGREATEQUAL;
+			break;
+		case OP_UGREATER:
+			jump->comparison = OP_ULESSEQUAL;
+			break;
+		case OP_ULESSEQUAL:
+			jump->comparison = OP_UGREATER;
+			break;
+		case OP_UGREATEQUAL:
+			jump->comparison = OP_ULESS;
+			break;
+	}
+}
+
 void DestroyExpression(Expression *&expression)
 {
+	return;
 	switch (expression->kind) {
 		case IR_INTEGER:
 			delete ToIntegerExpression(expression);
@@ -41,6 +81,7 @@ void DestroyExpression(Expression *&expression)
 
 void DestroyStatement(Statement *&statement)
 {
+	return;
 	switch (statement->kind) {
 		case IR_MOVE:
 			DestroyExpression(ToMoveStatement(statement)->to);
@@ -76,6 +117,7 @@ void DestroyStatement(Statement *&statement)
 
 void DestroyCode(Code *&code)
 {
+	return;
 	switch (code->kind) {
 		case CODE_EXPRESSION:
 			DestroyExpression(((ExpressionCode *)code)->exp);
@@ -111,6 +153,7 @@ VirtualRegister::VirtualRegister(int _index) : index(_index)
 	char s[32];
 	sprintf(s, "t%d", _index);
 	name = s;
+	prespilled_location = NULL;
 }
 
 
@@ -226,18 +269,33 @@ Statement *IREnvironment::killCodeToCondJump(Code *&code,
 		case CODE_STATEMENT:
 			Error::fatalError("Not supposed to convert statements to conditional jumps");
 			break;
-		case CODE_EXPRESSION:
-			result = new CondJumpStatement(OP_NONEQUAL,
-				((ExpressionCode *)code)->exp, new IntegerExpression(0),
-				NULL, NULL);
+		case CODE_EXPRESSION: {
+			Expression *bool_exp = ((ExpressionCode *)code)->exp;
 			replace_true.clear();
 			replace_false.clear();
-			replace_true.push_back(& ToCondJumpStatement(result)->true_dest);
-			replace_false.push_back(& ToCondJumpStatement(result)->false_dest);
+			if (bool_exp->kind == IR_INTEGER) {
+				LabelAddressExpression *dest = new IR::LabelAddressExpression(NULL);
+				result = new JumpStatement(dest, dest->label);
+				if (ToIntegerExpression(bool_exp)->value) {
+					replace_true.push_back(& dest->label);
+					replace_true.push_back(& ToJumpStatement(result)->possible_results.front());
+				} else {
+					replace_false.push_back(& dest->label);
+					replace_false.push_back(& ToJumpStatement(result)->possible_results.front());
+				}
+				delete ToIntegerExpression(bool_exp);
+			} else {
+				result = new CondJumpStatement(OP_NONEQUAL,
+					bool_exp, new IntegerExpression(0),
+					NULL, NULL);
+				replace_true.push_back(& ToCondJumpStatement(result)->true_dest);
+				replace_false.push_back(& ToCondJumpStatement(result)->false_dest);
+			}
 			delete (ExpressionCode *)code;
 			break;
+		}
 		case CODE_JUMP_WITH_PATCHES:
-			result = ((CondJumpPatchesCode *)code)->statm;
+			result = ToCondJumpStatement(((CondJumpPatchesCode *)code)->statm);
 			replace_true = ((CondJumpPatchesCode *)code)->replace_true;
 			replace_false = ((CondJumpPatchesCode *)code)->replace_false;
 			delete (CondJumpPatchesCode *)code;
