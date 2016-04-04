@@ -1,6 +1,9 @@
 #!/usr/bin/python
 
 import os
+import subprocess
+
+executable = subprocess.Popen(["find", "..", "-type", "f", "-name", "compiler"], stdout=subprocess.PIPE).communicate()[0].strip()
 
 tests = [ \
 	["denest.tig", True], \
@@ -80,7 +83,7 @@ os.system("rm -f *.elf test.log")
 ok = True
 for test in tests:
 	open("test.log", "a").write("compiling " + test[0] + "\n")
-	ret = os.system("../build/compiler " + test[0] + ">>test.log 2>>test.log")
+	ret = os.system(executable + " " + test[0] + ">>test.log 2>>test.log")
 	ret = ret/256
 	if ret == 0:
 		if not test[1]:
