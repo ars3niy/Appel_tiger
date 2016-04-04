@@ -1,0 +1,28 @@
+let
+	function f(F: int) =
+	let
+		function g(G: int) =
+		let
+			function h(H: int) =
+			let
+				function p(P: int) = (
+					if (P < 6) then
+						g(P+1)
+				)
+			in
+				if (H < 6) then
+					p(H+1)
+			end
+		in
+			if (G < 6) then
+				h(G+1)
+		end
+		
+	in
+		if (F < 6) then
+			g(F+1)
+	end
+
+in
+	f(0)
+end

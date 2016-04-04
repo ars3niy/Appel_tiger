@@ -1,0 +1,83 @@
+let
+	function printint(prefix: string, i: int, suffix: string) = (
+		print(prefix);
+		print(chr(ord("0") + i));
+		print(suffix);
+		print("\n")
+	)
+
+	function f(F: int) =
+	let
+		function g1(G1: int) = (
+			print("=== g1\n");
+			printint("F = ", F, "");
+			printint("G1 = ", G1, "")
+		)
+		function g(G: int) =
+		let
+			function h1(H1: int) = (
+				print("=== h1\n");
+				printint("F = ", F, "");
+				printint("G = ", G, "");
+				printint("H1 = ", H1, "")
+			)
+			function h(H: int) =
+			let
+				function p1(P1: int) = (
+					print("=== p1\n");
+					printint("F = ", F, "");
+					printint("G = ", G, "");
+					printint("H = ", H, "");
+					printint("P1 = ", P1, "");
+					if (P1 < 6) then (
+						printint("p1[P1=", P1, "] -> p");
+						p(P1+1)
+					)
+				)
+				function p(P: int) = (
+					print("=== p\n");
+					printint("F = ", F, "");
+					printint("G = ", G, "");
+					printint("H = ", H, "");
+					printint("P = ", P, "");
+					if (P < 6) then (
+						printint("p[P=", P, "] -> p1");
+						p1(P+1);
+						printint("p[P=", P, "] -> g");
+						g(P+1)
+					)
+				)
+			in
+				print("=== h\n");
+				printint("F = ", F, "");
+				printint("G = ", G, "");
+				printint("H = ", H, "");
+				printint("h[H=", H, "] -> h1");
+				h1(H+1);
+				if (H < 6) then (
+					printint("h[H=", H, "] -> p");
+					p(H+1)
+				)
+			end
+		in
+			print("=== g\n");
+			printint("F = ", F, "");
+			printint("G = ", G, "");
+			if (G < 6) then (
+				printint("g[G=", G, "] -> h");
+				h(G+1)
+			)
+		end
+		
+	in
+		print("=== f\n");
+		printint("F = ", F, "");
+		if (F < 6) then (
+			printint("f[F=", F, "] -> g");
+			g(F+1)
+		)
+	end
+
+in
+	f(0)
+end

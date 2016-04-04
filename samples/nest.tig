@@ -1,0 +1,38 @@
+let
+	function f(f1:int, f2:int, f3:int):int =
+		let
+			var F1:int := 0
+			var F2:int := 0
+			var F3:int := 0
+			function g(g1:int, g2:int):int =
+				let
+					var G1:int := 0
+					var G2:int := 0
+					var G3:int := 0
+					function h(h1:int, h2:int):int =
+						let
+							var H1:int := 0
+							var H2:int := 0
+						in
+							H1 := f1 + F1 + g1 + G1 + h1;
+							H2 := h2;
+							H1 + H2
+						end
+				in
+					G1 := F2 + f2 + g1;
+					G2 := g2;
+					G3 := h(G1, G2);
+					G3 := 0;
+					G1 + G2 + G3
+				end
+		in
+			F1 := f1 + f2;
+			F2 := f1 - f2;
+			F3 := f3 + g(F1, F2);
+			F1 + F2 + F3
+		end
+	var x: int := 0
+in
+	x := f(1,2,3);
+	print(concat(chr(ord("0") + x), "\n")) /* see nest.c for correct result */
+end
