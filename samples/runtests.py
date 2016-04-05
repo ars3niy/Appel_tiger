@@ -62,28 +62,28 @@ tests = [ \
 ]
 
 expected_outputs = [ \
-	["nest.elf", "F\n"], \
-	["denest.elf", "F\n"], \
-	["primes.elf", " 2 3 4 5 6 7 8 10 11 13 14 17 19 22 23 26 29 31\n"], \
-	["echo 11 33 55 777 + 22 44 66 888 + | ./merge.elf", "11 22 33 44 55 66 777 888 \n"], \
+	["nest.bin", "F\n"], \
+	["denest.bin", "F\n"], \
+	["primes.bin", " 2 3 4 5 6 7 8 10 11 13 14 17 19 22 23 26 29 31\n"], \
+	["echo 11 33 55 777 + 22 44 66 888 + | ./merge.bin", "11 22 33 44 55 66 777 888 \n"], \
 ]
 
 def add(name, output):
 	global tests
 	global expected_outputs
 	tests += [[name+".tig", True]]
-	expected_outputs += [[name+".elf", output]]
+	expected_outputs += [[name+".bin", output]]
 
 add("recursion", open("recursion.out", "r").read())
 add("emptyrecursion", "")
 add("queens", open("queens.out", "r").read())
 
-os.system("rm -f *.elf test.log")
+os.system("rm -f *.bin test.log")
 
 ok = True
 for test in tests:
 	open("test.log", "a").write("compiling " + test[0] + "\n")
-	ret = os.system(executable + " " + test[0] + ">>test.log 2>>test.log")
+	ret = os.system(executable + " -o " + test[0].replace(".tig", ".bin") + " " + test[0] + ">>test.log 2>>test.log")
 	ret = ret/256
 	if ret == 0:
 		if not test[1]:
@@ -111,7 +111,29 @@ for test in expected_outputs:
 		ok = False
 		print "Test %s got wrong answer" % (test[0])
 
-os.system("rm -f *.elf")
+multitests = ["neerc2015/king", "neerc2015/landscape"]
+
+for d in multitests:
+	source = [s for s in os.listdir(d) if s.endswith(".tig")][0]
+	C = reduce(lambda x, y: x + " " + d+"/"+y, [s for s in os.listdir(d) if s.endswith(".c")], "")
+	open("test.log", "a").write("compiling " + source + " " + C + "\n")
+	ret = os.system(executable + " -o program.bin " + d + "/" + source + " " + C + " >>test.log 2>>test.log")
+	if ret != 0:
+		print "Failed to compile " + d + "/" + source
+		ok = False
+	for f in os.listdir(d + "/tests"):
+		if not f.endswith(".a"):
+			open("test.log", "a").write(d + "/tests/" + f + "\n")
+			ret = os.system("./program.bin <" + d + "/tests/" + f + " >test.out 2>>test.log")
+			open("test.log", "a").write(open("test.out").read() + "\n")
+			if ret != 0:
+				print "Runtime error for " + d + "/tests/" + f
+				ok = False
+			if open("test.out").read() != open(d + "/tests/" + f + ".a").read():
+				print "Wrong answer for " + d + "/tests/" + f
+				ok = False
+
+os.system("rm -f *.bin")
 os.unlink("test.out")
 
 if not ok:

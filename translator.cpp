@@ -531,8 +531,12 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			return_type = type_environment->getVoidType();
 		else
 			return_type = type_environment->getType(declaration->type, false)->resolve();
-		IR::Label *function_label = IRenvironment->addLabel();
-		function_label->appendToName(std::string("_") + declaration->name->name);
+		IR::Label *function_label;
+		if (declaration->body != NULL) {
+			function_label = IRenvironment->addLabel();
+			function_label->appendToName(std::string("_") + declaration->name->name);
+		} else
+			function_label = IRenvironment->addLabel(declaration->name->name.c_str());
 		functions.push_back(Function(declaration->name->name, return_type,
 			declaration->body, NULL,
 			framemanager->newFrame(currentFrame, function_label->getName()),
@@ -571,6 +575,9 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 	}
 	for (std::list<Function *>::iterator fcn = recent_functions.begin();
 		 fcn != recent_functions.end(); fcn++) {
+		if ((*fcn)->raw_body == NULL)
+			continue;
+		
 		Type *actual_return_type;
 		func_and_var_names.newLayer();
 		for (std::list<FunctionArgument>::iterator param = (*fcn)->arguments.begin();

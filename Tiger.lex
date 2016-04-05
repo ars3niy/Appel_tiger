@@ -29,6 +29,7 @@ extern YYSTYPE yylval;
 " " 	{}
 \n  	{Error::newline();}
 \t  	{}
+\r  	{}
 "," 	{return SYM_COMMA;}
 ":" 	{return SYM_COLON;}
 "{" 	{return SYM_OPENBRACE;}
@@ -74,6 +75,7 @@ break	{return SYM_BREAK;}
 \"          	{svalue = ""; BEGIN(STRING);}
 <STRING>\"  	{yylval = new Syntax::StringValue(svalue); BEGIN(INITIAL); return SYM_STRING;}
 <STRING>\\n 	{svalue += "\n";}
+<STRING>\\r 	{svalue += "\r";}
 <STRING>\\t 	{svalue += "\t";}
 <STRING>\\[0-9]{3}	{svalue.append(1, (char)atoi(yytext+1));}
 <STRING>\\\"	{svalue += "\"";}

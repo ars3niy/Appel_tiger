@@ -1,0 +1,332 @@
+let
+	function printint(i: int) =
+	let
+		function f(i:int) =
+			if i>0 then (
+				f(i/10);
+				print(chr(i-i/10*10+ord("0")))
+			)
+	in
+		if i<0 then (
+			print("-");
+			f(-i)
+		) else if i>0 then
+			f(i)
+		else
+			print("0")
+	end
+
+	var buffer := getchar()
+	function readint() : int =
+	let
+		var i := 0
+		function isdigit(s : string) : int = 
+			ord(buffer)>=ord("0") & ord(buffer)<=ord("9")
+		function skipto() =
+			while buffer=" " | buffer="\n" | buffer="\r" do
+				buffer := getchar()
+	in
+		skipto();
+		while isdigit(buffer) do (
+			i := i*10+ord(buffer)-ord("0");
+			buffer := getchar()
+		);
+		i
+	end
+
+	function shl(x: int, by: int): int
+	function shr(x: int, by: int): int
+	function xor(x: int, y: int): int
+	function and(x: int, y: int): int
+
+	var size := 200 * 1000 + 100
+	var ssize := 23
+	var inf := 1000 * 1000 * 1000
+
+	type ints = array of int
+	function empty(): ints
+	function push_back(a: ints, v: int): ints
+	function pop_back(a: ints): ints
+	function get_size(a: ints): int
+	function vcopy(a: ints): ints
+	function reverse(a:ints)
+	
+	var indeg: ints := ints[size] of 0
+	var outdeg: ints := ints[size] of 0
+	var EMPTY: ints := ints[0] of 0
+
+	type intmatrix = array of ints
+	type intslist = intmatrix
+	type intsmatrix = array of intmatrix
+
+/*
+vector <int> way[ssize][ssize];
+int len[ssize][ssize];
+vector <int> vertex[size];
+*/
+	var way: intsmatrix := intsmatrix[ssize] of intslist[0] of EMPTY
+	var len: intmatrix := intmatrix[ssize] of EMPTY
+	var vertex: intslist := intslist[size] of EMPTY
+	var n: int := 0
+	var m: int := 0
+
+	var intr: ints := ints[size] of 0
+	var myinum: ints := ints[size] of 0
+	var icnt := 0
+/*
+int dp[1 << ssize][ssize];
+int from[1 << ssize][ssize];
+*/
+	function get_dp(): ints
+	function get_from(): ints
+	var dp: ints := get_dp()
+	var from: ints := get_from()
+
+	var curpath: ints := empty()
+	var used: ints := ints[size] of 0
+
+	function dfs(vs: int, v: int) =
+	(
+		/*print("dfs: vs= "); printint(vs); print(" v="); printint(v); print("\n");*/
+		
+		if (used[v]) then
+			/*return;*/ ()
+		else (
+			used[v] := 1;
+			curpath := push_back(curpath, v);
+			if (intr[v]) then (
+				/*print("dfs: intr[v]=1 curpath.size()= "); printint(get_size(curpath)); print(" way[myinum[vs]][myinum[v]].size()="); printint(get_size(way[myinum[vs]][myinum[v]])); print("\n");*/
+
+				if get_size(way[myinum[vs]][myinum[v]]) < get_size(curpath) then (
+					/*print("way["); printint(myinum[vs]); print("]["); printint(myinum[v]);
+					print("] is now "); printint(get_size(curpath)); print(" long\n");*/
+					way[myinum[vs]][myinum[v]] := vcopy(curpath)
+				);
+				/*for i := 0 to 1 do
+					for j := 0 to 1 do (
+						print("get_size(way["); printint(i); print("][");
+						printint(j); print("]) =");
+						printint(get_size(way[i][j])); print("\n")
+					);*/
+
+				used[v] := 0;
+				curpath := pop_back(curpath)
+
+				/*return;*/
+			) else (
+
+				for i := 0 to get_size(vertex[v])-1 do (
+					/*print("Recursive dfs on i="); printint(i); print("vertex[v][i]="); printint(vertex[v][i]); print("\n");*/
+					dfs(vs, vertex[v][i])
+				);
+
+				used[v] := 0;
+				curpath := pop_back(curpath)
+			)
+		)
+	)
+	
+	var v := 0
+	var u := 0
+	var h := 0
+	var best := 0
+	var ba := 0
+	var vans: ints := EMPTY
+	var cur := 0
+	var nba := 0
+	var rans: ints := EMPTY
+in
+/*
+vector <int> way[ssize][ssize];
+int len[ssize][ssize];
+vector <int> vertex[size];
+int dp[1 << ssize][ssize];
+int from[1 << ssize][ssize];
+*/
+	
+	for i := 0 to ssize-1 do (
+		way[i] := intslist[ssize] of EMPTY;
+		for j := 0 to ssize-1 do
+			way[i][j] := empty();
+		len[i] := ints[ssize] of 0
+	);
+	
+	for i := 0 to size-1 do
+		vertex[i] := empty();
+	
+	n := readint();
+	m := readint();
+    for i := 0 to m-1 do (
+    	v := readint();
+    	u := readint();
+    	
+    	v := v-1;
+    	u := u-1;
+/*//    	assert(v != u);*/
+
+    	if (v <> u) then (
+			/*print("pushing back to vertex["); printint(v); print("]\n");*/
+    		vertex[v] := push_back(vertex[v], u);
+    		/*print("vertex["); printint(v); print("]["); printint(get_size(vertex[v])-1);
+    		print("]="); printint(vertex[v][get_size(vertex[v])-1]); print("\n");*/
+    		indeg[u] := indeg[u]+1;
+    		outdeg[v] := outdeg[v]+1
+    	)
+    );
+
+    for i := 0 to n-1 do
+    	if (outdeg[i] > 1) then (
+    		intr[i] := 1;
+    		myinum[i] := icnt;
+/*//    		inum[icnt] := i*/
+    		icnt := icnt+1
+    	);
+
+    for i := 0 to n-1 do
+    	if (icnt < 2 & not(intr[i])) then (
+    		intr[i] := 1;
+    		myinum[i] := icnt;
+  /*//  		inum[icnt] := i;*/
+    		icnt := icnt+1
+    	);
+
+    for i := 0 to n-1 do
+    	if (indeg[i] = 0 | outdeg[i] = 0) then (
+    	 	print("There is no route, Karl!\n");
+	   		exit(0)
+    	);
+
+    if (icnt > 20) then (
+    	print("There is no route, Karl!\n");
+   		exit(0)
+    );
+
+    /*print("intr = ");
+    for i := 0 to n-1 do (
+    	print(" "); printint(intr[i])
+    );
+	print("\n");*/
+
+    for i := 0 to n-1 do
+    	if intr[i] then (
+    		for j := 0 to get_size(vertex[i])-1 do (
+				/*print("Root dfs on i="); printint(i); print(" j="); printint(j); print(" vertex[i][j]="); printint(vertex[i][j]); print("\n");*/
+    			dfs(i, vertex[i][j])
+    		)
+    	);
+
+    h := icnt;
+    for i := 0 to h-1 do
+    	for j := 0 to h-1 do (
+			/*print("get_size(way["); printint(i); print("]["); printint(j); print("]) ="); printint(get_size(way[i][j])); print("\n");*/
+    	    if get_size(way[i][j]) = 0 then (
+    	    	len[i][j] := -1
+    	    ) else (
+    			len[i][j] := get_size(way[i][j])
+    		)
+    	);
+
+    /*print("h = "); printint(h); print("\n");*/
+
+    /*for i := 0 to h-1 do
+    	for j := 0 to h-1 do (
+    		printint(i); print(" "); printint(j); print(" len[i][j]="); printint(len[i][j]); print("\n")
+    	);*/
+
+    for i := 0 to shl(1, h)-1 do
+    	for j := 0 to h-1 do
+    		dp[i*ssize + j] := -inf;
+
+    dp[1*ssize + 0] := 0;
+    for i := 2 to shl(1, h)-1 do (
+    	for j := 0 to h-1 do (
+    		dp[i*ssize  + j] := -inf;
+    		if and(i, 1) = 0 | (and(shr(i, j), 1) = 0) then (
+    			/*continue;*/
+    		) else 
+
+				for k := 0 to h-1 do (
+					if (k = j | (and(shr(i, k), 1) = 0) | len[k][j] = -1) then (
+						/*continue;*/
+					) else
+
+						if (dp[xor(i, shl(1, j))*ssize + k] + len[k][j] > dp[i*ssize  + j]) then (
+							dp[i*ssize  + j] := dp[xor(i, shl(1, j))*ssize + k] + len[k][j];
+							from[i*ssize  + j] := k
+						)
+				)
+    	)
+    );
+
+    /*//cerr << "here" << endl;*/
+
+    best := -inf;
+    ba := -1;
+    for i := 1 to h-1 do
+    	if (len[i][0] <> -1 & dp[(shl(1, h) - 1)*ssize + i] + len[i][0] > best) then (
+    		best := dp[(shl(1, h) - 1)*ssize + i] + len[i][0];
+    		ba := i
+    	);
+
+    /*
+    //cerr << best << ' ' << ba << endl;
+
+    //cerr << "look " << from[3][1] << endl;
+    */
+
+    if (best < n)  then (
+    	print("There is no route, Karl!\n")
+    ) else (
+    	vans := empty();
+    	cur := shl(1, h) - 1;
+    	while (cur <> 0) do (
+  /*//  		cerr << cur << ' ' << ba << endl;*/
+    		vans := push_back(vans, ba);
+    		nba := from[cur*ssize  + ba];
+    		cur := xor(cur, shl(1, ba));
+
+    		ba := nba
+    	);
+
+    	/*assert((int) vans.size() == h);*/
+    	if get_size(vans) <> h then (
+			print("Assertion failed: get_size(vans) = h\n");
+			exit(1)
+    	);
+
+    	reverse(vans);
+    	vans := push_back(vans, 0);
+
+    	rans := empty();
+    	for i := 0 to h-1 do (
+    		for j := 0 to get_size(way[vans[i]][vans[i + 1]])-1 do (
+    			rans := push_back(rans, way[vans[i]][vans[i + 1]][j])
+/*//    		rans.insert(rans.end(), way[rans[i]][rans[i + 1]].begin(), way[rans[i]][rans[i + 1]].end());*/
+			)
+    	);
+    	
+    	/*assert((int) rans.size() == n);*/
+    	if get_size(rans) <> n then (
+			print("Assertion failed: get_size(rans) = n\n");
+			exit(1)
+    	);
+
+    	for i := 0 to get_size(rans)-1 do (
+    		if (rans[i] = 0) then (
+    			for j := i to get_size(rans)-1 do (
+					printint(rans[j] + 1);
+					print(" ")
+    			);
+    			for j := 0 to i do (
+					printint(rans[j] + 1);
+					print(" ")
+    			);
+    		
+    			break
+    		)
+    	)
+
+
+    )
+
+end

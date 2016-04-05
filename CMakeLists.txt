@@ -1,4 +1,5 @@
 project(compiler)
+#add_definitions(-DDEBUG)
 
 find_package(FLEX)
 find_package(BISON)

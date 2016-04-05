@@ -219,12 +219,19 @@ vardec: SYM_VAR SYM_ID SYM_ASSIGN expression {$$ = new Syntax::VariableDeclarati
 funcdec: SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_EQUAL expression {
            $$ = new Syntax::Function(idProvider.getId(), $2, NULL, $4, $7);
        }
+       | SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN {
+           $$ = new Syntax::Function(idProvider.getId(), $2, NULL, $4, NULL);
+       }
        | SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_COLON SYM_ID SYM_EQUAL expression {
            $$ = new Syntax::Function(idProvider.getId(), $2, $7, $4, $9);
+       }
+       | SYM_FUNCTION SYM_ID SYM_OPENPAREN fieldsdec SYM_CLOSEPAREN SYM_COLON SYM_ID{
+           $$ = new Syntax::Function(idProvider.getId(), $2, $7, $4, NULL);
        }
 
 %%
 int yyerror(const char *s)
 {
 	Error::error(s);
+	exit(1);
 }

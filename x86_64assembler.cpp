@@ -840,7 +840,7 @@ void X86_64Assembler::replaceRegisterUsage(Instructions &code,
 				(*inst).is_reg_to_reg_assign = false;
 			} else {
 				IR::VirtualRegister *temp = IRenvironment->addRegister();
-				addInstruction(code, "movq ", replacement, ", ", temp,
+				addInstruction(code, "movq ", replacement, ", " + Instruction::Output(0), temp,
 					NULL, NULL, &inst);
 				(*inst).inputs[i] = temp;
 			}
@@ -966,7 +966,8 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 						IR::ToMemoryExpression(storage_exp));
 				else {
 					IR::VirtualRegister *temp = IRenvironment->addRegister();
-					addInstruction(code, "movq ", storage_exp, ", ", temp,
+					addInstruction(code, "movq ", storage_exp,
+						", " + Instruction::Output(0), temp,
 						NULL, NULL, &inst);
 					for (int i = 0; i < (*inst).inputs.size(); i++)
 						if ((*inst).inputs[i]->getIndex() == reg->getIndex())

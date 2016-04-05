@@ -1,0 +1,179 @@
+let
+	var inf := 1400000000*1400000000
+	var sinf := 1000 * 1000 * 1000
+	var size := 200 * 1000 + 100
+
+	var n: int := 0
+	var have: int := 0
+	
+	type intarray = array of int
+	var h: intarray := intarray[size] of 0
+	var event: intarray := intarray[size] of 0
+	var psum: intarray := intarray[size] of 0
+	var events: intarray := intarray[size] of 0
+	var left: intarray := intarray[size] of 0
+	var right: intarray := intarray[size] of 0
+	
+	function printint(i: int) =
+	let
+		function f(i:int) =
+			if i>0 then (
+				f(i/10);
+				print(chr(i-i/10*10+ord("0")))
+			)
+	in
+		if i<0 then (
+			print("-");
+			f(-i)
+		) else if i>0 then
+			f(i)
+		else
+			print("0")
+	end
+
+	var buffer := getchar()
+	function readint() : int =
+	let
+		var i := 0
+		function isdigit(s : string) : int = 
+			ord(buffer)>=ord("0") & ord(buffer)<=ord("9")
+		function skipto() =
+			while buffer=" " | buffer="\n" | buffer="\r" do
+				buffer := getchar()
+	in
+		skipto();
+		while isdigit(buffer) do (
+			i := i*10+ord(buffer)-ord("0");
+			buffer := getchar()
+		);
+		i
+	end
+
+	function min(a: int, b: int): int =
+		if a < b then a else b
+
+	function max(a: int, b: int): int =
+		if a > b then a else b
+
+	function getsum(lb: int, rb: int): int =
+	let
+		var lb := max(lb, 0)
+		var rb := min(rb, n - 1)
+	in
+		if (lb > rb) then
+			0
+		else psum[rb + 1] - psum[lb]
+	end
+
+	function calcleft(th: int) =
+	let
+		var cur := 0
+		var sfrom := 0
+	in
+		for i := 0 to n-1 do (
+			events[i] := i - th
+		);
+		cur := -th;
+		for i := 0 to n-1 do (
+			sfrom := max(i, i + (th - h[i]));
+			if (sfrom < n) then (
+				events[sfrom] := max(events[sfrom], i)
+			);
+
+			cur := max(cur, events[i]);
+			left[i] := cur
+		)
+	end
+
+	function calcright(th: int)  =
+	let
+		var cur := 0
+		var sfrom := 0
+		var i := 0
+	in
+		for i := 0 to n-1 do
+			events[i] := i + th;
+		cur := n + th;
+		/*for (int i = n - 1; i >= 0; i--) {*/
+		for ii := 0 to n-1 do (
+			i := n-1 - ii;
+			sfrom := min(i, i - (th - h[i]));
+			if (sfrom >= 0) then
+				events[sfrom] := min(events[sfrom], i);
+
+			cur := min(cur, events[i]);
+			right[i] := cur
+		)
+	end
+
+	function getans(mid: int): int =
+	let
+		var ans := 0
+		var cur := 0
+	in
+		calcleft(mid);
+		calcright(mid);
+
+		ans := inf;
+
+		for i := 0 to n-1 do (
+			if (left[i] < -1 | right[i] > n) then
+				/*continue;*/ ()
+			else (
+				cur := 0;
+				if (left[i] < i - 1) then
+					cur := cur + (mid - 1 + mid - (i - left[i]) + 1) * (i - left[i] - 1)  / 2;
+				if (right[i] > i + 1) then
+					cur := cur + (mid - 1 + mid - (right[i] - i) + 1) * (right[i] - i - 1) / 2;
+				if (left[i] < i & right[i] > i) then
+					cur := cur + mid;
+
+				cur := cur - getsum(left[i] + 1, right[i] - 1);
+
+				/*cerr << mid << ' ' << i << ' ' << left[i] << ' ' << right[i] << ' ' << cur << endl; */
+
+				ans := min(ans, cur)
+			)
+		);
+
+		ans
+	end
+
+	var lb := 0
+	var rb := 0
+	var mid := 0
+in
+/*
+    freopen("landscape.in", "w", stdout);
+    int n = 100 * 1000;
+    int hv = 1000 * 1000 * 1000;
+    cout << n << ' ' << hv * 1ll * hv << endl;
+    for (int i = 0; i < n; i++)
+    	cout << hv << endl;
+    return 0;
+ */   
+    n := readint();
+    have := readint();
+
+    for i := 0 to n-1 do (
+		h[i] := readint()
+	);
+    psum[0] := 0;
+    for i := 0 to n-1 do
+    	psum[i + 1] := psum[i] + h[i];
+
+    lb := 0;
+    rb := 2 * sinf;
+
+    while (lb < rb) do (
+    	mid := (lb + rb + 1) / 2;
+
+    	if (getans(mid) <= have) then (
+    		lb := mid
+    	) else (
+    		rb := mid - 1
+    	)
+    );
+
+    printint(lb); print("\n")
+end

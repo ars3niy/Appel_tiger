@@ -143,21 +143,23 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 				&(impl->functions.back()));
 			impl->var_info.add(func_declaration->id, &(impl->functions.back()));
 			
-			impl->variable_names.newLayer();
-			for (std::list<Syntax::Tree>::iterator param = func_declaration->parameters->expressions.begin();
-					param != func_declaration->parameters->expressions.end();
-					param++) {
-				assert((*param)->type == Syntax::PARAMETERDECLARATION);
-				impl->variables.push_back(VarAccessDefInfo(
-					((Syntax::ParameterDeclaration *) *param)->id,
-					func_declaration->id, false));
-				impl->variable_names.add(((Syntax::VariableDeclaration *) *param)->name->name,
-					&(impl->variables.back()));
+			if (func_declaration->body != NULL) {
+				impl->variable_names.newLayer();
+				for (std::list<Syntax::Tree>::iterator param = func_declaration->parameters->expressions.begin();
+						param != func_declaration->parameters->expressions.end();
+						param++) {
+					assert((*param)->type == Syntax::PARAMETERDECLARATION);
+					impl->variables.push_back(VarAccessDefInfo(
+						((Syntax::ParameterDeclaration *) *param)->id,
+						func_declaration->id, false));
+					impl->variable_names.add(((Syntax::VariableDeclaration *) *param)->name->name,
+						&(impl->variables.back()));
+				}
+				func_stack.push_back(func_declaration->id);
+				processExpression(func_declaration->body, func_declaration->id);
+				func_stack.pop_back();
+				impl->variable_names.removeLastLayer();
 			}
-			func_stack.push_back(func_declaration->id);
-			processExpression(func_declaration->body, func_declaration->id);
-			func_stack.pop_back();
-			impl->variable_names.removeLastLayer();
 			break;
 		}
 		default:
