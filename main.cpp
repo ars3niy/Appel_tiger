@@ -87,7 +87,7 @@ void TranslateProgram()
 
 	IR::AbstractFrame *body_frame;
 	Semantic::Type *type;
-	IR::Statement *program_body;
+	IR::Statement program_body;
 	translator.translateProgram(parsed_progrom, program_body, body_frame);
 	parsed_progrom = nullptr;
 	

@@ -20,7 +20,7 @@ public:
 		AbstractVarLocation(frame), is_register(true), offset(0),
 		reg(_register)
 	{}
-	virtual IR::Expression *createCode(AbstractFrame *frame);
+	virtual IR::Expression createCode(AbstractFrame *frame);
 	virtual bool isRegister() {return reg != NULL;}
 	VirtualRegister *getRegister() {return reg;}
 	virtual void prespillRegister(AbstractVarLocation *location)

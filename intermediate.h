@@ -6,8 +6,17 @@
 #include <string>
 #include <stdio.h>
 #include <vector>
+#include <memory>
 
 namespace IR { // Intermediate Representation
+
+class StatementClass;
+class ExpressionClass;
+class CodeClass;
+
+typedef std::shared_ptr<ExpressionClass> Expression;
+typedef std::shared_ptr<StatementClass> Statement;
+typedef std::shared_ptr<CodeClass> Code;
 
 class Label {
 private:
@@ -125,83 +134,81 @@ enum ComparisonOp {
 	COMPOP_MAX
 };
 
-class Statement;
-
-class Expression {
+class ExpressionClass {
 public:
 	ExpressionKind kind;
 	
-	Expression(ExpressionKind _kind) : kind(_kind) {}
+	ExpressionClass(ExpressionKind _kind) : kind(_kind) {}
 };
 
-class IntegerExpression: public Expression {
+class IntegerExpression: public ExpressionClass {
 public:
 	int value;
 	
-	IntegerExpression(int _value) : Expression(IR_INTEGER), value(_value) {}
+	IntegerExpression(int _value) : ExpressionClass(IR_INTEGER), value(_value) {}
 };
 
-class LabelAddressExpression: public Expression {
+class LabelAddressExpression: public ExpressionClass {
 public:
 	Label *label;
 	
-	LabelAddressExpression(Label *_label) : Expression(IR_LABELADDR), label(_label) {}
+	LabelAddressExpression(Label *_label) : ExpressionClass(IR_LABELADDR), label(_label) {}
 };
 
-class RegisterExpression: public Expression {
+class RegisterExpression: public ExpressionClass {
 public:
 	VirtualRegister *reg;
 	
-	RegisterExpression(VirtualRegister *_reg) : Expression(IR_REGISTER), reg(_reg) {}
+	RegisterExpression(VirtualRegister *_reg) : ExpressionClass(IR_REGISTER), reg(_reg) {}
 };
 
-class BinaryOpExpression: public Expression {
+class BinaryOpExpression: public ExpressionClass {
 public:
 	BinaryOp operation;
-	Expression *left, *right;
+	Expression left, right;
 	
-    BinaryOpExpression(BinaryOp _op, Expression *_left, Expression *_right) :
-		Expression(IR_BINARYOP), operation(_op), left(_left), right(_right) {}
+    BinaryOpExpression(BinaryOp _op, Expression _left, Expression _right) :
+		ExpressionClass(IR_BINARYOP), operation(_op), left(_left), right(_right) {}
 };
 
-class MemoryExpression: public Expression {
+class MemoryExpression: public ExpressionClass {
 public:
-	Expression *address;
+	Expression address;
 	
-    MemoryExpression(Expression *_address) : Expression(IR_MEMORY),
+    MemoryExpression(Expression _address) : ExpressionClass(IR_MEMORY),
 		address(_address) {}
 };
 
-class CallExpression: public Expression {
+class CallExpression: public ExpressionClass {
 public:
-	Expression *function;
-	std::list<Expression *> arguments;
-	Expression *callee_parentfp;
+	Expression function;
+	std::list<Expression > arguments;
+	Expression callee_parentfp;
 	
-	CallExpression(Expression *_func, Expression *_callee_parentfp) :
-		Expression(IR_FUN_CALL), function(_func), callee_parentfp(_callee_parentfp)
+	CallExpression(Expression _func, Expression _callee_parentfp) :
+		ExpressionClass(IR_FUN_CALL), function(_func), callee_parentfp(_callee_parentfp)
 	{}
 	
-	void addArgument(Expression *arg)
+	void addArgument(Expression arg)
 	{
 		arguments.push_back(arg);
 	}
 };
 
-class StatExpSequence: public Expression {
+class StatExpSequence: public ExpressionClass {
 public:
-	Statement *stat;
-	Expression *exp;
+	Statement stat;
+	Expression exp;
 	
-    StatExpSequence(Statement *_stat, Expression *_exp) :
-		Expression(IR_STAT_EXP_SEQ), stat(_stat), exp(_exp) {}
+    StatExpSequence(Statement _stat, Expression _exp) :
+		ExpressionClass(IR_STAT_EXP_SEQ), stat(_stat), exp(_exp) {}
 };
 
 #define DECLARE_EXPRESSION_CONVERSION(type, code) \
-static inline type *To ## type(Expression *e) \
+static inline std::shared_ptr<type> To ## type(Expression e) \
 { \
 	assert(e->kind == code); \
-	return (type *)e; \
+	return std::static_pointer_cast<type>(e); \
 }
 
 DECLARE_EXPRESSION_CONVERSION(IntegerExpression, IR_INTEGER);
@@ -214,39 +221,39 @@ DECLARE_EXPRESSION_CONVERSION(StatExpSequence, IR_STAT_EXP_SEQ);
 
 #undef DECLARE_EXPRESSION_CONVERSION
 
-class Statement {
+class StatementClass {
 public:
 	StatementKind kind;
 	
-	Statement(StatementKind _kind) : kind(_kind) {}
+	StatementClass(StatementKind _kind) : kind(_kind) {}
 };
 
-class MoveStatement: public Statement {
+class MoveStatement: public StatementClass {
 public:
-	Expression *to, *from;
+	Expression to, from;
 	
-    MoveStatement(Expression *_to, Expression *_from) :
-		Statement(IR_MOVE), to(_to), from(_from)
+    MoveStatement(Expression _to, Expression _from) :
+		StatementClass(IR_MOVE), to(_to), from(_from)
 	{}
 };
 
-class ExpressionStatement: public Statement {
+class ExpressionStatement: public StatementClass {
 public:
-	Expression *exp;
+	Expression exp;
 	
-    ExpressionStatement(Expression *_exp) : Statement(IR_EXP_IGNORE_RESULT),
+    ExpressionStatement(Expression _exp) : StatementClass(IR_EXP_IGNORE_RESULT),
 		exp(_exp) {}
 };
 
-class JumpStatement: public Statement {
+class JumpStatement: public StatementClass {
 public:
-	Expression *dest;
+	Expression dest;
 	
 	std::list<Label *> possible_results;
 	
-    JumpStatement(Expression *_dest) : Statement(IR_JUMP), dest(_dest) {}
-    JumpStatement(Expression *_dest, Label *only_option) :
-		Statement(IR_JUMP), dest(_dest)
+    JumpStatement(Expression _dest) : StatementClass(IR_JUMP), dest(_dest) {}
+    JumpStatement(Expression _dest, Label *only_option) :
+		StatementClass(IR_JUMP), dest(_dest)
 	{
 		possible_results.push_back(only_option);
 	}
@@ -256,43 +263,43 @@ public:
 	}
 };
 
-class CondJumpStatement: public Statement {
+class CondJumpStatement: public StatementClass {
 public:
 	ComparisonOp comparison;
-	Expression *left, *right;
+	Expression left, right;
 	Label *true_dest, *false_dest;
 	
-	CondJumpStatement(ComparisonOp _comparison, Expression *_left,
-			Expression *_right, Label *_true_dest, Label *_false_dest) :
-		Statement(IR_COND_JUMP), comparison(_comparison), left(_left),
+	CondJumpStatement(ComparisonOp _comparison, Expression _left,
+			Expression _right, Label *_true_dest, Label *_false_dest) :
+		StatementClass(IR_COND_JUMP), comparison(_comparison), left(_left),
 		right(_right), true_dest(_true_dest), false_dest(_false_dest) {}
 };
 
 void FlipComparison(CondJumpStatement *jump);
 
-class StatementSequence: public Statement {
+class StatementSequence: public StatementClass {
 public:
-	std::list<Statement *>statements;
+	std::list<Statement> statements;
 	
-    StatementSequence() : Statement(IR_STAT_SEQ) {}
-    void addStatement(Statement *stat)
+    StatementSequence() : StatementClass(IR_STAT_SEQ) {}
+    void addStatement(Statement stat)
 	{
 		statements.push_back(stat);
 	}
 };
 
-class LabelPlacementStatement: public Statement {
+class LabelPlacementStatement: public StatementClass {
 public:
 	Label *label;
 	
-    LabelPlacementStatement(Label *_label) : Statement(IR_LABEL), label(_label) {}
+    LabelPlacementStatement(Label *_label) : StatementClass(IR_LABEL), label(_label) {}
 };
 
 #define DECLARE_STATEMENT_CONVERSION(type, code) \
-static inline type *To ## type(Statement *s) \
+static inline std::shared_ptr<type> To ## type(Statement s) \
 { \
 	assert(s->kind == code); \
-	return (type *)s; \
+	return std::static_pointer_cast<type>(s); \
 }
 
 DECLARE_STATEMENT_CONVERSION(MoveStatement, IR_MOVE);
@@ -310,43 +317,36 @@ enum NodeKind {
 	CODE_JUMP_WITH_PATCHES
 };
 
-class Code {
+class CodeClass {
 public:
 	NodeKind kind;
 	
-	Code(NodeKind _kind) : kind(_kind) {}
+	CodeClass(NodeKind _kind) : kind(_kind) {}
 };
 
-class ExpressionCode: public Code {
+class ExpressionCode: public CodeClass {
 public:
-	Expression *exp;
+	Expression exp;
 	
-	ExpressionCode(Expression *_exp) : Code(CODE_EXPRESSION), exp(_exp) {}
+	ExpressionCode(Expression _exp) : CodeClass(CODE_EXPRESSION), exp(_exp) {}
 };
 
-class StatementCode: public Code {
+class StatementCode: public CodeClass {
 public:
-	Statement *statm;
+	Statement statm;
 	
-	StatementCode(Statement *_statm) : Code(CODE_STATEMENT), statm(_statm) {}
+	StatementCode(Statement _statm) : CodeClass(CODE_STATEMENT), statm(_statm) {}
 };
 
 class CondJumpPatchesCode: public StatementCode {
 public:
 	std::list<Label**> replace_true, replace_false;
 	
-    CondJumpPatchesCode(Statement *_statm) : StatementCode(_statm)
+    CondJumpPatchesCode(Statement _statm) : StatementCode(_statm)
 	{
 		kind = CODE_JUMP_WITH_PATCHES;
 	}
 };
-
-/**
- * Recursively delete the entire tree
- */
-void DestroyExpression(Expression *&expression);
-void DestroyStatement(Statement *&statement);
-void DestroyCode(Code *&code);
 
 void putLabels(const std::list<Label**> &replace_true, 
 	const std::list<Label**> &replace_false, Label *truelabel, Label *falselabel);
@@ -370,14 +370,14 @@ public:
 	const std::list<Blob> &getBlobs() {return blobs;}
 	void printBlobs(FILE *out);
 	
-	Expression *killCodeToExpression(Code *&code);
-	Statement *killCodeToStatement(Code *&code);
-	Statement *killCodeToCondJump(Code *&code, std::list<Label**> &replace_true,
+	Expression codeToExpression(Code code);
+	Statement codeToStatement(Code code);
+	Statement codeToCondJump(Code code, std::list<Label**> &replace_true,
 		std::list<Label**> &replace_false);
 };
 
-void PrintCode(FILE *out, Code *code, int indent = 0);
-void PrintStatement(FILE *out, Statement *statm, int indent=0,
+void PrintCode(FILE *out, Code code, int indent = 0);
+void PrintStatement(FILE *out, Statement statm, int indent=0,
 	const char *prefix = "");
 
 };

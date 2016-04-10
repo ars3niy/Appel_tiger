@@ -62,18 +62,18 @@ enum {
 X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	: Assembler(ir_env)
 {
-	exp_int = new IR::IntegerExpression(0);
-	exp_label = new IR::LabelAddressExpression(NULL);
-	exp_register = new IR::RegisterExpression(NULL);
+	exp_int = std::make_shared<IR::IntegerExpression>(0);
+	exp_label = std::make_shared<IR::LabelAddressExpression>(nullptr);
+	exp_register = std::make_shared<IR::RegisterExpression>(nullptr);
 	
 	memory_exp.push_back(exp_int);
 	memory_exp.push_back(exp_label);
 	memory_exp.push_back(exp_register);
 	// reg + const, const + reg
-	memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, exp_register, exp_int));
-	memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, exp_int, exp_register));
+	memory_exp.push_back(std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_register, exp_int));
+	memory_exp.push_back(std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_int, exp_register));
 	// reg - const
-	memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, exp_register, exp_int));
+	memory_exp.push_back(std::make_shared<IR::BinaryOpExpression>(IR::OP_MINUS, exp_register, exp_int));
 #if 0
 	// reg + reg
 	memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, exp_register, exp_register));
@@ -134,10 +134,10 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	
 	addTemplate(I_YIELD, exp_int);
 	addTemplate(I_YIELD, exp_label);
-	addTemplate(I_LABEL, new IR::LabelPlacementStatement(NULL));
+	addTemplate(I_LABEL, std::make_shared<IR::LabelPlacementStatement>(nullptr));
 	addTemplate(I_YIELD, exp_register);
-	for (IR::Expression *exp: memory_exp)
-		addTemplate(I_YIELD, new IR::MemoryExpression(exp));
+	for (IR::Expression exp: memory_exp)
+		addTemplate(I_YIELD, std::make_shared<IR::MemoryExpression>(exp));
 	
 	make_arithmetic(I_ADD, IR::OP_PLUS);
 	make_arithmetic(I_SUB, IR::OP_MINUS);
@@ -158,10 +158,10 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	make_comparison(I_CMPJUGE, IR::OP_UGREATEQUAL);
 	make_assignment();
 	
-	addTemplate(I_CALL, new IR::CallExpression(new IR::LabelAddressExpression(NULL), NULL));
-	addTemplate(I_CALL, new IR::CallExpression(new IR::RegisterExpression(NULL), NULL));
-	addTemplate(I_JMP, new IR::JumpStatement(new IR::LabelAddressExpression(NULL)));
-	addTemplate(I_JMP, new IR::JumpStatement(new IR::RegisterExpression(NULL)));
+	addTemplate(I_CALL, std::make_shared<IR::CallExpression>(std::make_shared<IR::LabelAddressExpression>(nullptr), nullptr));
+	addTemplate(I_CALL, std::make_shared<IR::CallExpression>(std::make_shared<IR::RegisterExpression>(nullptr), nullptr));
+	addTemplate(I_JMP, std::make_shared<IR::JumpStatement>(std::make_shared<IR::LabelAddressExpression>(nullptr)));
+	addTemplate(I_JMP, std::make_shared<IR::JumpStatement>(std::make_shared<IR::RegisterExpression>(nullptr)));
 	
 	static const char *register_names[] = {
 		"%rax",
@@ -208,56 +208,57 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 void X86_64Assembler::make_arithmetic(int asm_code, IR::BinaryOp ir_code)
 {
 	// don't forget cqo
-	addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_register, exp_int));
-	addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_register, exp_register));
-	for (IR::Expression *exp: memory_exp) {
-		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_register,
-			new IR::MemoryExpression(exp)));
-		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_int,
-			new IR::MemoryExpression(exp)));
-		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code,
-			new IR::MemoryExpression(exp), exp_register));
-		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code,
-			new IR::MemoryExpression(exp), exp_int));
+	addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_int));
+	addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_register));
+	for (IR::Expression exp: memory_exp) {
+		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register,
+			std::make_shared<IR::MemoryExpression>(exp)));
+		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int,
+			std::make_shared<IR::MemoryExpression>(exp)));
+		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code,
+			std::make_shared<IR::MemoryExpression>(exp), exp_register));
+		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code,
+			std::make_shared<IR::MemoryExpression>(exp), exp_int));
 	}
-	for (IR::Expression *exp1: memory_exp)
-		for (IR::Expression *exp2: memory_exp)
-			addTemplate(asm_code, new IR::BinaryOpExpression(ir_code,
-				new IR::MemoryExpression(exp1), new IR::MemoryExpression(exp2)));
+	for (IR::Expression exp1: memory_exp)
+		for (IR::Expression exp2: memory_exp)
+			addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code,
+				std::make_shared<IR::MemoryExpression>(exp1),
+				std::make_shared<IR::MemoryExpression>(exp2)));
 }
 
 void X86_64Assembler::make_comparison(int asm_code, IR::ComparisonOp ir_code)
 {
-	addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_register, exp_int, NULL, NULL));
-	addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_register, exp_register, NULL, NULL));
-	for (IR::Expression *exp: memory_exp) {
-		addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_register,
-			new IR::MemoryExpression(exp), NULL, NULL));
-		addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_int,
-			new IR::MemoryExpression(exp), NULL, NULL));
-		addTemplate(asm_code, new IR::CondJumpStatement(ir_code,
-			new IR::MemoryExpression(exp), exp_register, NULL, NULL));
-		addTemplate(asm_code, new IR::CondJumpStatement(ir_code,
-			new IR::MemoryExpression(exp), exp_int, NULL, NULL));
+	addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_register, exp_int, nullptr, nullptr));
+	addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_register, exp_register, nullptr, nullptr));
+	for (IR::Expression exp: memory_exp) {
+		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_register,
+			std::make_shared<IR::MemoryExpression>(exp), nullptr, nullptr));
+		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_int,
+			std::make_shared<IR::MemoryExpression>(exp), nullptr, nullptr));
+		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code,
+			std::make_shared<IR::MemoryExpression>(exp), exp_register, nullptr, nullptr));
+		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code,
+			std::make_shared<IR::MemoryExpression>(exp), exp_int, nullptr, nullptr));
 	}
 }
 
 void X86_64Assembler::make_assignment()
 {
 	int asm_code = I_MOV;
-	addTemplate(asm_code, new IR::MoveStatement(exp_register, exp_int));
-	addTemplate(asm_code, new IR::MoveStatement(exp_register, exp_label));
-	addTemplate(asm_code, new IR::MoveStatement(exp_register, exp_register));
-	for (IR::Expression *exp: memory_exp) {
-		addTemplate(asm_code, new IR::MoveStatement(exp_register,
-			new IR::MemoryExpression(exp)));
-		addTemplate(asm_code, new IR::MoveStatement(exp_register, exp));
-		addTemplate(asm_code, new IR::MoveStatement(
-			new IR::MemoryExpression(exp), exp_register));
-		addTemplate(asm_code, new IR::MoveStatement(
-			new IR::MemoryExpression(exp), exp_int));
-		addTemplate(asm_code, new IR::MoveStatement(
-			new IR::MemoryExpression(exp), exp_label));
+	addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp_int));
+	addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp_label));
+	addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp_register));
+	for (IR::Expression exp: memory_exp) {
+		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register,
+			std::make_shared<IR::MemoryExpression>(exp)));
+		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp));
+		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(
+			std::make_shared<IR::MemoryExpression>(exp), exp_register));
+		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(
+			std::make_shared<IR::MemoryExpression>(exp), exp_int));
+		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(
+			std::make_shared<IR::MemoryExpression>(exp), exp_label));
 	}
 }
 
@@ -268,7 +269,7 @@ static std::string IntToStr(int x)
 	return std::string(buf);
 }
 
-void X86_64Assembler::makeOperand(IR::Expression *expression,
+void X86_64Assembler::makeOperand(IR::Expression expression,
 	std::vector<IR::VirtualRegister *> &add_inputs,
 	std::string &notation)
 {
@@ -283,8 +284,8 @@ void X86_64Assembler::makeOperand(IR::Expression *expression,
 			notation = Instruction::Input(add_inputs.size());
 			add_inputs.push_back(IR::ToRegisterExpression(expression)->reg);
 			break;
-		case IR::IR_MEMORY:
-			IR::Expression *addr = IR::ToMemoryExpression(expression)->address;
+		case IR::IR_MEMORY: {
+			IR::Expression addr = IR::ToMemoryExpression(expression)->address;
 			switch (addr->kind) {
 				case IR::IR_REGISTER:
 					notation = "(" + Instruction::Input(add_inputs.size()) + ")";
@@ -295,42 +296,51 @@ void X86_64Assembler::makeOperand(IR::Expression *expression,
 						IR::ToLabelAddressExpression(addr)->label->getName() + ")";
 					break;
 				case IR::IR_BINARYOP: {
-					IR::BinaryOpExpression *binop = IR::ToBinaryOpExpression(addr);
+					std::shared_ptr<IR::BinaryOpExpression> binop =
+						IR::ToBinaryOpExpression(addr);
 					if (binop->operation == IR::OP_PLUS) {
 						if (binop->left->kind == IR::IR_INTEGER) {
-							IR::MemoryExpression base(binop->right);
+							std::shared_ptr<IR::MemoryExpression> base =
+								std::make_shared<IR::MemoryExpression>(binop->right);
 							int offset = IR::ToIntegerExpression(binop->left)->value;
-							makeOperand(&base, add_inputs, notation);
+							makeOperand(base, add_inputs, notation);
 							if (offset != 0)
 								notation = IntToStr(offset) + notation;
 						} else if (binop->right->kind == IR::IR_INTEGER) {
-							IR::MemoryExpression base(binop->left);
+							std::shared_ptr<IR::MemoryExpression> base =
+								std::make_shared<IR::MemoryExpression>(binop->left);
 							int offset = IR::ToIntegerExpression(binop->right)->value;
-							makeOperand(&base, add_inputs, notation);
+							makeOperand(base, add_inputs, notation);
 							if (offset != 0)
 								notation = IntToStr(offset) + notation;
 						} else
 							Error::fatalError("Too complicated x86_64 assembler memory address");
 					} else if (binop->operation == IR::OP_MINUS) {
 						if (binop->right->kind == IR::IR_INTEGER) {
-							IR::MemoryExpression base(binop->left);
+							std::shared_ptr<IR::MemoryExpression> base =
+								std::make_shared<IR::MemoryExpression>(binop->left);
 							int offset = -IR::ToIntegerExpression(binop->right)->value;
-							makeOperand(&base, add_inputs, notation);
+							makeOperand(base, add_inputs, notation);
 							if (offset != 0)
 								notation = IntToStr(offset) + notation;
 						} else
 							Error::fatalError("Too complicated x86_64 assembler memory address");
 					} else
 						Error::fatalError("Too complicated x86_64 assembler memory address");
+					break;
 				}
-				break;
+			default:
+				Error::fatalError("Too complicated x86_64 assembler memory address");
 			}
 			break;
+		}
+		default:
+			Error::fatalError("Strange assembler operand");
 	}
 }
 	
 void X86_64Assembler::addInstruction(Instructions &result,
-	const std::string &prefix, IR::Expression *operand,
+	const std::string &prefix, IR::Expression operand,
 	const std::string &suffix, IR::VirtualRegister *output0,
 	IR::VirtualRegister *extra_input, IR::VirtualRegister *extra_output,
 	Instructions::iterator *insert_before)
@@ -342,7 +352,6 @@ void X86_64Assembler::addInstruction(Instructions &result,
 		inputs.push_back(extra_input);
 	notation = prefix + notation + suffix;
 	std::vector<IR::VirtualRegister *> outputs;
-	int noutput = 0;
 	if (output0 != NULL) {
 		outputs.push_back(output0);
 		if (extra_output != NULL)
@@ -362,8 +371,8 @@ void X86_64Assembler::addInstruction(Instructions &result,
 }
 
 void X86_64Assembler::addInstruction(Instructions &result,
-	const std::string &prefix, IR::Expression *operand0,
-	const std::string &suffix, IR::Expression *operand1)
+	const std::string &prefix, IR::Expression operand0,
+	const std::string &suffix, IR::Expression operand1)
 {
 	std::vector<IR::VirtualRegister *> inputs;
 	std::string s0;
@@ -374,7 +383,7 @@ void X86_64Assembler::addInstruction(Instructions &result,
 		inputs, {}, false));
 }
 
-void X86_64Assembler::placeCallArguments(const std::list<IR::Expression * >& arguments,
+void X86_64Assembler::placeCallArguments(const std::list<IR::Expression>& arguments,
 	Instructions &result)
 {
 	int arg_count = 0;
@@ -403,7 +412,7 @@ void X86_64Assembler::placeCallArguments(const std::list<IR::Expression * >& arg
 	}
 }
 
-void X86_64Assembler::removeCallArguments(const std::list< IR::Expression* >& arguments,
+void X86_64Assembler::removeCallArguments(const std::list< IR::Expression>& arguments,
 	Instructions &result)
 {
 	int stack_arg_count = arguments.size()-6;
@@ -412,7 +421,7 @@ void X86_64Assembler::removeCallArguments(const std::list< IR::Expression* >& ar
 			IntToStr(stack_arg_count*8) + std::string(", %rsp")));
 }
 
-void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
+void X86_64Assembler::translateExpressionTemplate(IR::Expression templ,
 	IR::AbstractFrame *frame, IR::VirtualRegister *value_storage,
 	const std::list<TemplateChildInfo> &children, Instructions &result)
 {
@@ -430,7 +439,7 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			break;
 		case IR::IR_BINARYOP:
 			if (value_storage != NULL) {
-				IR::BinaryOpExpression *bin_op = IR::ToBinaryOpExpression(templ);
+				IR::BinaryOpExpression *bin_op = IR::ToBinaryOpExpression(templ).get();
 				debug("Translating binary operation %d translated as:", bin_op->operation);
 				switch (bin_op->operation) {
 					case IR::OP_PLUS:
@@ -514,7 +523,7 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			}
 			break;
 		case IR::IR_FUN_CALL: {
-			IR::CallExpression *call = IR::ToCallExpression(templ);
+			IR::CallExpression *call = IR::ToCallExpression(templ).get();
 			if (call->callee_parentfp != NULL) {
 				translateExpression(call->callee_parentfp, frame, 
 					machine_registers[R10], result);
@@ -549,12 +558,12 @@ const char *cond_jumps[] = {
 	"jae",
 };
 
-void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
+void X86_64Assembler::translateStatementTemplate(IR::Statement templ,
 	const std::list<TemplateChildInfo> &children, Instructions &result)
 {
 	switch (templ->kind) {
 		case IR::IR_JUMP: {
-			IR::JumpStatement *jump = IR::ToJumpStatement(templ);
+			IR::JumpStatement *jump = IR::ToJumpStatement(templ).get();
 			assert(jump->dest->kind == IR::IR_LABELADDR);
 			result.push_back(Instruction("jmp " +
 				IR::ToLabelAddressExpression(jump->dest)->label->getName(),
@@ -562,7 +571,7 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 			break;
 		}
 		case IR::IR_COND_JUMP: {
-			IR::CondJumpStatement *jump = IR::ToCondJumpStatement(templ);
+			IR::CondJumpStatement *jump = IR::ToCondJumpStatement(templ).get();
 			addInstruction(result, "cmp ", jump->right, ", ", jump->left);
 			result.push_back(Instruction(std::string(cond_jumps[jump->comparison]) +
 				" " + jump->true_dest->getName(), {}, {}, false, {NULL, jump->true_dest}));
@@ -573,15 +582,15 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 				IR::ToLabelPlacementStatement(templ)->label->getName() + ":"));
 			break;
 		case IR::IR_MOVE: {
-			IR::MoveStatement *move = IR::ToMoveStatement(templ);
+			IR::MoveStatement *move = IR::ToMoveStatement(templ).get();
 			const char *cmd = "movq ";
-			IR::Expression *from = move->from;
+			IR::Expression from = move->from;
 			if (move->from->kind == IR::IR_BINARYOP) {
 				assert(move->to->kind == IR::IR_REGISTER);
-				IR::MemoryExpression *fake_addr = new IR::MemoryExpression(move->from);
+				std::shared_ptr<IR::MemoryExpression> fake_addr =
+					std::make_shared<IR::MemoryExpression>(move->from);
 				addInstruction(result, "leaq ", fake_addr, ", "  + Instruction::Output(0),
 					ToRegisterExpression(move->to)->reg);
-				delete fake_addr;
 			} else if (move->from->kind == IR::IR_MEMORY) {
 				assert(move->to->kind == IR::IR_REGISTER);
 				addInstruction(result, "movq ", move->from, ", " + Instruction::Output(0),
@@ -798,7 +807,7 @@ int findRegister(const std::string &notation, bool input, int index)
 
 void X86_64Assembler::replaceRegisterUsage(Instructions &code,
 	std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
-	IR::MemoryExpression *replacement)
+	std::shared_ptr<IR::MemoryExpression> replacement)
 {
 	for (int i = 0; i < (*inst).inputs.size(); i++)
 		if ((*inst).inputs[i]->getIndex() == reg->getIndex()) {
@@ -834,7 +843,7 @@ void X86_64Assembler::replaceRegisterUsage(Instructions &code,
 
 void X86_64Assembler::replaceRegisterAssignment(Instructions &code,
 	std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
-	IR::MemoryExpression *replacement)
+	std::shared_ptr<IR::MemoryExpression> replacement)
 {
 	for (int i = 0; i < (*inst).outputs.size(); i++)
 		if ((*inst).outputs[i]->getIndex() == reg->getIndex()) {
@@ -884,7 +893,7 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 	if (reg->isPrespilled()) {
 		IR::X86_64VarLocation *stored_location =
 			(IR::X86_64VarLocation *)reg->getPrespilledLocation();
-		IR::Expression *storage_exp =
+		IR::Expression storage_exp =
 			stored_location->createCode(stored_location->owner_frame);
 		
 		bool seen_usage = false, seen_assignment = false;
@@ -925,12 +934,11 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 				replaceRegisterUsage(code, inst, reg,
 					IR::ToMemoryExpression(storage_exp));
 		}
-		IR::DestroyExpression(storage_exp);
 	} else {
 		IR::X86_64VarLocation *stored_location =
 			(IR::X86_64VarLocation *)frame->addVariable(".store." + reg->getName(),
 				8, true);
-		IR::Expression *storage_exp = IR::ToMemoryExpression(
+		IR::Expression storage_exp = IR::ToMemoryExpression(
 			stored_location->createCode(stored_location->owner_frame));
 		
 		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
@@ -962,8 +970,6 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 					IR::ToMemoryExpression(storage_exp));
 			}
 		}
-		
-		IR::DestroyExpression(storage_exp);
 	}
 }
 

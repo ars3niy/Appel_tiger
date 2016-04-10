@@ -18,7 +18,7 @@ public:
 	AbstractFrame *owner_frame;
 	
 	AbstractVarLocation(AbstractFrame *_frame) : owner_frame(_frame) {}
-	virtual IR::Expression *createCode(AbstractFrame *currentFrame) = 0;
+	virtual IR::Expression createCode(AbstractFrame *currentFrame) = 0;
 	virtual bool isRegister() = 0;
 	virtual void prespillRegister(AbstractVarLocation *location) = 0;
 };
@@ -26,7 +26,7 @@ public:
 class DummyVarLocation: public AbstractVarLocation {
 public:
 	DummyVarLocation(AbstractFrame *frame) : AbstractVarLocation(frame) {}
-	virtual IR::Expression *createCode(AbstractFrame *currentFrame) {return NULL;}
+	virtual IR::Expression createCode(AbstractFrame *currentFrame) {return nullptr;}
 	virtual bool isRegister() {return true;}
 	virtual void prespillRegister(AbstractVarLocation *) {}
 };

@@ -4,38 +4,38 @@
 
 namespace IR {
 
-bool isNop(Statement *statm)
+bool isNop(Statement statm)
 {
 	return (statm->kind == IR_EXP_IGNORE_RESULT) &&
 		ToExpressionStatement(statm)->exp->kind == IR_INTEGER;
 }
 
-bool canSwapExpAndStatement(Expression *exp, Statement *statm)
+bool canSwapExpAndStatement(Expression exp, Statement statm)
 {
 	return (exp->kind == IR_INTEGER) || (exp->kind == IR_LABELADDR) || isNop(statm);
 }
 
-bool canSwapExps(Expression *exp1, Expression *exp2)
+bool canSwapExps(Expression exp1, Expression exp2)
 {
 	return (exp1->kind == IR_INTEGER) || (exp2->kind == IR_LABELADDR) ||
 		(exp2->kind == IR_INTEGER) || (exp2->kind == IR_LABELADDR);
 }
 
-void IRTransformer::canonicalizeMemoryExp(Expression *&exp)
+void IRTransformer::canonicalizeMemoryExp(Expression &exp)
 {
-	MemoryExpression *mem_exp = ToMemoryExpression(exp);
+	std::shared_ptr<MemoryExpression> mem_exp = ToMemoryExpression(exp);
 	if (mem_exp->address->kind == IR_STAT_EXP_SEQ) {
-		StatExpSequence *stat_exp = ToStatExpSequence(mem_exp->address);
+		std::shared_ptr<StatExpSequence> stat_exp = ToStatExpSequence(mem_exp->address);
 		mem_exp->address = stat_exp->exp;
 		stat_exp->exp = mem_exp;
 		exp = stat_exp;
 	}
 }
 
-void growStatementSequence(StatementSequence *sequence, Statement *statement)
+void growStatementSequence(std::shared_ptr<StatementSequence> sequence, Statement statement)
 {
 	if (statement->kind == IR_STAT_SEQ) {
-		for (Statement *newstatm: ToStatementSequence(statement)->statements)
+		for (Statement newstatm: ToStatementSequence(statement)->statements)
 			sequence->addStatement(newstatm);
 	} else
 		sequence->addStatement(statement);
@@ -45,13 +45,13 @@ void growStatementSequence(StatementSequence *sequence, Statement *statement)
  * left and right can be overwritten
  * collected_statements is like a return value
  */
-void IRTransformer::pullStatementsOutOfTwoOperands(Expression *&left,
-	Expression *&right, StatementSequence *&collected_statements)
+void IRTransformer::pullStatementsOutOfTwoOperands(Expression &left,
+	Expression &right, std::shared_ptr<StatementSequence> &collected_statements)
 {
-	StatementSequence *pre_statements = new StatementSequence;
+	std::shared_ptr<StatementSequence> pre_statements = std::make_shared<StatementSequence>();
 	
 	if (left->kind == IR_STAT_EXP_SEQ) {
-		StatExpSequence *stat_exp = ToStatExpSequence(left);
+		std::shared_ptr<StatExpSequence> stat_exp = ToStatExpSequence(left);
 		
 		// stat_exp->exp cannot be IR_STAT_EXP_SEQ because
 		// canonicalize that has been called on left earlier
@@ -59,50 +59,46 @@ void IRTransformer::pullStatementsOutOfTwoOperands(Expression *&left,
 		assert(stat_exp->exp->kind != IR_STAT_EXP_SEQ);
 		left = stat_exp->exp;
 		growStatementSequence(pre_statements, stat_exp->stat);
-		delete stat_exp;
 	}
 
 	if (right->kind == IR_STAT_EXP_SEQ) {
-		StatExpSequence *stat_exp = ToStatExpSequence(right);
+		std::shared_ptr<StatExpSequence> stat_exp = ToStatExpSequence(right);
 		if (canSwapExpAndStatement(left, stat_exp->stat)) {
 			right = stat_exp->exp;
 			growStatementSequence(pre_statements, stat_exp->stat);
 		} else {
 			VirtualRegister *save_left = ir_env->addRegister();
-			pre_statements->addStatement(new MoveStatement(
-				new RegisterExpression(save_left), left));
+			pre_statements->addStatement(std::make_shared<MoveStatement>(
+				std::make_shared<RegisterExpression>(save_left), left));
 			growStatementSequence(pre_statements, stat_exp->stat);
-			left = new RegisterExpression(save_left);
+			left = std::make_shared<RegisterExpression>(save_left);
 			// left is free of IR_STAT_EXP_SEQ (see above)
 			// and so is stat_exp->exp for the same reason
 			assert(stat_exp->exp->kind != IR_STAT_EXP_SEQ);
 			right = stat_exp->exp;
 		}
-		delete stat_exp;
 	}
 
 	collected_statements = pre_statements;
 }
 
-void IRTransformer::canonicalizeBinaryOpExp(Expression *&exp)
+void IRTransformer::canonicalizeBinaryOpExp(Expression &exp)
 {
-	BinaryOpExpression *op_exp = ToBinaryOpExpression(exp);
-	StatementSequence *pre_statements;
+	std::shared_ptr<BinaryOpExpression> op_exp = ToBinaryOpExpression(exp);
+	std::shared_ptr<StatementSequence> pre_statements;
 	
 	pullStatementsOutOfTwoOperands(op_exp->left, op_exp->right, pre_statements);
 	
 	if (! pre_statements->statements.empty())
-		exp = new StatExpSequence(pre_statements, op_exp);
-	else
-		delete pre_statements;
+		exp = std::make_shared<StatExpSequence>(pre_statements, op_exp);
 }
 
-void IRTransformer::canonicalizeCallExp(Expression *&exp,
-	Expression *parentExpression, Statement *parentStatement)
+void IRTransformer::canonicalizeCallExp(Expression &exp,
+	Expression parentExpression, Statement parentStatement)
 {
-	CallExpression *call_exp = ToCallExpression(exp);
-	StatementSequence *pre_statements = new StatementSequence;
-	Expression **op_expression_at = &exp;
+	std::shared_ptr<CallExpression> call_exp = ToCallExpression(exp);
+	std::shared_ptr<StatementSequence> pre_statements = std::make_shared<StatementSequence>();
+	Expression *op_expression_at = &exp;
 	std::vector<bool> arg_saved;
 	arg_saved.resize(call_exp->arguments.size(), false);
 	
@@ -110,7 +106,7 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 	for (auto arg = call_exp->arguments.begin();
 			arg != call_exp->arguments.end(); arg++) {
 		if ((*arg)->kind == IR_STAT_EXP_SEQ) {
-			StatExpSequence *stat_exp = ToStatExpSequence(*arg);
+			std::shared_ptr<StatExpSequence> stat_exp = ToStatExpSequence(*arg);
 			int prev_index = 0;
 			for (auto prev_arg = call_exp->arguments.begin();
 					prev_arg != arg;  prev_arg++) {
@@ -128,9 +124,9 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 							// Need to save this expression
 							arg_saved[pre_prev_index] = true;
 							VirtualRegister *save_arg = ir_env->addRegister();
-							pre_statements->addStatement(new MoveStatement(
-								new RegisterExpression(save_arg), *pre_prev_arg));
-							*pre_prev_arg = new RegisterExpression(save_arg);
+							pre_statements->addStatement(std::make_shared<MoveStatement>(
+								std::make_shared<RegisterExpression>(save_arg), *pre_prev_arg));
+							*pre_prev_arg = std::make_shared<RegisterExpression>(save_arg);
 						}
 						pre_prev_index++;
 					}
@@ -138,9 +134,9 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 					// Now finally save the argument
 					arg_saved[prev_index] = true;
 					VirtualRegister *save_arg = ir_env->addRegister();
-					pre_statements->addStatement(new MoveStatement(
-						new RegisterExpression(save_arg), *prev_arg));
-					*prev_arg = new RegisterExpression(save_arg);
+					pre_statements->addStatement(std::make_shared<MoveStatement>(
+						std::make_shared<RegisterExpression>(save_arg), *prev_arg));
+					*prev_arg = std::make_shared<RegisterExpression>(save_arg);
 				}
 				prev_index++;
 			}
@@ -149,52 +145,49 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 			// IR_STAT_EXP_SEQ because recursize call to canonicalizeExpression
 			// has got rid of nested IR_STAT_EXP_SEQ before calling us
 			*arg = stat_exp->exp;
-			delete stat_exp;
 		}
 		arg_index++;
 	}
 	
-	Expression *transformed_call_exp;
+	Expression transformed_call_exp;
 	// Unless we are a child of statement "ignore expression result" or
 	// "Move function result to a constant destination" or child of nothing,
 	// replace call with moving return value to a register plus presenting
 	// the register
 	if (
-		(parentStatement == NULL) && (parentExpression == NULL) ||
-		(parentStatement != NULL) && (
+		((! parentStatement) && (! parentExpression)) ||
+		((parentStatement) && (
 			(parentStatement->kind == IR_EXP_IGNORE_RESULT) ||
-			(parentStatement->kind == IR_MOVE) && (
+			((parentStatement->kind == IR_MOVE) && (
 				(ToMoveStatement(parentStatement)->to->kind == IR_REGISTER) ||
-				(ToMoveStatement(parentStatement)->to->kind == IR_MEMORY) &&
-				(( ToMemoryExpression(ToMoveStatement(parentStatement)->to) )->address->kind == IR_LABELADDR)
-			)
-		)
+				((ToMoveStatement(parentStatement)->to->kind == IR_MEMORY) &&
+				(( ToMemoryExpression(ToMoveStatement(parentStatement)->to) )->address->kind == IR_LABELADDR))
+			))
+		))
 	) {
 		// Already a child of acceptable parent
 		transformed_call_exp = call_exp;
 	} else {
 		VirtualRegister *save_result = ir_env->addRegister();
-		pre_statements->addStatement(new MoveStatement(
-			new RegisterExpression(save_result), call_exp
+		pre_statements->addStatement(std::make_shared<MoveStatement>(
+			std::make_shared<RegisterExpression>(save_result), call_exp
 		));
-		transformed_call_exp = new RegisterExpression(save_result);
+		transformed_call_exp = std::make_shared<RegisterExpression>(save_result);
 	}
 		
 	if (! pre_statements->statements.empty())
-		exp = new StatExpSequence(pre_statements, transformed_call_exp);
-	else {
+		exp = std::make_shared<StatExpSequence>(pre_statements, transformed_call_exp);
+	else
 		exp = transformed_call_exp;
-		delete pre_statements;
-	}
 }
 
-void IRTransformer::combineStatExpSequences(StatExpSequence *exp)
+void IRTransformer::combineStatExpSequences(std::shared_ptr<StatExpSequence> exp)
 {
 	if (exp->exp->kind == IR_STAT_EXP_SEQ) {
-		StatExpSequence *child_stat_exp = ToStatExpSequence(exp->exp);
+		std::shared_ptr<StatExpSequence> child_stat_exp = ToStatExpSequence(exp->exp);
 		assert(child_stat_exp->exp->kind != IR_STAT_EXP_SEQ);
 		if (exp->stat->kind != IR_STAT_SEQ) {
-			StatementSequence *stat_sequence = new StatementSequence;
+			std::shared_ptr<StatementSequence> stat_sequence = std::make_shared<StatementSequence>();
 			stat_sequence->addStatement(exp->stat);
 			exp->stat = stat_sequence;
 		}
@@ -202,20 +195,15 @@ void IRTransformer::combineStatExpSequences(StatExpSequence *exp)
 		assert(exp->stat->kind == IR_STAT_SEQ);
 		growStatementSequence(ToStatementSequence(exp->stat),
 			child_stat_exp->stat);
-		if (child_stat_exp->stat->kind == IR_STAT_SEQ)
-			// After merging second sequence to the first, the second sequence
-			// object (not its items) can leave
-			delete ToStatementSequence(child_stat_exp->stat);
 		
 		exp->exp = child_stat_exp->exp;
-		delete child_stat_exp;
 	}
 }
 
-void IRTransformer::canonicalizeExpression(Expression *&exp,
-	Expression *parentExpression, Statement *parentStatement)
+void IRTransformer::canonicalizeExpression(Expression &exp,
+	Expression parentExpression, Statement parentStatement)
 {
-	std::list<Expression **> subexpressions;
+	std::list<Expression *> subexpressions;
 	
 	switch (exp->kind) {
 		case IR_INTEGER:
@@ -231,7 +219,7 @@ void IRTransformer::canonicalizeExpression(Expression *&exp,
 			break;
 		case IR_FUN_CALL: {
 			subexpressions.push_back(& ToCallExpression(exp)->function);
-			for (Expression *&arg: ToCallExpression(exp)->arguments)
+			for (Expression &arg: ToCallExpression(exp)->arguments)
 				subexpressions.push_back(&arg);
 			break;
 		}
@@ -243,7 +231,7 @@ void IRTransformer::canonicalizeExpression(Expression *&exp,
 			Error::fatalError("Unhandled IR::Expression kind");
 	}
 	
-	for (Expression **subexp: subexpressions)
+	for (Expression *subexp: subexpressions)
 		canonicalizeExpression(*subexp, exp, NULL);
 	
 	switch (exp->kind) {
@@ -276,26 +264,24 @@ void IRTransformer::canonicalizeExpression(Expression *&exp,
 	}
 }
 
-void IRTransformer::canonicalizeMoveStatement(Statement *&statm)
+void IRTransformer::canonicalizeMoveStatement(Statement &statm)
 {
-	MoveStatement *move_statm = ToMoveStatement(statm);
+	std::shared_ptr<MoveStatement> move_statm = ToMoveStatement(statm);
 	
 	if (move_statm->to->kind == IR_MEMORY) {
-		StatementSequence *pre_statements;
+		std::shared_ptr<StatementSequence> pre_statements;
 		pullStatementsOutOfTwoOperands(ToMemoryExpression(move_statm->to)->address,
 			move_statm->from, pre_statements);
 		if (! pre_statements->statements.empty()) {
 			pre_statements->addStatement(move_statm);
 			statm = pre_statements;
-		} else
-			delete pre_statements;
+		}
 	} else if (move_statm->to->kind == IR_REGISTER) {
 		if (move_statm->from->kind == IR_STAT_EXP_SEQ) {
-			StatementSequence *sequence = new StatementSequence;
-			StatExpSequence *stat_exp_seq = ToStatExpSequence(move_statm->from);
+			std::shared_ptr<StatementSequence> sequence = std::make_shared<StatementSequence>();
+			std::shared_ptr<StatExpSequence> stat_exp_seq = ToStatExpSequence(move_statm->from);
 			growStatementSequence(sequence, stat_exp_seq->stat);
 			move_statm->from = stat_exp_seq->exp;
-			delete stat_exp_seq;
 			growStatementSequence(sequence, move_statm);
 			statm = sequence;
 		}
@@ -303,49 +289,46 @@ void IRTransformer::canonicalizeMoveStatement(Statement *&statm)
 		Error::fatalError("canonicalizeMoveStatement: strange destination");
 }
 
-void IRTransformer::canonicalizeExpressionStatement(Statement *&statm)
+void IRTransformer::canonicalizeExpressionStatement(Statement &statm)
 {
-	ExpressionStatement *exp_statement = ToExpressionStatement(statm);
+	std::shared_ptr<ExpressionStatement> exp_statement = ToExpressionStatement(statm);
 	if (exp_statement->exp->kind == IR_STAT_EXP_SEQ) {
-		StatementSequence *sequence = new StatementSequence;
-		StatExpSequence *stat_exp_seq = ToStatExpSequence(exp_statement->exp);
+		std::shared_ptr<StatementSequence> sequence = std::make_shared<StatementSequence>();
+		std::shared_ptr<StatExpSequence> stat_exp_seq = ToStatExpSequence(exp_statement->exp);
 		growStatementSequence(sequence, stat_exp_seq->stat);
 		exp_statement->exp = stat_exp_seq->exp;
-		delete stat_exp_seq;
 		growStatementSequence(sequence, exp_statement);
 		statm = sequence;
 	}
 }
 
-void IRTransformer::canonicalizeJumpStatement(Statement *&statm)
+void IRTransformer::canonicalizeJumpStatement(Statement &statm)
 {
-	JumpStatement *jump_statement = ToJumpStatement(statm);
+	std::shared_ptr<JumpStatement> jump_statement = ToJumpStatement(statm);
 	if (jump_statement->dest->kind == IR_STAT_EXP_SEQ) {
-		StatementSequence *sequence = new StatementSequence;
-		StatExpSequence *stat_exp_seq = ToStatExpSequence(jump_statement->dest);
+		std::shared_ptr<StatementSequence> sequence = std::make_shared<StatementSequence>();
+		std::shared_ptr<StatExpSequence> stat_exp_seq = ToStatExpSequence(jump_statement->dest);
 		growStatementSequence(sequence, stat_exp_seq->stat);
 		jump_statement->dest = stat_exp_seq->exp;
-		delete stat_exp_seq;
 		growStatementSequence(sequence, jump_statement);
 		statm = sequence;
 	}
 }
 
-void IRTransformer::canonicalizeCondJumpStatement(Statement *&statm)
+void IRTransformer::canonicalizeCondJumpStatement(Statement &statm)
 {
-	CondJumpStatement *cjump_statm = ToCondJumpStatement(statm);
-	StatementSequence *pre_statements;
+	std::shared_ptr<CondJumpStatement> cjump_statm = ToCondJumpStatement(statm);
+	std::shared_ptr<StatementSequence> pre_statements;
 	
 	pullStatementsOutOfTwoOperands(cjump_statm->left, cjump_statm->right, pre_statements);
 	
 	if (! pre_statements->statements.empty()) {
 		pre_statements->addStatement(cjump_statm);
 		statm = pre_statements;
-	} else
-		delete pre_statements;
+	}
 }
 
-void IRTransformer::doChildrenAndMergeChildStatSequences(StatementSequence *statm)
+void IRTransformer::doChildrenAndMergeChildStatSequences(std::shared_ptr<StatementSequence> statm)
 {
 	auto child = statm->statements.begin();
 	while (child != statm->statements.end()) {
@@ -353,19 +336,18 @@ void IRTransformer::doChildrenAndMergeChildStatSequences(StatementSequence *stat
 		canonicalizeStatement(*child);
 		next++;
 		if ((*child)->kind == IR_STAT_SEQ) {
-			StatementSequence *subsequence = ToStatementSequence(*child);
-			for (Statement *subitem: subsequence->statements) {
+			std::shared_ptr<StatementSequence> subsequence = ToStatementSequence(*child);
+			for (Statement subitem: subsequence->statements) {
 				assert(subitem->kind != IR_STAT_SEQ);
 				statm->statements.insert(child, subitem);
 			}
-			delete subsequence;
 			statm->statements.erase(child);
 		}
 		child = next;
 	}
 }
 
-void IRTransformer::canonicalizeStatement(Statement *&statm)
+void IRTransformer::canonicalizeStatement(Statement &statm)
 {
 	switch (statm->kind) {
 		case IR_MOVE:
@@ -397,7 +379,7 @@ void IRTransformer::canonicalizeStatement(Statement *&statm)
 	}
 }
 
-void IRTransformer::splitToBlocks(StatementSequence* sequence,
+void IRTransformer::splitToBlocks(std::shared_ptr<StatementSequence> sequence,
 	BlockSequence& blocks)
 {
 	auto statm = sequence->statements.begin();
@@ -412,8 +394,8 @@ void IRTransformer::splitToBlocks(StatementSequence* sequence,
 			statm++;
 		} else {
 			new_block.start_label = ir_env->addLabel();
-			LabelPlacementStatement *label_statm =
-				new LabelPlacementStatement(new_block.start_label);
+			std::shared_ptr<LabelPlacementStatement> label_statm =
+				std::make_shared<LabelPlacementStatement>(new_block.start_label);
 			sequence->statements.insert(statm, label_statm);
 			new_block.statements.push_back(label_statm);
 		}
@@ -431,8 +413,8 @@ void IRTransformer::splitToBlocks(StatementSequence* sequence,
 			} else {
 				next_label = ToLabelPlacementStatement(*statm)->label;
 			}
-			JumpStatement *jump_to_next = new JumpStatement(
-				new LabelAddressExpression(next_label), next_label);
+			std::shared_ptr<JumpStatement> jump_to_next = std::make_shared<JumpStatement>(
+				std::make_shared<LabelAddressExpression>(next_label), next_label);
 			sequence->statements.insert(statm, jump_to_next);
 			new_block.statements.push_back(jump_to_next);
 		} else {
@@ -472,7 +454,7 @@ void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 		remaining_blocks.pop_front();
 		
 		while (true) {
-			Statement *jump_statement = current_block->statements.back();
+			Statement jump_statement = current_block->statements.back();
 			assert((jump_statement->kind == IR_JUMP) || (jump_statement->kind == IR_COND_JUMP));
 			Label *jump_label;
 			if (jump_statement->kind == IR_JUMP) {
@@ -507,7 +489,7 @@ void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 	}
 }
 
-void IRTransformer::arrangeJumps(StatementSequence* sequence)
+void IRTransformer::arrangeJumps(std::shared_ptr<StatementSequence> sequence)
 {
 	BlockSequence blocks;
 	BlockOrdering order;
@@ -521,7 +503,7 @@ void IRTransformer::arrangeJumps(StatementSequence* sequence)
 	
 		if ((! sequence->statements.empty()) &&
 				(sequence->statements.back()->kind == IR_COND_JUMP)) {
-			CondJumpStatement *last_cond_jump =
+			std::shared_ptr<CondJumpStatement> last_cond_jump =
 				ToCondJumpStatement(sequence->statements.back());
 			if (block->start_label->getIndex() ==
 					last_cond_jump->false_dest->getIndex())
@@ -529,48 +511,46 @@ void IRTransformer::arrangeJumps(StatementSequence* sequence)
 				;
 			else if (block->start_label->getIndex() ==
 					last_cond_jump->true_dest->getIndex()) {
-				FlipComparison(last_cond_jump);
+				FlipComparison(last_cond_jump.get());
 			} else {
 				Label *immediate_false = ir_env->addLabel();
-				sequence->addStatement(new LabelPlacementStatement(immediate_false));
-				sequence->addStatement(new JumpStatement(
-					new LabelAddressExpression(last_cond_jump->false_dest),
+				sequence->addStatement(std::make_shared<LabelPlacementStatement>(immediate_false));
+				sequence->addStatement(std::make_shared<JumpStatement>(
+					std::make_shared<LabelAddressExpression>(last_cond_jump->false_dest),
 					last_cond_jump->false_dest));
 				last_cond_jump->false_dest = immediate_false;
 			}
 		} else if ((! sequence->statements.empty()) &&
 				(sequence->statements.back()->kind == IR_JUMP)) {
-			Expression *prev_jump_dest =
+			Expression prev_jump_dest =
 				ToJumpStatement(sequence->statements.back())->dest;
 			if ((prev_jump_dest->kind == IR_LABELADDR) &&
 				(block->start_label->getIndex() ==
 					ToLabelAddressExpression(prev_jump_dest)->label->getIndex())
 			) {
-				delete ToJumpStatement(sequence->statements.back());
 				sequence->statements.pop_back();
 			}
 		}
-		for (Statement *block_statm: block->statements)
+		for (Statement block_statm: block->statements)
 			sequence->addStatement(block_statm);
 	}
 	if (blocks.finish_label != NULL) {
 		if ((! sequence->statements.empty()) &&
 				(sequence->statements.back()->kind == IR_JUMP)) {
-			Expression *prev_jump_dest =
+			Expression prev_jump_dest =
 				ToJumpStatement(sequence->statements.back())->dest;
 			if ((prev_jump_dest->kind == IR_LABELADDR) &&
 				(blocks.finish_label->getIndex() ==
 					ToLabelAddressExpression(prev_jump_dest)->label->getIndex())
 			) {
-				delete ToJumpStatement(sequence->statements.back());
 				sequence->statements.pop_back();
 			}
 		}
-		sequence->addStatement(new LabelPlacementStatement(blocks.finish_label));
+		sequence->addStatement(std::make_shared<LabelPlacementStatement>(blocks.finish_label));
 	}
 }
 
-void IRTransformer::arrangeJumpsInExpression(Expression* expression)
+void IRTransformer::arrangeJumpsInExpression(Expression expression)
 {
 	if ((expression->kind == IR_STAT_EXP_SEQ) &&
 			(ToStatExpSequence(expression)->stat->kind == IR_STAT_SEQ))

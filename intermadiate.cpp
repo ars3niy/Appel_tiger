@@ -43,97 +43,6 @@ void FlipComparison(CondJumpStatement *jump)
 	}
 }
 
-void DestroyExpression(Expression *&expression)
-{
-	return;
-	switch (expression->kind) {
-		case IR_INTEGER:
-			delete ToIntegerExpression(expression);
-			break;
-		case IR_LABELADDR:
-			delete ToLabelAddressExpression(expression);
-			break;
-		case IR_REGISTER:
-			delete ToRegisterExpression(expression);
-			break;
-		case IR_BINARYOP:
-			DestroyExpression(ToBinaryOpExpression(expression)->left);
-			DestroyExpression(ToBinaryOpExpression(expression)->right);
-			delete ToBinaryOpExpression(expression);
-			break;
-		case IR_MEMORY:
-			DestroyExpression(ToMemoryExpression(expression)->address);
-			delete ToMemoryExpression(expression);
-			break;
-		case IR_FUN_CALL:
-			DestroyExpression(ToCallExpression(expression)->function);
-			delete ToCallExpression(expression);
-			break;			
-		case IR_STAT_EXP_SEQ: {
-			DestroyStatement(ToStatExpSequence(expression)->stat);
-			DestroyExpression(ToStatExpSequence(expression)->exp);
-			delete ToStatExpSequence(expression);
-			break;
-		}
-	}
-	expression = NULL;
-}
-
-void DestroyStatement(Statement *&statement)
-{
-	return;
-	switch (statement->kind) {
-		case IR_MOVE:
-			DestroyExpression(ToMoveStatement(statement)->to);
-			DestroyExpression(ToMoveStatement(statement)->from);
-			delete ToMoveStatement(statement);
-			break;
-		case IR_EXP_IGNORE_RESULT:
-			DestroyExpression(ToExpressionStatement(statement)->exp);
-			delete ToExpressionStatement(statement);
-			break;
-		case IR_JUMP:
-			delete ToJumpStatement(statement);
-			break;
-		case IR_COND_JUMP:
-			DestroyExpression(ToCondJumpStatement(statement)->left);
-			DestroyExpression(ToCondJumpStatement(statement)->right);
-			delete ToCondJumpStatement(statement);
-			break;
-		case IR_STAT_SEQ: {
-			StatementSequence *seq = ToStatementSequence(statement);
-			for (Statement *s: seq->statements)
-				DestroyStatement(s);
-			delete seq;
-			break;
-		}
-		case IR_LABEL:
-			delete ToLabelPlacementStatement(statement);
-			break;
-	}
-	statement = NULL;
-}
-
-void DestroyCode(Code *&code)
-{
-	return;
-	switch (code->kind) {
-		case CODE_EXPRESSION:
-			DestroyExpression(((ExpressionCode *)code)->exp);
-			delete ((ExpressionCode *)code);
-			break;
-		case CODE_STATEMENT:
-			DestroyStatement(((StatementCode *)code)->statm);
-			delete ((ExpressionCode *)code);
-			break;
-		case CODE_JUMP_WITH_PATCHES:
-			DestroyStatement(((CondJumpPatchesCode *)code)->statm);
-			delete ((CondJumpPatchesCode *)code);
-			break;
-	}
-	code = NULL;
-}
-
 Label *LabelFactory::addLabel()
 {
 	labels.push_back(Label(labels.size()));
@@ -191,88 +100,80 @@ void putLabels(const std::list<Label**> &replace_true,
 		 *plabel = falselabel;
 }
 
-Expression *IREnvironment::killCodeToExpression(Code *&code)
+Expression IREnvironment::codeToExpression(Code code)
 {
-	IR::Expression *result = NULL;
 	switch (code->kind) {
 		case CODE_STATEMENT:
 			Error::fatalError("Not supposed to convert statements to expressions");
-			break;
 		case CODE_EXPRESSION:
-			result = ((ExpressionCode *)code)->exp;
-			delete (ExpressionCode *)code;
-			break;
+			return std::static_pointer_cast<ExpressionCode>(code)->exp;
 		case CODE_JUMP_WITH_PATCHES: {
 			Label *true_label = addLabel();
 			Label *false_label = addLabel();
 			Label *finish_label = addLabel();
 			VirtualRegister *value = addRegister();
-			putLabels(((CondJumpPatchesCode *)code)->replace_true,
-				((CondJumpPatchesCode *)code)->replace_false,
+			putLabels(std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_true,
+				std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_false,
 				true_label, false_label);
 			
-			StatementSequence *sequence = new StatementSequence;
-			sequence->addStatement(((CondJumpPatchesCode *)code)->statm);
-			sequence->addStatement(new LabelPlacementStatement(true_label));
-			sequence->addStatement(new MoveStatement(new RegisterExpression(value),
-				new IntegerExpression(1)));
-			sequence->addStatement(new JumpStatement(
-				new LabelAddressExpression(finish_label), finish_label));
-			sequence->addStatement(new LabelPlacementStatement(false_label));
-			sequence->addStatement(new MoveStatement(new RegisterExpression(value),
-				new IntegerExpression(0)));
-			sequence->addStatement(new LabelPlacementStatement(finish_label));
+			std::shared_ptr<StatementSequence> sequence = std::make_shared<StatementSequence>();
+			sequence->addStatement(std::static_pointer_cast<CondJumpPatchesCode>(code)->statm);
+			sequence->addStatement(std::make_shared<LabelPlacementStatement>(true_label));
+			sequence->addStatement(std::make_shared<MoveStatement>(
+				std::make_shared<RegisterExpression>(value),
+				std::make_shared<IntegerExpression>(1)));
+			sequence->addStatement(std::make_shared<JumpStatement>(
+				std::make_shared<LabelAddressExpression>(finish_label), finish_label));
+			sequence->addStatement(std::make_shared<LabelPlacementStatement>(false_label));
+			sequence->addStatement(std::make_shared<MoveStatement>(
+				std::make_shared<RegisterExpression>(value),
+				std::make_shared<IntegerExpression>(0)));
+			sequence->addStatement(std::make_shared<LabelPlacementStatement>(finish_label));
 			
-			result = new StatExpSequence(sequence, new RegisterExpression(value));
-			delete (CondJumpPatchesCode *)code;
+			return std::make_shared<StatExpSequence>(sequence,
+				std::make_shared<RegisterExpression>(value));
 		}
 	}
-	code = NULL;
-	return result;
 }
 
-Statement *IREnvironment::killCodeToStatement(Code *&code)
+Statement IREnvironment::codeToStatement(Code code)
 {
-	IR::Statement *result = NULL;
 	switch (code->kind) {
 		case CODE_STATEMENT:
-			result = ((StatementCode *)code)->statm;
-			break;
+			return std::static_pointer_cast<StatementCode>(code)->statm;
 		case CODE_EXPRESSION:
-			result = new ExpressionStatement(((ExpressionCode *)code)->exp);
-			break;
+			return std::make_shared<ExpressionStatement>(
+				std::static_pointer_cast<ExpressionCode>(code)->exp);
 		case CODE_JUMP_WITH_PATCHES: {
 			Label *proceed = addLabel();
-			putLabels(((CondJumpPatchesCode *)code)->replace_true,
-				((CondJumpPatchesCode *)code)->replace_false,
+			putLabels(std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_true,
+				std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_false,
 				proceed, proceed);
-			StatementSequence *seq = new StatementSequence;
-			seq->addStatement(((CondJumpPatchesCode *)code)->statm);
-			seq->addStatement(new LabelPlacementStatement(proceed));
-			result = seq;
-			break;
+			std::shared_ptr<StatementSequence> seq = std::make_shared<StatementSequence>();
+			seq->addStatement(std::static_pointer_cast<CondJumpPatchesCode>(code)->statm);
+			seq->addStatement(std::make_shared<LabelPlacementStatement>(proceed));
+			return seq;
 		}
 	}
-	code = NULL;
-	return result;
 }
 
-Statement *IREnvironment::killCodeToCondJump(Code *&code,
+Statement IREnvironment::codeToCondJump(Code code,
 	std::list<Label**> &replace_true,
 	std::list<Label**> &replace_false)
 {
-	Statement *result = NULL;
 	switch (code->kind) {
 		case CODE_STATEMENT:
 			Error::fatalError("Not supposed to convert statements to conditional jumps");
 			break;
 		case CODE_EXPRESSION: {
-			Expression *bool_exp = ((ExpressionCode *)code)->exp;
+			Expression bool_exp = std::static_pointer_cast<ExpressionCode>(code)->exp;
+			Statement result;
 			replace_true.clear();
 			replace_false.clear();
 			if (bool_exp->kind == IR_INTEGER) {
-				LabelAddressExpression *dest = new IR::LabelAddressExpression(NULL);
-				result = new JumpStatement(dest, dest->label);
+				std::shared_ptr<LabelAddressExpression> dest =
+					std::make_shared<IR::LabelAddressExpression>(nullptr);
+				result = std::make_shared<JumpStatement>(dest, dest->label);
 				if (ToIntegerExpression(bool_exp)->value) {
 					replace_true.push_back(& dest->label);
 					replace_true.push_back(& ToJumpStatement(result)->possible_results.front());
@@ -280,26 +181,22 @@ Statement *IREnvironment::killCodeToCondJump(Code *&code,
 					replace_false.push_back(& dest->label);
 					replace_false.push_back(& ToJumpStatement(result)->possible_results.front());
 				}
-				delete ToIntegerExpression(bool_exp);
 			} else {
-				result = new CondJumpStatement(OP_NONEQUAL,
-					bool_exp, new IntegerExpression(0),
-					NULL, NULL);
+				result = std::make_shared<CondJumpStatement>(OP_NONEQUAL,
+					bool_exp, std::make_shared<IntegerExpression>(0),
+					nullptr, nullptr);
 				replace_true.push_back(& ToCondJumpStatement(result)->true_dest);
 				replace_false.push_back(& ToCondJumpStatement(result)->false_dest);
 			}
-			delete (ExpressionCode *)code;
-			break;
+			return result;
 		}
 		case CODE_JUMP_WITH_PATCHES:
-			result = ToCondJumpStatement(((CondJumpPatchesCode *)code)->statm);
-			replace_true = ((CondJumpPatchesCode *)code)->replace_true;
-			replace_false = ((CondJumpPatchesCode *)code)->replace_false;
-			delete (CondJumpPatchesCode *)code;
-			break;
+			std::shared_ptr<CondJumpStatement> result =
+				ToCondJumpStatement(std::static_pointer_cast<CondJumpPatchesCode>(code)->statm);
+			replace_true = std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_true;
+			replace_false = std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_false;
+			return result;
 	}
-	code = NULL;
-	return result;
 }
 
 }

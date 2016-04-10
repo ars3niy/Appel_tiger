@@ -71,106 +71,106 @@ const char *COMPARNAMES[] = {
 	"OP_UGREATEQUAL"
 };
 
-void PrintExpression(FILE *out, Expression *exp, int indent, const char *prefix = "")
+void PrintExpression(FILE *out, Expression exp, int indent, const char *prefix = "")
 {
 	preprint(out, indent, prefix);
 	switch (exp->kind) {
 	case IR_INTEGER:
-		fprintf(out, "%d\n", ((IntegerExpression *)exp)->value);
+		fprintf(out, "%d\n", ToIntegerExpression(exp)->value);
 		break;
 	case IR_LABELADDR:
 		fprintf(out, "Label address %s\n",
-			((LabelAddressExpression *)exp)->label->getName().c_str());
+			ToLabelAddressExpression(exp)->label->getName().c_str());
 		break;
 	case IR_REGISTER:
-		if (((RegisterExpression *)exp)->reg->getName() == "")
-			fprintf(out, "Register %d\n", ((RegisterExpression *)exp)->reg->getIndex());
+		if (ToRegisterExpression(exp)->reg->getName() == "")
+			fprintf(out, "Register %d\n", ToRegisterExpression(exp)->reg->getIndex());
 		else
-			fprintf(out, "Register %s\n", ((RegisterExpression *)exp)->reg->getName().c_str());
+			fprintf(out, "Register %s\n", ToRegisterExpression(exp)->reg->getName().c_str());
 		break;
 	case IR_BINARYOP: 
-		fprintf(out, "%s\n", BINARYOPNAMES[((BinaryOpExpression *)exp)->operation]);
-		PrintExpression(out, ((BinaryOpExpression *)exp)->left, indent+4, "Left: ");
-		PrintExpression(out, ((BinaryOpExpression *)exp)->right, indent+4, "Right: ");
+		fprintf(out, "%s\n", BINARYOPNAMES[ToBinaryOpExpression(exp)->operation]);
+		PrintExpression(out, ToBinaryOpExpression(exp)->left, indent+4, "Left: ");
+		PrintExpression(out, ToBinaryOpExpression(exp)->right, indent+4, "Right: ");
 		break;
 	case IR_MEMORY:
 		fprintf(out, "Memory value\n");
-		PrintExpression(out, ((MemoryExpression *)exp)->address, indent+4, "Address: ");
+		PrintExpression(out, ToMemoryExpression(exp)->address, indent+4, "Address: ");
 		break;
 	case IR_FUN_CALL: 
 		fprintf(out, "Function call\n");
 		if (ToCallExpression(exp)->callee_parentfp != NULL)
 			PrintExpression(out, ToCallExpression(exp)->callee_parentfp, indent+4, "Parent FP parameter: ");
 		PrintExpression(out, ToCallExpression(exp)->function, indent+4, "Call address: ");
-		for (Expression *arg: ToCallExpression(exp)->arguments)
+		for (Expression arg: ToCallExpression(exp)->arguments)
 			 PrintExpression(out, arg, indent+4, "Argument: ");
 		break;
 	case IR_STAT_EXP_SEQ: 
 		fprintf(out, "Statement and expression\n");
-		PrintStatement(out, ((StatExpSequence *)exp)->stat, indent+4, "Pre-statement: ");
-		PrintExpression(out, ((StatExpSequence *)exp)->exp, indent+4, "Value: ");
+		PrintStatement(out, ToStatExpSequence(exp)->stat, indent+4, "Pre-statement: ");
+		PrintExpression(out, ToStatExpSequence(exp)->exp, indent+4, "Value: ");
 		break;
 	default:
 		fprintf(out, "WTF\n");
 	}
 }
 
-void PrintStatement(FILE *out, Statement *statm, int indent, const char *prefix)
+void PrintStatement(FILE *out, Statement statm, int indent, const char *prefix)
 {
 	preprint(out, indent, prefix);
 	switch (statm->kind) {
 	case IR_MOVE:
 		fprintf(out, "Move (assign)\n");
-		PrintExpression(out, ((MoveStatement *)statm)->to, indent+4, "To: ");
-		PrintExpression(out, ((MoveStatement *)statm)->from, indent+4, "From: ");
+		PrintExpression(out, ToMoveStatement(statm)->to, indent+4, "To: ");
+		PrintExpression(out, ToMoveStatement(statm)->from, indent+4, "From: ");
 		break;
 	case IR_EXP_IGNORE_RESULT:
 		fprintf(out, "Expression, ignore result\n");
-		PrintExpression(out, ((ExpressionStatement *)statm)->exp, indent+4, "To: ");
+		PrintExpression(out, ToExpressionStatement(statm)->exp, indent+4, "To: ");
 		break;
 	case IR_JUMP:
 		fprintf(out, "Unconditional jump\n");
-		PrintExpression(out, ((JumpStatement *)statm)->dest, indent+4, "Address: ");
+		PrintExpression(out, ToJumpStatement(statm)->dest, indent+4, "Address: ");
 		break;
 	case IR_COND_JUMP:
 		fprintf(out, "Conditional jump\n");
 		preprint(out, indent+4, "Comparison: ");
-		fprintf(out, "%s\n", COMPARNAMES[((CondJumpStatement*)statm)->comparison]);
-		PrintExpression(out, ((CondJumpStatement*)statm)->left, indent+4, "Left operand: ");
-		PrintExpression(out, ((CondJumpStatement*)statm)->right, indent+4, "Right operand: ");
+		fprintf(out, "%s\n", COMPARNAMES[ToCondJumpStatement(statm)->comparison]);
+		PrintExpression(out, ToCondJumpStatement(statm)->left, indent+4, "Left operand: ");
+		PrintExpression(out, ToCondJumpStatement(statm)->right, indent+4, "Right operand: ");
 		preprint(out, indent+4, "Label if true: ");
-		if (((CondJumpStatement*)statm)->true_dest == NULL)
+		if (ToCondJumpStatement(statm)->true_dest == NULL)
 			fprintf(out, "UNKNOWN\n");
 		else
-			fprintf(out, "%s\n", ((CondJumpStatement*)statm)->true_dest->getName().c_str());
+			fprintf(out, "%s\n", ToCondJumpStatement(statm)->true_dest->getName().c_str());
 		preprint(out, indent+4, "Label if false: ");
-		if (((CondJumpStatement*)statm)->false_dest == NULL)
+		if (ToCondJumpStatement(statm)->false_dest == NULL)
 			fprintf(out, "UNKNOWN\n");
 		else
-			fprintf(out, "%s\n", ((CondJumpStatement*)statm)->false_dest->getName().c_str());
+			fprintf(out, "%s\n", ToCondJumpStatement(statm)->false_dest->getName().c_str());
 		break;
 	case IR_STAT_SEQ:
 		fprintf(out, "Sequence\n");
-		for (Statement *p: ToStatementSequence(statm)->statements)
+		for (Statement p: ToStatementSequence(statm)->statements)
 			 PrintStatement(out, p, indent+4);
 		break;
 	case IR_LABEL:
-		fprintf(out, "Label here: %s\n", ((LabelPlacementStatement *)statm)->label->getName().c_str());
+		fprintf(out, "Label here: %s\n", ToLabelPlacementStatement(statm)->label->getName().c_str());
 		break;
 	default:
 		fprintf(out, "WTF\n");
 	}
 }
 
-void PrintCode(FILE *out, Code *code, int indent)
+void PrintCode(FILE *out, Code code, int indent)
 {
 	switch (code->kind) {
 		case CODE_EXPRESSION:
-			PrintExpression(out, ((ExpressionCode *)code)->exp, indent+4);
+			PrintExpression(out, std::static_pointer_cast<ExpressionCode>(code)->exp, indent+4);
 			break;
 		case CODE_STATEMENT:
 		case CODE_JUMP_WITH_PATCHES:
-			PrintStatement(out, ((StatementCode *)code)->statm, indent+4);
+			PrintStatement(out, std::static_pointer_cast<StatementCode>(code)->statm, indent+4);
 			break;
 	}
 }

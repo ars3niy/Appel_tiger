@@ -48,22 +48,22 @@ Assembler::Assembler(IR::IREnvironment *ir_env)
 	}
 }
 
-std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Expression *expr)
+std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Expression expr)
 {
 	if (expr->kind == IR::IR_BINARYOP) {
-		IR::BinaryOpExpression *binop = IR::ToBinaryOpExpression(expr);
+		std::shared_ptr<IR::BinaryOpExpression> binop = IR::ToBinaryOpExpression(expr);
 		return ((TemplateOpKindKindMap *)expr_templates[(int)expr->kind])->
 			getList((int)binop->operation/*, (int)binop->left->kind, (int)binop->right->kind*/);
 	} else
 		return & ((TemplateList *)expr_templates[(int)expr->kind])->list;
 }
 
-std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Statement *statm)
+std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Statement statm)
 {
 	if ((statm->kind == IR::IR_COND_JUMP) /*|| (statm->kind = IR::IR_MOVE)*/) {
 		int op, kind1, kind2;
 // 		if (statm->kind == IR::IR_COND_JUMP) {
-			IR::CondJumpStatement *cj = IR::ToCondJumpStatement(statm);
+			std::shared_ptr<IR::CondJumpStatement> cj = IR::ToCondJumpStatement(statm);
 			op = (int)cj->comparison;
 			kind1 = (int)cj->left->kind;
 			kind2 = (int)cj->right->kind;
@@ -79,30 +79,30 @@ std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Statement *statm
 		return & ((TemplateList *)statm_templates[(int)statm->kind])->list;
 }
 
-void Assembler::addTemplate(int code, IR::Expression *expr)
+void Assembler::addTemplate(int code, IR::Expression expr)
 {
 	std::list<InstructionTemplate> *list = getTemplatesList(expr);
 	list->push_back(InstructionTemplate(code, expr));
 }
 
-void Assembler::addTemplate(int code, IR::Statement *statm)
+void Assembler::addTemplate(int code, IR::Statement statm)
 {
 	std::list<InstructionTemplate> *list = getTemplatesList(statm);
 	list->push_back(InstructionTemplate(code, statm));
 }
 
-bool Assembler::MatchMoveDestination(IR::Expression *expression, IR::Expression *templ,
+bool Assembler::MatchMoveDestination(IR::Expression expression, IR::Expression templ,
 	int &nodecount, std::list<TemplateChildInfo> *children,
-	IR::Expression **template_instantiation)
+	IR::Expression *template_instantiation)
 {
 	if (templ->kind != expression->kind)
 		return false;
 	return MatchExpression(expression, templ, nodecount, children, template_instantiation);
 }
 
-bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *templ,
+bool Assembler::MatchExpression(IR::Expression expression, IR::Expression templ,
 	int &nodecount, std::list<TemplateChildInfo> *children,
-	IR::Expression **template_instantiation)
+	IR::Expression *template_instantiation)
 {
 	if ((templ->kind == IR::IR_REGISTER) && (expression->kind != IR::IR_REGISTER)) {
 		// Matched register template against non-register expression
@@ -113,7 +113,7 @@ bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *temp
 			if (template_instantiation != NULL) {
 				IR::VirtualRegister *value_storage = IRenvironment->addRegister();
 				children->back().value_storage = value_storage;
-				*template_instantiation = new IR::RegisterExpression(value_storage);
+				*template_instantiation = std::make_shared<IR::RegisterExpression>(value_storage);
 			}
 		}
 		return true;
@@ -128,37 +128,37 @@ bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *temp
 	switch (templ->kind) {
 		case IR::IR_INTEGER:
 			if (template_instantiation != NULL)
-				*template_instantiation = new IR::IntegerExpression(
+				*template_instantiation = std::make_shared<IR::IntegerExpression>(
 					IR::ToIntegerExpression(expression)->value);
 			return (IR::ToIntegerExpression(templ)->value == 0) ||
 				(IR::ToIntegerExpression(templ)->value ==
 				IR::ToIntegerExpression(expression)->value);
 		case IR::IR_LABELADDR:
 			if (template_instantiation != NULL)
-				*template_instantiation = new IR::LabelAddressExpression(
+				*template_instantiation = std::make_shared<IR::LabelAddressExpression>(
 					IR::ToLabelAddressExpression(expression)->label);
 			return true;
 		case IR::IR_REGISTER:
 			if (template_instantiation != NULL)
-				*template_instantiation = new IR::RegisterExpression(
+				*template_instantiation = std::make_shared<IR::RegisterExpression>(
 					IR::ToRegisterExpression(expression)->reg);
 			return true;
 		case IR::IR_FUN_CALL: {
-			IR::CallExpression *call_expr = IR::ToCallExpression(expression);
-			IR::CallExpression *call_inst = NULL;
-			IR::Expression **func_inst = NULL;
+			std::shared_ptr<IR::CallExpression> call_expr = IR::ToCallExpression(expression);
+			std::shared_ptr<IR::CallExpression> call_inst = nullptr;
+			IR::Expression *func_inst = NULL;
 			if (template_instantiation != NULL) {
-				call_inst = new IR::CallExpression(NULL, call_expr->callee_parentfp);
+				call_inst = std::make_shared<IR::CallExpression>(nullptr, call_expr->callee_parentfp);
 				func_inst = &call_inst->function;
 				*template_instantiation = call_inst;
 			}
 			if (children != NULL) {
-				for (IR::Expression *arg: call_expr->arguments) {
+				for (IR::Expression arg: call_expr->arguments) {
 					children->push_back(TemplateChildInfo(NULL, arg));
 					if (call_inst != NULL) {
 						IR::VirtualRegister *arg_reg = IRenvironment->addRegister();
 						children->back().value_storage = arg_reg;
-						call_inst->addArgument(new IR::RegisterExpression(arg_reg));
+						call_inst->addArgument(std::make_shared<IR::RegisterExpression>(arg_reg));
 					}
 				}
 			}
@@ -167,15 +167,18 @@ bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *temp
 				nodecount, children, func_inst);
 		}
 		case IR::IR_BINARYOP: {
-			IR::BinaryOpExpression *binop_expr = IR::ToBinaryOpExpression(expression);
-			IR::BinaryOpExpression *binop_templ = IR::ToBinaryOpExpression(templ);
+			std::shared_ptr<IR::BinaryOpExpression> binop_expr =
+				IR::ToBinaryOpExpression(expression);
+			std::shared_ptr<IR::BinaryOpExpression> binop_templ =
+				IR::ToBinaryOpExpression(templ);
 			
 			if (binop_expr->operation != binop_templ->operation)
 				return false;
-			IR::Expression **left_inst = NULL, **right_inst = NULL;
+			IR::Expression *left_inst = NULL, *right_inst = NULL;
 			if (template_instantiation != NULL) {
-				IR::BinaryOpExpression *binop_inst = new IR::BinaryOpExpression(
-					binop_expr->operation, NULL, NULL);
+				std::shared_ptr<IR::BinaryOpExpression> binop_inst =
+					std::make_shared<IR::BinaryOpExpression>(
+						binop_expr->operation, nullptr, nullptr);
 				*template_instantiation = binop_inst;
 				left_inst = &binop_inst->left;
 				right_inst = &binop_inst->right;
@@ -186,9 +189,10 @@ bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *temp
 					nodecount, children, right_inst);
 		}
 		case IR::IR_MEMORY: {
-			IR::Expression **addr_inst = NULL;
+			IR::Expression *addr_inst = NULL;
 			if (template_instantiation != NULL) {
-				IR::MemoryExpression *mem_inst = new IR::MemoryExpression(NULL);
+				std::shared_ptr<IR::MemoryExpression> mem_inst =
+					std::make_shared<IR::MemoryExpression>(nullptr);
 				*template_instantiation = mem_inst;
 				addr_inst = &mem_inst->address;
 			}
@@ -202,9 +206,9 @@ bool Assembler::MatchExpression(IR::Expression *expression, IR::Expression *temp
 	}
 }
 
-bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
+bool Assembler::MatchStatement(IR::Statement statement, IR::Statement templ,
 	int &nodecount, std::list<TemplateChildInfo> *children,
-	IR::Statement **template_instantiation)
+	IR::Statement *template_instantiation)
 {
 	// getTemplatesList takes care of this
 	assert(statement->kind == templ->kind);
@@ -214,15 +218,16 @@ bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
 	switch (statement->kind) {
 		case IR::IR_LABEL:
 			if (template_instantiation != NULL)
-				*template_instantiation = new IR::LabelPlacementStatement(
+				*template_instantiation = std::make_shared<IR::LabelPlacementStatement>(
 					IR::ToLabelPlacementStatement(statement)->label);
 			return true;
 		case IR::IR_MOVE: {
-			IR::MoveStatement *move_statm = IR::ToMoveStatement(statement);
-			IR::MoveStatement *move_templ = IR::ToMoveStatement(templ);
-			IR::Expression **to_inst = NULL, **from_inst = NULL;
+			std::shared_ptr<IR::MoveStatement> move_statm = IR::ToMoveStatement(statement);
+			std::shared_ptr<IR::MoveStatement> move_templ = IR::ToMoveStatement(templ);
+			IR::Expression *to_inst = NULL, *from_inst = NULL;
 			if (template_instantiation != NULL) {
-				IR::MoveStatement *move_inst = new IR::MoveStatement(NULL, NULL);
+				std::shared_ptr<IR::MoveStatement>move_inst =
+					std::make_shared<IR::MoveStatement>(nullptr, nullptr);
 				*template_instantiation = move_inst;
 				to_inst = &move_inst->to;
 				from_inst = &move_inst->from;
@@ -233,9 +238,10 @@ bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
 					nodecount, children, from_inst);
 		}
 		case IR::IR_JUMP: {
-			IR::Expression **dest_inst = NULL;
+			IR::Expression *dest_inst = NULL;
 			if (template_instantiation != NULL) {
-				IR::JumpStatement *jump_inst = new IR::JumpStatement(NULL);
+				std::shared_ptr<IR::JumpStatement> jump_inst =
+					std::make_shared<IR::JumpStatement>(nullptr);
 				*template_instantiation = jump_inst;
 				dest_inst = &jump_inst->dest;
 			}
@@ -245,17 +251,18 @@ bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
 				nodecount, children, dest_inst);
 		}
 		case IR::IR_COND_JUMP: {
-			IR::CondJumpStatement *cj_statm = IR::ToCondJumpStatement(statement);
-			IR::CondJumpStatement *cj_templ = IR::ToCondJumpStatement(templ);
+			std::shared_ptr<IR::CondJumpStatement> cj_statm = IR::ToCondJumpStatement(statement);
+			std::shared_ptr<IR::CondJumpStatement> cj_templ = IR::ToCondJumpStatement(templ);
 			
 			// getTemplatesList takes care of this
 			assert(cj_statm->comparison == cj_templ->comparison);
 
-			IR::Expression **left_inst = NULL, **right_inst = NULL;
+			IR::Expression *left_inst = NULL, *right_inst = NULL;
 			if (template_instantiation != NULL) {
-				IR::CondJumpStatement *cj_inst = new IR::CondJumpStatement(
-					cj_statm->comparison, NULL, NULL, cj_statm->true_dest,
-					cj_statm->false_dest);
+				std::shared_ptr<IR::CondJumpStatement> cj_inst =
+					std::make_shared<IR::CondJumpStatement>(
+						cj_statm->comparison, nullptr, nullptr, cj_statm->true_dest,
+						cj_statm->false_dest);
 				*template_instantiation = cj_inst;
 				left_inst = &cj_inst->left;
 				right_inst = &cj_inst->right;
@@ -270,7 +277,7 @@ bool Assembler::MatchStatement(IR::Statement *statement, IR::Statement *templ,
 	}
 }
 
-void Assembler::FindExpressionTemplate(IR::Expression* expression,
+void Assembler::FindExpressionTemplate(IR::Expression expression,
 	InstructionTemplate* &templ)
 {
 	std::list<InstructionTemplate> *templates = getTemplatesList(expression);
@@ -278,9 +285,8 @@ void Assembler::FindExpressionTemplate(IR::Expression* expression,
 	templ = NULL;
 	for (InstructionTemplate &cur_templ: *templates) {
 		assert(cur_templ.code->kind == IR::CODE_EXPRESSION);
-		IR::Expression *templ_exp = ((IR::ExpressionCode *) cur_templ.code)->exp;
+		IR::Expression templ_exp = std::static_pointer_cast<IR::ExpressionCode>(cur_templ.code)->exp;
 		int nodecount = 0;
-		std::list<IR::Expression *> current_children;
 		if (MatchExpression(expression, templ_exp, nodecount)) {
 			if (nodecount > best_nodecount) {
 				best_nodecount = nodecount;
@@ -290,7 +296,7 @@ void Assembler::FindExpressionTemplate(IR::Expression* expression,
 	}
 }
 
-void Assembler::FindStatementTemplate(IR::Statement* statement,
+void Assembler::FindStatementTemplate(IR::Statement statement,
 	InstructionTemplate* &templ)
 {
 	std::list<InstructionTemplate> *templates = getTemplatesList(statement);
@@ -299,9 +305,8 @@ void Assembler::FindStatementTemplate(IR::Statement* statement,
 
 	for (InstructionTemplate &cur_templ: *templates) {
 		assert(cur_templ.code->kind == IR::CODE_STATEMENT);
-		IR::Statement *templ_statm = ((IR::StatementCode *) cur_templ.code)->statm;
+		IR::Statement templ_statm = std::static_pointer_cast<IR::StatementCode>(cur_templ.code)->statm;
 		int nodecount = 0;
-		std::list<IR::Expression *> current_children;
 		if (MatchStatement(statement, templ_statm, nodecount)) {
 			if (nodecount > best_nodecount) {
 				best_nodecount = nodecount;
@@ -311,12 +316,12 @@ void Assembler::FindStatementTemplate(IR::Statement* statement,
 	}
 }
 
-void Assembler::translateExpression(IR::Expression* expression,
+void Assembler::translateExpression(IR::Expression expression,
 	IR::AbstractFrame *frame, IR::VirtualRegister* value_storage, 
 	Instructions& result)
 {
 	if (expression->kind == IR::IR_STAT_EXP_SEQ) {
-		IR::StatExpSequence *statexp = IR::ToStatExpSequence(expression);
+		std::shared_ptr<IR::StatExpSequence> statexp = IR::ToStatExpSequence(expression);
 		translateStatement(statexp->stat, frame, result);
 		translateExpression(statexp->exp, frame, value_storage, result);
 	} else {
@@ -326,27 +331,26 @@ void Assembler::translateExpression(IR::Expression* expression,
 			Error::fatalError("Failed to find expression template");
 		
 		std::list<TemplateChildInfo> children;
-		IR::Expression *template_instantiation;
+		IR::Expression template_instantiation;
 		assert(templ->code->kind == IR::CODE_EXPRESSION);
 		int nodecount = 0;
-		MatchExpression(expression, ((IR::ExpressionCode *)templ->code)->exp,
+		MatchExpression(expression,
+			std::static_pointer_cast<IR::ExpressionCode>(templ->code)->exp,
 			nodecount, &children, &template_instantiation);
 		for (TemplateChildInfo &child: children)
 			translateExpression(child.expression, frame, child.value_storage,
 				result);
 		translateExpressionTemplate(template_instantiation, frame, value_storage,
 			children, result);
-		
-		IR::DestroyExpression(template_instantiation);
 	}
 }
 
-void Assembler::translateStatement(IR::Statement* statement, 
+void Assembler::translateStatement(IR::Statement statement, 
 	IR::AbstractFrame *frame, Instructions& result)
 {
 	if (statement->kind == IR::IR_STAT_SEQ) {
-		IR::StatementSequence *seq = IR::ToStatementSequence(statement);
-		for (IR::Statement *statm: seq->statements)
+		std::shared_ptr<IR::StatementSequence> seq = IR::ToStatementSequence(statement);
+		for (IR::Statement statm: seq->statements)
 			 translateStatement(statm, frame, result);
 	} else if (statement->kind == IR::IR_EXP_IGNORE_RESULT) {
 		translateExpression(IR::ToExpressionStatement(statement)->exp, 
@@ -358,10 +362,11 @@ void Assembler::translateStatement(IR::Statement* statement,
 			Error::fatalError("Failed to find statement template");
 		
 		std::list<TemplateChildInfo> children;
-		IR::Statement *template_instantiation;
+		IR::Statement template_instantiation;
 		assert(templ->code->kind == IR::CODE_STATEMENT);
 		int nodecount = 0;
-		MatchStatement(statement, ((IR::StatementCode *)templ->code)->statm,
+		MatchStatement(statement,
+			std::static_pointer_cast<IR::StatementCode>(templ->code)->statm,
 			nodecount, &children, &template_instantiation);
 		for (TemplateChildInfo &child: children) {
 			translateExpression(child.expression, frame, child.value_storage,
@@ -370,8 +375,6 @@ void Assembler::translateStatement(IR::Statement* statement,
 		translateStatementTemplate(template_instantiation, children, result);
 		if (statement->kind == IR::IR_LABEL)
 			result.back().label = IR::ToLabelPlacementStatement(statement)->label;
-		
-		IR::DestroyStatement(template_instantiation);
 	}
 }
 
@@ -485,7 +488,7 @@ void Assembler::outputBlobs(FILE* output, const std::list< IR::Blob >& blobs)
 		fprintf(output, "%s\n", inst.notation.c_str());
 }
 
-void Assembler::translateFunctionBody(IR::Code* code, IR::Label *fcn_label,
+void Assembler::translateFunctionBody(IR::Code code, IR::Label *fcn_label,
 	IR::AbstractFrame *frame, Instructions &result)
 {
 	if (code == NULL)
@@ -496,7 +499,7 @@ void Assembler::translateFunctionBody(IR::Code* code, IR::Label *fcn_label,
 			IR::VirtualRegister *result_storage = IRenvironment->addRegister();
 			std::vector<IR::VirtualRegister *> prologue_regs;
 			functionPrologue(fcn_label, frame, result, prologue_regs);
-			translateExpression(((IR::ExpressionCode *)code)->exp,
+			translateExpression(std::static_pointer_cast<IR::ExpressionCode>(code)->exp,
 				frame, result_storage, result);
 			functionEpilogue(frame, result_storage, prologue_regs, result);
 			break;
@@ -504,7 +507,8 @@ void Assembler::translateFunctionBody(IR::Code* code, IR::Label *fcn_label,
 		case IR::CODE_STATEMENT: {
 			std::vector<IR::VirtualRegister *> prologue_regs;
 			functionPrologue(fcn_label, frame, result, prologue_regs);
-			translateStatement(((IR::StatementCode *)code)->statm, frame, result);
+			translateStatement(std::static_pointer_cast<IR::StatementCode>(code)->statm,
+				frame, result);
 			functionEpilogue(frame, NULL, prologue_regs, result);
 			break;
 		}
@@ -514,7 +518,7 @@ void Assembler::translateFunctionBody(IR::Code* code, IR::Label *fcn_label,
 }
 
 
-void Assembler::translateProgram(IR::Statement* program, IR::AbstractFrame *frame,
+void Assembler::translateProgram(IR::Statement program, IR::AbstractFrame *frame,
 	Instructions& result)
 {
 	translateStatement(program, frame, result);

@@ -10,22 +10,22 @@ class IRTransformer: public DebugPrinter {
 private:
 	IREnvironment *ir_env;
 
-	void pullStatementsOutOfTwoOperands(Expression *&left,
-		Expression *&right, StatementSequence *&collected_statements);
-	void canonicalizeMemoryExp(Expression *&exp);
-	void canonicalizeBinaryOpExp(Expression *&exp);
-	void canonicalizeCallExp(Expression *&exp,
-		Expression *parentExpression, Statement *parentStatement);
-	void combineStatExpSequences(StatExpSequence *exp);
+	void pullStatementsOutOfTwoOperands(Expression &left,
+		Expression &right, std::shared_ptr<StatementSequence> &collected_statements);
+	void canonicalizeMemoryExp(Expression &exp);
+	void canonicalizeBinaryOpExp(Expression &exp);
+	void canonicalizeCallExp(Expression &exp,
+		Expression parentExpression, Statement parentStatement);
+	void combineStatExpSequences(std::shared_ptr<StatExpSequence> exp);
 	
-	void canonicalizeMoveStatement(Statement *&statm);
-	void canonicalizeExpressionStatement(Statement *&statm);
-	void canonicalizeJumpStatement(Statement *&statm);
-	void canonicalizeCondJumpStatement(Statement *&statm);
-	void doChildrenAndMergeChildStatSequences(StatementSequence *statm);
+	void canonicalizeMoveStatement(Statement &statm);
+	void canonicalizeExpressionStatement(Statement &statm);
+	void canonicalizeJumpStatement(Statement &statm);
+	void canonicalizeCondJumpStatement(Statement &statm);
+	void doChildrenAndMergeChildStatSequences(std::shared_ptr<StatementSequence> statm);
 
 	struct StatementBlock {
-		std::list<Statement *> statements;
+		std::list<Statement> statements;
 		Label *start_label;
 		bool used_in_trace;
 	};
@@ -45,7 +45,7 @@ private:
 				block(_block), position_in_remaining_list(_position) {}
 	};
 	
-	void splitToBlocks(StatementSequence *sequence, BlockSequence &blocks);
+	void splitToBlocks(std::shared_ptr<StatementSequence> sequence, BlockSequence &blocks);
 	void arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 		BlockOrdering &new_order);
 public:
@@ -53,13 +53,13 @@ public:
 		DebugPrinter("canonicalize.log") {}
 
 	/**
-	 * Either parentExpression or parentStatement (or both) must be NULL
+	 * Either parentExpression or parentStatement (or both) must be null
 	 */
-	void canonicalizeExpression(Expression *&exp,
-		Expression *parentExpression, Statement *parentStatement);
-	void canonicalizeStatement(Statement *&statm);
-	void arrangeJumps(StatementSequence *sequence);
-	void arrangeJumpsInExpression(Expression *expression);
+	void canonicalizeExpression(Expression &exp,
+		Expression parentExpression, Statement parentStatement);
+	void canonicalizeStatement(Statement &statm);
+	void arrangeJumps(std::shared_ptr<StatementSequence> sequence);
+	void arrangeJumpsInExpression(Expression expression);
 };
 
 }

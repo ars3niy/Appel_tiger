@@ -61,52 +61,53 @@ private:
 		IR::AbstractFrame *currentFrame, std::list<Variable *> &new_vars);
 	void processFunctionDeclarationBatch(std::list<Syntax::Tree>::iterator begin,
 		std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame);
-	void prependPrologue(IR::Code *&translated,
+	void prependPrologue(IR::Code &translated,
 		IR::AbstractFrame *func_frame);
 	
-	void translateIntValue(int value, IR::Code *&translated);
-	void translateStringValue(Syntax::StringValue *expression, IR::Code *&translated);
-	void translateIdentifier(Syntax::Identifier *expression, IR::Code *&translated,
+	void translateIntValue(int value, IR::Code &translated);
+	void translateStringValue(Syntax::StringValue *expression, IR::Code &translated);
+	void translateIdentifier(Syntax::Identifier *expression, IR::Code &translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
 	Type *getOpResultType(Type *leftType, Type *rightType,
 		Syntax::BinaryOp *expression);
 	void translateBinaryOperation(Syntax::BinaryOp *expression,
-		IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
+		IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 		IR::AbstractFrame *currentFrame);
 	void translateSequence(const std::list<Syntax::Tree> &expressions,
-		IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
-		IR::AbstractFrame *currentFrame, IR::StatementSequence *existing_sequence = NULL);
+		IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
+		IR::AbstractFrame *currentFrame,
+		std::shared_ptr<IR::StatementSequence> existing_sequence = nullptr);
 	void translateArrayIndexing(Syntax::ArrayIndexing *expression,
-		IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
+		IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 		IR::AbstractFrame *currentFrame);
 	void translateArrayInstantiation(Syntax::ArrayInstantiation *expression,
-		IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
+		IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 		IR::AbstractFrame *currentFrame);
 	bool translateIf_IfElse_Then(Syntax::IfElse *condition,
-		Syntax::Tree action, IR::Code *&translated,
+		Syntax::Tree action, IR::Code &translated,
 		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	bool translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
-		Syntax::Tree action, Syntax::Tree elseaction, IR::Code *&translated,
+		Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
-	void translateIf(Syntax::If *expression, IR::Code *&translated,
+	void translateIf(Syntax::If *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
-	void translateIfElse(Syntax::IfElse *expression, IR::Code *&translated,
+	void translateIfElse(Syntax::IfElse *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
 		bool expect_comparison_in_actions);
-	void translateWhile(Syntax::While *expression, IR::Code *&translated,
+	void translateWhile(Syntax::While *expression, IR::Code &translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
-	void translateFor(std::shared_ptr<Syntax::For> expression, IR::Code *&translated,
+	void translateFor(std::shared_ptr<Syntax::For> expression, IR::Code &translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
-	void translateBreak(IR::Code *&translated, IR::Label *loop_exit);
-	void translateScope(Syntax::Scope *expression, IR::Code *&translated,
+	void translateBreak(IR::Code &translated, IR::Label *loop_exit);
+	void translateScope(Syntax::Scope *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
-	void translateRecordField(Syntax::RecordField *expression, IR::Code *&translated,
+	void translateRecordField(Syntax::RecordField *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
-	void makeCallCode(Function *function, std::list<IR::Code *>arguments,
-		IR::Code *&result, IR::AbstractFrame *currentFrame);
-	void translateFunctionCall(Syntax::FunctionCall *expression, IR::Code *&translated,
+	void makeCallCode(Function *function, std::list<IR::Code >arguments,
+		IR::Code &result, IR::AbstractFrame *currentFrame);
+	void translateFunctionCall(Syntax::FunctionCall *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
-	void translateRecordInstantiation(Syntax::RecordInstantiation *expression, IR::Code *&translated,
+	void translateRecordInstantiation(Syntax::RecordInstantiation *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 public:
 	IR::IREnvironment *IRenvironment;
@@ -121,7 +122,7 @@ public:
 	~TranslatorPrivate();
 	
 	void translateExpression(Syntax::Tree expression,
-		IR::Code *&translated, Type *&type,
+		IR::Code &translated, Type *&type,
 		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
 		bool expect_comparison);
 };
@@ -368,11 +369,6 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 
 TranslatorPrivate::~TranslatorPrivate()
 {
-	for (Variable &var: variables)
-		 delete var.value;
-	for (Function &func: functions)
-		 delete func.body;
-	delete undefined_variable->value;
 	delete undefined_variable;
 	delete type_environment;
 }
@@ -446,7 +442,7 @@ void TranslatorPrivate::processVariableDeclaration(
 	else
 		vartype = NULL;
 	Type *exprtype;
-	IR::Code *translatedValue;
+	IR::Code translatedValue;
 	translateExpression(declaration->value, translatedValue, exprtype, NULL,
 		currentFrame, true);
 	if (exprtype->basetype == TYPE_VOID) {
@@ -478,14 +474,14 @@ void TranslatorPrivate::processVariableDeclaration(
 	new_vars.push_back(&(variables.back()));
 }
 
-void TranslatorPrivate::prependPrologue(IR::Code*& translated,
+void TranslatorPrivate::prependPrologue(IR::Code& translated,
 	IR::AbstractFrame* func_frame)
 {
-	IR::Statement *sequence = new IR::StatementSequence;
+	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 	
 	for (const IR::AbstractFrame::ParameterMovement &move:
 			func_frame->getMovementPrologue()) {
-		ToStatementSequence(sequence)->addStatement(new IR::MoveStatement(
+		ToStatementSequence(sequence)->addStatement(std::make_shared<IR::MoveStatement>(
 			move.where_store->createCode(func_frame),
 			move.parameter->createCode(func_frame)
 		));
@@ -493,15 +489,15 @@ void TranslatorPrivate::prependPrologue(IR::Code*& translated,
 	
 	switch (translated->kind) {
 		case IR::CODE_EXPRESSION:
-			((IR::ExpressionCode *)translated)->exp =
-				new IR::StatExpSequence(sequence,
-					((IR::ExpressionCode *)translated)->exp);
+			std::static_pointer_cast<IR::ExpressionCode>(translated)->exp =
+				std::make_shared<IR::StatExpSequence>(sequence,
+					std::static_pointer_cast<IR::ExpressionCode>(translated)->exp);
 			break;
 		case IR::CODE_STATEMENT:
 		case IR::CODE_JUMP_WITH_PATCHES:
 			ToStatementSequence(sequence)->addStatement(
-				((IR::StatementCode *)translated)->statm);
-			((IR::StatementCode *)translated)->statm = sequence;
+				std::static_pointer_cast<IR::StatementCode>(translated)->statm);
+			std::static_pointer_cast<IR::StatementCode>(translated)->statm = sequence;
 			break;
 	}
 	
@@ -628,13 +624,13 @@ Declaration *TranslatorPrivate::findVariableOrFunction(Syntax::Identifier *id)
 	return result;
 }
 
-void TranslatorPrivate::translateIntValue(int value, IR::Code *&translated)
+void TranslatorPrivate::translateIntValue(int value, IR::Code &translated)
 {
-	translated = new IR::ExpressionCode(new IR::IntegerExpression(value));
+	translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::IntegerExpression>(value));
 }
 
 void TranslatorPrivate::translateStringValue(Syntax::StringValue *expression,
-	IR::Code *&translated)
+	IR::Code &translated)
 {
 	IR::Blob *blob;
 	BlobsMap::iterator existing_blob = blobs_by_string.find(expression->value);
@@ -649,17 +645,17 @@ void TranslatorPrivate::translateStringValue(Syntax::StringValue *expression,
 			expression->value.size());
 		blobs_by_string.insert(std::make_pair(expression->value, blob));
 	}
-	translated = new IR::ExpressionCode(new IR::LabelAddressExpression(
+	translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::LabelAddressExpression>(
 		blob->label));
 }
 
-IR::Code *ErrorPlaceholderCode()
+IR::Code ErrorPlaceholderCode()
 {
-	return new IR::ExpressionCode(NULL);
+	return std::make_shared<IR::ExpressionCode>(nullptr);
 }
 
 void TranslatorPrivate::translateIdentifier(Syntax::Identifier *expression,
-	IR::Code *&translated, Type *&type, IR::AbstractFrame *currentFrame)
+	IR::Code &translated, Type *&type, IR::AbstractFrame *currentFrame)
 {
 	Declaration *var_or_function = (Declaration *)func_and_var_names.lookup(
 		expression->name);
@@ -675,7 +671,7 @@ void TranslatorPrivate::translateIdentifier(Syntax::Identifier *expression,
 		translated = ErrorPlaceholderCode();
 	} else {
 		type = ((Variable *)var_or_function)->type->resolve();
-		translated = new IR::ExpressionCode(
+		translated = std::make_shared<IR::ExpressionCode>(
 			((Variable *)var_or_function)->implementation->createCode(currentFrame)
 		);
 	}
@@ -786,7 +782,7 @@ IR::ComparisonOp getIRComparisonOp(yytokentype op_token)
 }
 
 void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
-	IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
+	IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 	IR::AbstractFrame *currentFrame)
 {
 	if (expression->operation == SYM_AND) {
@@ -803,7 +799,7 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 		return;
 	}
 	
-	IR::Code *left, *right;
+	IR::Code left, right;
 	Type *leftType, *rightType;
 	translateExpression(expression->left, left, leftType, last_loop_exit, currentFrame, true);
 	translateExpression(expression->right, right, rightType, last_loop_exit, currentFrame, true);
@@ -829,9 +825,9 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 		case SYM_MINUS:
 		case SYM_ASTERISK:
 		case SYM_SLASH: {
-			IR::Expression *left_expr = IRenvironment->killCodeToExpression(left);
-			IR::Expression *right_expr = IRenvironment->killCodeToExpression(right);
-			translated = new IR::ExpressionCode(new IR::BinaryOpExpression(
+			IR::Expression left_expr = IRenvironment->codeToExpression(left);
+			IR::Expression right_expr = IRenvironment->codeToExpression(right);
+			translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::BinaryOpExpression>(
 				getIRBinaryOp(expression->operation), left_expr, right_expr));
 			break;
 		}
@@ -841,34 +837,35 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 		case SYM_LESSEQUAL:
 		case SYM_GREATER:
 		case SYM_GREATEQUAL: {
-			IR::CondJumpStatement *compare_statm;
-			IR::Expression *left_expr, *right_expr;
+			std::shared_ptr<IR::CondJumpStatement> compare_statm;
+			IR::Expression left_expr, right_expr;
 			if (leftType->basetype == TYPE_STRING) {
-				std::list<IR::Code *> args;
+				std::list<IR::Code> args;
 				args.push_back(left);
 				args.push_back(right);
-				IR::Code *strcmp_call;
+				IR::Code strcmp_call;
 				makeCallCode(strcmp_func, args, strcmp_call, currentFrame);
-				left_expr = IRenvironment->killCodeToExpression(strcmp_call);
-				right_expr = new IR::IntegerExpression(0);
+				left_expr = IRenvironment->codeToExpression(strcmp_call);
+				right_expr = std::make_shared<IR::IntegerExpression>(0);
 			} else {
-				left_expr = IRenvironment->killCodeToExpression(left);
-				right_expr = IRenvironment->killCodeToExpression(right);
+				left_expr = IRenvironment->codeToExpression(left);
+				right_expr = IRenvironment->codeToExpression(right);
 			}
-			compare_statm = new IR::CondJumpStatement(
+			compare_statm = std::make_shared<IR::CondJumpStatement>(
 				getIRComparisonOp(expression->operation), left_expr, right_expr,
-				NULL, NULL);
-			IR::CondJumpPatchesCode *result = new IR::CondJumpPatchesCode(compare_statm);
+				nullptr, nullptr);
+			std::shared_ptr<IR::CondJumpPatchesCode> result =
+				std::make_shared<IR::CondJumpPatchesCode>(compare_statm);
 			result->replace_true.push_back(&compare_statm->true_dest);
 			result->replace_false.push_back(&compare_statm->false_dest);
 			translated = result;
 			break;
 		}
 		case SYM_ASSIGN: {
-			IR::Expression *left_expr = IRenvironment->killCodeToExpression(left);
-			IR::Expression *right_expr = IRenvironment->killCodeToExpression(right);
-			translated = new IR::StatementCode(new IR::MoveStatement(
-				left_expr, right_expr));
+			IR::Expression left_expr = IRenvironment->codeToExpression(left);
+			IR::Expression right_expr = IRenvironment->codeToExpression(right);
+			translated = std::make_shared<IR::StatementCode>(
+				std::make_shared<IR::MoveStatement>(left_expr, right_expr));
 			break;
 		}
 		default:
@@ -878,42 +875,44 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 }
 
 void TranslatorPrivate::translateSequence(const std::list<Syntax::Tree> &expressions,
-	IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
-	IR::AbstractFrame *currentFrame, IR::StatementSequence *existing_sequence)
+	IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
+	IR::AbstractFrame *currentFrame,
+	std::shared_ptr<IR::StatementSequence> existing_sequence)
 {
 	type = type_environment->getVoidType();
-	IR::StatementSequence *sequence = existing_sequence;
-	if (sequence == NULL)
-		sequence = new IR::StatementSequence;
-	IR::Expression *last_expression = NULL;
+	std::shared_ptr<IR::StatementSequence> sequence = existing_sequence;
+	if (! sequence)
+		sequence = std::make_shared<IR::StatementSequence>();
+	IR::Expression last_expression = nullptr;
 	for (std::list<Syntax::Tree>::const_iterator e = expressions.begin();
 			e != expressions.end(); ) {
 		auto next = e;
 		next++;
-		IR::Code *item_code;
+		IR::Code item_code;
 		translateExpression(*e, item_code, type, last_loop_exit, currentFrame, false);
 		if ((next != expressions.end()) || type->basetype == TYPE_VOID)
-			sequence->addStatement(IRenvironment->killCodeToStatement(item_code));
+			sequence->addStatement(IRenvironment->codeToStatement(item_code));
 		else
-			last_expression = IRenvironment->killCodeToExpression(item_code);
+			last_expression = IRenvironment->codeToExpression(item_code);
 		e = next;
 	}
-	if (last_expression == NULL)
-		translated = new IR::StatementCode(sequence);
+	if (! last_expression)
+		translated = std::make_shared<IR::StatementCode>(sequence);
 	else
 		if (! sequence->statements.empty())
-			translated = new IR::ExpressionCode(new IR::StatExpSequence(
+			translated = std::make_shared<IR::ExpressionCode>(
+				std::make_shared<IR::StatExpSequence>(
 				sequence, last_expression));
 		else
-			translated = new IR::ExpressionCode(last_expression);
+			translated = std::make_shared<IR::ExpressionCode>(last_expression);
 }
 
 void TranslatorPrivate::translateArrayIndexing(
 	Syntax::ArrayIndexing *expression,
-	IR::Code *&translated, Type *&type, IR::Label *last_loop_exit,
+	IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 	IR::AbstractFrame *currentFrame)
 {
-	IR::Code *array, *index;
+	IR::Code array, index;
 	Type *arrayType, *indexType;
 	translateExpression(expression->array, array, arrayType, last_loop_exit, currentFrame, true);
 	if (! IsArray(arrayType))
@@ -923,12 +922,13 @@ void TranslatorPrivate::translateArrayIndexing(
 		Error::error("Index is not an integer", expression->index->linenumber);
 	if (arrayType->basetype == TYPE_ARRAY) {
 		type = ((ArrayType *)arrayType)->elemtype->resolve();
-		IR::BinaryOpExpression *offset = new IR::BinaryOpExpression(
-			IR::OP_MUL, IRenvironment->killCodeToExpression(index),
-			new IR::IntegerExpression(framemanager->getVarSize(type)));
-		IR::BinaryOpExpression *target_address = new IR::BinaryOpExpression(
-			IR::OP_PLUS, IRenvironment->killCodeToExpression(array), offset);
-		translated = new IR::ExpressionCode(new IR::MemoryExpression(target_address));
+		std::shared_ptr<IR::BinaryOpExpression> offset = std::make_shared<IR::BinaryOpExpression>(
+			IR::OP_MUL, IRenvironment->codeToExpression(index),
+			std::make_shared<IR::IntegerExpression>(framemanager->getVarSize(type)));
+		std::shared_ptr<IR::BinaryOpExpression> target_address = std::make_shared<IR::BinaryOpExpression>(
+			IR::OP_PLUS, IRenvironment->codeToExpression(array), offset);
+		translated = std::make_shared<IR::ExpressionCode>(
+			std::make_shared<IR::MemoryExpression>(target_address));
 	} else {
 		type = type_environment->getErrorType();
 		translated = ErrorPlaceholderCode();
@@ -936,7 +936,7 @@ void TranslatorPrivate::translateArrayIndexing(
 }
 
 void TranslatorPrivate::translateArrayInstantiation(
-	Syntax::ArrayInstantiation *expression, IR::Code *&translated,
+	Syntax::ArrayInstantiation *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	assert(expression->arrayIsSingleId());
@@ -956,14 +956,14 @@ void TranslatorPrivate::translateArrayInstantiation(
 			elem_type = ((ArrayType *)type)->elemtype->resolve();
 		}
 	}
-	IR::Code *length;
+	IR::Code length;
 	Type *lengthType;
 	translateExpression(expression->arraydef->index, length, lengthType, last_loop_exit,
 		currentFrame, true);
 	if (! IsInt(lengthType))
 		Error::error("Not an integer as array length", expression->arraydef->index->linenumber);
 
-	IR::Code *value;
+	IR::Code value;
 	Type *valueType;
 	translateExpression(expression->value, value, valueType, last_loop_exit, currentFrame, true);
 	if ((elem_type != NULL) && ! CheckAssignmentTypes(elem_type, valueType))
@@ -971,7 +971,7 @@ void TranslatorPrivate::translateArrayInstantiation(
 			expression->value->linenumber);
 	
 	if (elem_type != NULL) {
-		std::list<IR::Code *> args;
+		std::list<IR::Code > args;
 		args.push_back(length);
 		args.push_back(value);
 		makeCallCode(getmem_fill_func, args, translated, currentFrame);
@@ -980,7 +980,7 @@ void TranslatorPrivate::translateArrayInstantiation(
 }
 
 bool TranslatorPrivate::translateIf_IfElse_Then(Syntax::IfElse *condition,
-	Syntax::Tree action, IR::Code *&translated,
+	Syntax::Tree action, IR::Code &translated,
 	IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	Error::warning("Suboptimal implementation of nested if's", condition->linenumber);
@@ -988,7 +988,7 @@ bool TranslatorPrivate::translateIf_IfElse_Then(Syntax::IfElse *condition,
 }
 
 void TranslatorPrivate::translateIf(
-	Syntax::If *expression, IR::Code *&translated,
+	Syntax::If *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	type = type_environment->getVoidType();
@@ -999,7 +999,7 @@ void TranslatorPrivate::translateIf(
 			return;
 	}
 	Type *conditionType, *actionType;
-	IR::Code *condition, *action;
+	IR::Code condition, action;
 	translateExpression(expression->condition, condition, conditionType, last_loop_exit,
 		currentFrame, true);
 	if (! IsInt(conditionType))
@@ -1011,23 +1011,23 @@ void TranslatorPrivate::translateIf(
 	
 	if (conditionType->basetype == TYPE_INT) {
 		std::list<IR::Label**> replace_true, replace_false;
-		IR::Statement *jump_by_condition = IRenvironment->killCodeToCondJump(condition,
-			replace_true, replace_false);
+		IR::Statement jump_by_condition = IRenvironment->codeToCondJump(
+			condition, replace_true, replace_false);
 		IR::Label *true_label = IRenvironment->addLabel();
 		IR::Label *false_label = IRenvironment->addLabel();
 		IR::putLabels(replace_true, replace_false, true_label, false_label);
-		IR::StatementSequence *statement = new IR::StatementSequence;
+		std::shared_ptr<IR::StatementSequence> statement = std::make_shared<IR::StatementSequence>();
 		statement->addStatement(jump_by_condition);
-		statement->addStatement(new IR::LabelPlacementStatement(true_label));
-		statement->addStatement(IRenvironment->killCodeToStatement(action));
-		statement->addStatement(new IR::LabelPlacementStatement(false_label));
-		translated = new IR::StatementCode(statement);
+		statement->addStatement(std::make_shared<IR::LabelPlacementStatement>(true_label));
+		statement->addStatement(IRenvironment->codeToStatement(action));
+		statement->addStatement(std::make_shared<IR::LabelPlacementStatement>(false_label));
+		translated = std::make_shared<IR::StatementCode>(statement);
 	} else
 		translated = ErrorPlaceholderCode();
 }
 
 bool TranslatorPrivate::translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
-	Syntax::Tree action, Syntax::Tree elseaction, IR::Code *&translated,
+	Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	Error::warning("Suboptimal implementation of nested if's", condition->linenumber);
@@ -1035,7 +1035,7 @@ bool TranslatorPrivate::translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
 }
 
 void TranslatorPrivate::translateIfElse(
-	Syntax::IfElse *expression, IR::Code *&translated,
+	Syntax::IfElse *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
 	bool expect_comparison_in_actions)
 {
@@ -1046,7 +1046,7 @@ void TranslatorPrivate::translateIfElse(
 		return;
 	}
 	Type *conditionType, *actionType, *elseType;
-	IR::Code *condition_code, *action_code, *elseaction_code;
+	IR::Code condition_code, action_code, elseaction_code;
 	translateExpression(expression->condition, condition_code, conditionType, last_loop_exit,
 		currentFrame, true);
 	if (! IsInt(conditionType))
@@ -1055,7 +1055,7 @@ void TranslatorPrivate::translateIfElse(
 		currentFrame, expect_comparison_in_actions);
 	translateExpression(expression->elseaction, elseaction_code, elseType, last_loop_exit,
 		currentFrame, expect_comparison_in_actions);
-	if ((actionType->basetype == TYPE_VOID) && (elseType->basetype == TYPE_VOID) ||
+	if (((actionType->basetype == TYPE_VOID) && (elseType->basetype == TYPE_VOID)) ||
 			CheckComparisonTypes(actionType, elseType)) {
 		if (conditionType->basetype == TYPE_ERROR)
 			actionType = type_environment->getErrorType();
@@ -1071,35 +1071,36 @@ void TranslatorPrivate::translateIfElse(
 			if (type->basetype != TYPE_VOID)
 				value_storage = IRenvironment->addRegister();
 			std::list<IR::Label**> replace_true, replace_false;
-			IR::Statement *condition_jump = IRenvironment->killCodeToCondJump(
+			IR::Statement condition_jump = IRenvironment->codeToCondJump(
 				condition_code, replace_true, replace_false);
 			IR::putLabels(replace_true, replace_false, true_label, false_label);
-			IR::StatementSequence *calculation = new IR::StatementSequence;
+			std::shared_ptr<IR::StatementSequence> calculation =
+				std::make_shared<IR::StatementSequence>();
 			calculation->addStatement(condition_jump);
-			calculation->addStatement(new IR::LabelPlacementStatement(true_label));
+			calculation->addStatement(std::make_shared<IR::LabelPlacementStatement>(true_label));
 			if (type->basetype != TYPE_VOID) {
-				calculation->addStatement(new IR::MoveStatement(
-					new IR::RegisterExpression(value_storage),
-					IRenvironment->killCodeToExpression(action_code)));
+				calculation->addStatement(std::make_shared<IR::MoveStatement>(
+					std::make_shared<IR::RegisterExpression>(value_storage),
+					IRenvironment->codeToExpression(action_code)));
 			} else {
-				calculation->addStatement(IRenvironment->killCodeToStatement(action_code));
+				calculation->addStatement(IRenvironment->codeToStatement(action_code));
 			}
-			calculation->addStatement(new IR::JumpStatement(
-				new IR::LabelAddressExpression(finish_label), finish_label));
-			calculation->addStatement(new IR::LabelPlacementStatement(false_label));
+			calculation->addStatement(std::make_shared<IR::JumpStatement>(
+				std::make_shared<IR::LabelAddressExpression>(finish_label), finish_label));
+			calculation->addStatement(std::make_shared<IR::LabelPlacementStatement>(false_label));
 			if (type->basetype != TYPE_VOID) {
-				calculation->addStatement(new IR::MoveStatement(
-					new IR::RegisterExpression(value_storage),
-					IRenvironment->killCodeToExpression(elseaction_code)));
+				calculation->addStatement(std::make_shared<IR::MoveStatement>(
+					std::make_shared<IR::RegisterExpression>(value_storage),
+					IRenvironment->codeToExpression(elseaction_code)));
 			} else {
-				calculation->addStatement(IRenvironment->killCodeToStatement(elseaction_code));
+				calculation->addStatement(IRenvironment->codeToStatement(elseaction_code));
 			}
-			calculation->addStatement(new IR::LabelPlacementStatement(finish_label));
+			calculation->addStatement(std::make_shared<IR::LabelPlacementStatement>(finish_label));
 			if (type->basetype == TYPE_VOID) {
-				translated = new IR::StatementCode(calculation);
+				translated = std::make_shared<IR::StatementCode>(calculation);
 			} else {
-				translated = new IR::ExpressionCode(new IR::StatExpSequence(
-					calculation, new IR::RegisterExpression(value_storage)));
+				translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::StatExpSequence>(
+					calculation, std::make_shared<IR::RegisterExpression>(value_storage)));
 			}
 		} else
 			translated = ErrorPlaceholderCode();
@@ -1111,12 +1112,12 @@ void TranslatorPrivate::translateIfElse(
 }
 
 void TranslatorPrivate::translateWhile(
-	Syntax::While *expression, IR::Code *&translated,
+	Syntax::While *expression, IR::Code &translated,
 	Type *&type, IR::AbstractFrame *currentFrame)
 {
 	type = type_environment->getVoidType();
 	Type *conditionType, *actionType;
-	IR::Code *condition, *action;
+	IR::Code condition, action;
 	IR::Label *exit_label = IRenvironment->addLabel();
 	translateExpression(expression->condition, condition, conditionType, exit_label,
 		currentFrame, true);
@@ -1130,31 +1131,31 @@ void TranslatorPrivate::translateWhile(
 		IR::Label *loop_label = IRenvironment->addLabel();
 		IR::Label *proceed_label = IRenvironment->addLabel();
 		std::list<IR::Label **> replace_true, replace_false;
-		IR::Statement *cond_jump = IRenvironment->killCodeToCondJump(condition,
+		IR::Statement cond_jump = IRenvironment->codeToCondJump(condition,
 			replace_true, replace_false);
 		IR::putLabels(replace_true, replace_false, proceed_label, exit_label);
 		if (cond_jump->kind == IR::IR_COND_JUMP)
-			FlipComparison(ToCondJumpStatement(cond_jump));
-		IR::StatementSequence *sequence = new IR::StatementSequence;
-		sequence->addStatement(new IR::LabelPlacementStatement(loop_label));
+			FlipComparison(ToCondJumpStatement(cond_jump).get());
+		std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(loop_label));
 		sequence->addStatement(cond_jump);
-		sequence->addStatement(new IR::LabelPlacementStatement(proceed_label));
-		sequence->addStatement(IRenvironment->killCodeToStatement(action));
-		sequence->addStatement(new IR::JumpStatement(
-			new IR::LabelAddressExpression(loop_label), loop_label));
-		sequence->addStatement(new IR::LabelPlacementStatement(exit_label));
-		translated = new IR::StatementCode(sequence);
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(proceed_label));
+		sequence->addStatement(IRenvironment->codeToStatement(action));
+		sequence->addStatement(std::make_shared<IR::JumpStatement>(
+			std::make_shared<IR::LabelAddressExpression>(loop_label), loop_label));
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(exit_label));
+		translated = std::make_shared<IR::StatementCode>(sequence);
 	} else
 		translated = ErrorPlaceholderCode();
 }
 
 void TranslatorPrivate::translateFor(
-	std::shared_ptr<Syntax::For> expression, IR::Code *&translated,
+	std::shared_ptr<Syntax::For> expression, IR::Code &translated,
 	Type *&type, IR::AbstractFrame *currentFrame)
 {
 	type = type_environment->getVoidType();
 	Type *from_type, *to_type, *actionType;
-	IR::Code *from_code, *to_code, *action_code;
+	IR::Code from_code, to_code, action_code;
 	IR::Label *exit_label = IRenvironment->addLabel();
 	translateExpression(expression->start, from_code, from_type, exit_label,
 		currentFrame, false);
@@ -1181,69 +1182,69 @@ void TranslatorPrivate::translateFor(
 	translateExpression(expression->action, action_code, actionType, exit_label,
 		currentFrame, false);
 	if ((from_type->basetype == TYPE_INT) && (to_type->basetype == TYPE_INT)) {
-		IR::StatementSequence *sequence = new IR::StatementSequence;
+		std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 		IR::VirtualRegister *upper_bound = IRenvironment->addRegister();
-		sequence->addStatement(new IR::MoveStatement(
-			new IR::RegisterExpression(upper_bound),
-			IRenvironment->killCodeToExpression(to_code)));
-		IR::Expression *loopvar_expression = loopvar->implementation->createCode(currentFrame);
-		sequence->addStatement(new IR::MoveStatement(
+		sequence->addStatement(std::make_shared<IR::MoveStatement>(
+			std::make_shared<IR::RegisterExpression>(upper_bound),
+			IRenvironment->codeToExpression(to_code)));
+		IR::Expression loopvar_expression = loopvar->implementation->createCode(currentFrame);
+		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			loopvar_expression,
-			IRenvironment->killCodeToExpression(from_code)));
+			IRenvironment->codeToExpression(from_code)));
 		IR::Label *loop_label = IRenvironment->addLabel();
 		loopvar_expression = loopvar->implementation->createCode(currentFrame);
-		sequence->addStatement(new IR::CondJumpStatement(IR::OP_LESSEQUAL,
+		sequence->addStatement(std::make_shared<IR::CondJumpStatement>(IR::OP_LESSEQUAL,
 			loopvar_expression,
-			new IR::RegisterExpression(upper_bound),
+			std::make_shared<IR::RegisterExpression>(upper_bound),
 			loop_label, exit_label));
-		sequence->addStatement(new IR::LabelPlacementStatement(loop_label));
-		sequence->addStatement(IRenvironment->killCodeToStatement(action_code));
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(loop_label));
+		sequence->addStatement(IRenvironment->codeToStatement(action_code));
 		IR::Label *proceed_label = IRenvironment->addLabel();
 		loopvar_expression = loopvar->implementation->createCode(currentFrame);
-		sequence->addStatement(new IR::CondJumpStatement(IR::OP_LESS,
+		sequence->addStatement(std::make_shared<IR::CondJumpStatement>(IR::OP_LESS,
 			loopvar_expression,
-			new IR::RegisterExpression(upper_bound),
+			std::make_shared<IR::RegisterExpression>(upper_bound),
 			proceed_label, exit_label));
-		sequence->addStatement(new IR::LabelPlacementStatement(proceed_label));
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(proceed_label));
 		loopvar_expression = loopvar->implementation->createCode(currentFrame);
-		IR::Expression *loopvar_expression2 = loopvar->implementation->createCode(currentFrame);
-		sequence->addStatement(new IR::MoveStatement(
+		IR::Expression loopvar_expression2 = loopvar->implementation->createCode(currentFrame);
+		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			loopvar_expression,
-			new IR::BinaryOpExpression(IR::OP_PLUS,
+			std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
 				loopvar_expression2,
-				new IR::IntegerExpression(1)
+				std::make_shared<IR::IntegerExpression>(1)
 			)
 		));
-		sequence->addStatement(new IR::JumpStatement(
-			new IR::LabelAddressExpression(loop_label), loop_label));
-		sequence->addStatement(new IR::LabelPlacementStatement(exit_label));
-		translated = new IR::StatementCode(sequence);
+		sequence->addStatement(std::make_shared<IR::JumpStatement>(
+			std::make_shared<IR::LabelAddressExpression>(loop_label), loop_label));
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(exit_label));
+		translated = std::make_shared<IR::StatementCode>(sequence);
 	} else
 		translated = ErrorPlaceholderCode();
 	func_and_var_names.removeLastLayer();
 }
 
-void TranslatorPrivate::translateBreak(IR::Code *&translated, IR::Label *loop_exit)
+void TranslatorPrivate::translateBreak(IR::Code &translated, IR::Label *loop_exit)
 {
-	translated = new IR::StatementCode(new IR::JumpStatement(
-		new IR::LabelAddressExpression(loop_exit), loop_exit));
+	translated = std::make_shared<IR::StatementCode>(std::make_shared<IR::JumpStatement>(
+		std::make_shared<IR::LabelAddressExpression>(loop_exit), loop_exit));
 }
 
 void TranslatorPrivate::translateScope(
-	Syntax::Scope *expression, IR::Code *&translated,
+	Syntax::Scope *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	newLayer();
 	std::list<Variable *> new_vars;
 	processDeclarations(expression->declarations.get(), currentFrame, new_vars);
-	IR::StatementSequence *sequence = new IR::StatementSequence;
+	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 	for (Variable *newvar: new_vars)
 		if (newvar->type->basetype != TYPE_ERROR) {
-			IR::Code *var_code = new IR::ExpressionCode(
+			IR::Code var_code = std::make_shared<IR::ExpressionCode>(
 				newvar->implementation->createCode(currentFrame));
-			sequence->addStatement(new IR::MoveStatement(
-				IRenvironment->killCodeToExpression(var_code),
-				IRenvironment->killCodeToExpression(newvar->value)
+			sequence->addStatement(std::make_shared<IR::MoveStatement>(
+				IRenvironment->codeToExpression(var_code),
+				IRenvironment->codeToExpression(newvar->value)
 			));
 		}
 	translateSequence(expression->action->expressions, translated, type,
@@ -1252,11 +1253,11 @@ void TranslatorPrivate::translateScope(
 }
 
 void TranslatorPrivate::translateRecordField(
-	Syntax::RecordField *expression, IR::Code *&translated,
+	Syntax::RecordField *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	Type *recType;
-	IR::Code *record_code;
+	IR::Code record_code;
 	translateExpression(expression->record, record_code, recType, last_loop_exit,
 		currentFrame, true);
 	if (recType->basetype != TYPE_RECORD) {
@@ -1275,23 +1276,25 @@ void TranslatorPrivate::translateRecordField(
 			translated = ErrorPlaceholderCode();
 		} else {
 			type = (*field).second->type->resolve();
-			IR::BinaryOpExpression *target_address = new IR::BinaryOpExpression(
-				IR::OP_PLUS, IRenvironment->killCodeToExpression(record_code),
-				new IR::IntegerExpression((*field).second->offset));
-			translated = new IR::ExpressionCode(new IR::MemoryExpression(target_address));
+			std::shared_ptr<IR::BinaryOpExpression> target_address =
+				std::make_shared<IR::BinaryOpExpression>(
+					IR::OP_PLUS, IRenvironment->codeToExpression(record_code),
+					std::make_shared<IR::IntegerExpression>((*field).second->offset));
+			translated = std::make_shared<IR::ExpressionCode>(
+				std::make_shared<IR::MemoryExpression>(target_address));
 		}
 	}
 }
 
 void TranslatorPrivate::makeCallCode(Function *function,
-	std::list<IR::Code *>arguments, IR::Code *&result,
+	std::list<IR::Code> arguments, IR::Code &result,
 	IR::AbstractFrame *currentFrame)
 {
-	IR::Expression *callee_parentfp = NULL;
+	IR::Expression callee_parentfp = nullptr;
 	if (function->needs_parent_fp) {
 		IR::AbstractFrame *callee_frame = function->frame;
 		if (callee_frame->getParent()->getId() == currentFrame->getId())
-			callee_parentfp = new IR::RegisterExpression(currentFrame->getFramePointer());
+			callee_parentfp = std::make_shared<IR::RegisterExpression>(currentFrame->getFramePointer());
 		else if (callee_frame->getParent()->getId() ==
 				currentFrame->getParent()->getId()) {
 			if (currentFrame->getParentFpForUs() != NULL)
@@ -1306,16 +1309,16 @@ void TranslatorPrivate::makeCallCode(Function *function,
 				createCode(currentFrame);
 		}
 	}
-	IR::CallExpression *call = new IR::CallExpression(
-		new IR::LabelAddressExpression(function->label),
+	std::shared_ptr<IR::CallExpression> call = std::make_shared<IR::CallExpression>(
+		std::make_shared<IR::LabelAddressExpression>(function->label),
 		callee_parentfp);
-	for (IR::Code *arg: arguments)
-		 call->addArgument(IRenvironment->killCodeToExpression(arg));
-	result = new IR::ExpressionCode(call);
+	for (IR::Code arg: arguments)
+		 call->addArgument(IRenvironment->codeToExpression(arg));
+	result = std::make_shared<IR::ExpressionCode>(call);
 }
 
 void TranslatorPrivate::translateFunctionCall(
-	Syntax::FunctionCall *expression, IR::Code *&translated,
+	Syntax::FunctionCall *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	Declaration *var_or_function = (Declaration *)
@@ -1339,11 +1342,11 @@ void TranslatorPrivate::translateFunctionCall(
 	type = function->return_type->resolve();
 	std::list<FunctionArgument>::iterator function_arg = function->arguments.begin();
 	bool already_too_many = false;
-	std::list<IR::Code *> arguments_code;
+	std::list<IR::Code> arguments_code;
 	for (Syntax::Tree passed_arg: expression->arguments->expressions) {
 		Type *argument_type = type_environment->getErrorType();
 		Type *passed_type;
-		IR::Code *argument_code;
+		IR::Code argument_code;
 		translateExpression(passed_arg, argument_code, passed_type, NULL,
 			currentFrame, true);
 		arguments_code.push_back(argument_code);
@@ -1369,7 +1372,7 @@ void TranslatorPrivate::translateFunctionCall(
 }
 
 void TranslatorPrivate::translateRecordInstantiation(
-	Syntax::RecordInstantiation *expression, IR::Code *&translated,
+	Syntax::RecordInstantiation *expression, IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	type = type_environment->getType(expression->type, false)->resolve();
@@ -1388,15 +1391,15 @@ void TranslatorPrivate::translateRecordInstantiation(
 	RecordType *record = (RecordType *)type;
 	
 	IR::VirtualRegister *record_address = IRenvironment->addRegister();
-	IR::StatementSequence *sequence = new IR::StatementSequence;
-	std::list<IR::Code *>alloc_argument;
-	alloc_argument.push_back(new IR::ExpressionCode(new IR::IntegerExpression(
-		record->data_size)));
-	IR::Code *alloc_code;
+	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
+	std::list<IR::Code> alloc_argument;
+	alloc_argument.push_back(std::make_shared<IR::ExpressionCode>(
+		std::make_shared<IR::IntegerExpression>(record->data_size)));
+	IR::Code alloc_code;
 	makeCallCode(getmem_func, alloc_argument, alloc_code, currentFrame);
-	sequence->addStatement(new IR::MoveStatement(
-		new IR::RegisterExpression(record_address),
-		IRenvironment->killCodeToExpression(alloc_code)));
+	sequence->addStatement(std::make_shared<IR::MoveStatement>(
+		std::make_shared<IR::RegisterExpression>(record_address),
+		IRenvironment->codeToExpression(alloc_code)));
 		
 	RecordType::FieldsList::iterator record_field = record->field_list.begin();
 	for (auto set_field = expression->fieldvalues->expressions.begin();
@@ -1418,25 +1421,25 @@ void TranslatorPrivate::translateRecordInstantiation(
 				fieldvalue->left->linenumber);
 		} else {
 			Type *valueType;
-			IR::Code *value_code;
+			IR::Code value_code;
 			translateExpression(fieldvalue->right, value_code, valueType, last_loop_exit,
 				currentFrame, true);
 			if (! CheckAssignmentTypes(field_type, valueType)) {
 				Error::error("Incompatible type for this field value",
 					fieldvalue->right->linenumber);
 			} else {
-				sequence->addStatement(new IR::MoveStatement(
-					new IR::MemoryExpression(new IR::BinaryOpExpression(IR::OP_PLUS,
-						new IR::RegisterExpression(record_address),
-						new IR::IntegerExpression((*record_field).offset)
-					)), IRenvironment->killCodeToExpression(value_code)
+				sequence->addStatement(std::make_shared<IR::MoveStatement>(
+					std::make_shared<IR::MemoryExpression>(std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
+						std::make_shared<IR::RegisterExpression>(record_address),
+						std::make_shared<IR::IntegerExpression>((*record_field).offset)
+					)), IRenvironment->codeToExpression(value_code)
 				));
 			}
 		}
 		record_field++;
 	}
-	translated = new IR::ExpressionCode(new IR::StatExpSequence(sequence,
-		new IR::RegisterExpression(record_address)));
+	translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::StatExpSequence>(sequence,
+		std::make_shared<IR::RegisterExpression>(record_address)));
 }
 
 const char *NODETYPENAMES[] = {
@@ -1467,7 +1470,7 @@ const char *NODETYPENAMES[] = {
 };
 
 void TranslatorPrivate::translateExpression(Syntax::Tree expression,
-	IR::Code *&translated, Type*& type,
+	IR::Code &translated, Type*& type,
 	IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
 	bool expect_comparison)
 {
@@ -1566,14 +1569,14 @@ Translator::~Translator()
 }
 
 void Translator::translateProgram(Syntax::Tree expression,
-	IR::Statement *&result, IR::AbstractFrame *&frame)
+	IR::Statement &result, IR::AbstractFrame *&frame)
 {
 	Type *type;
-	IR::Code *code;
+	IR::Code code;
 	impl->variables_extra_info.processExpression(expression, INVALID_OBJECT_ID);
 	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
 	impl->translateExpression(expression, code, type, NULL, frame, false);
-	result = impl->IRenvironment->killCodeToStatement(code);
+	result = impl->IRenvironment->codeToStatement(code);
 
 	for (Semantic::Function &func: impl->functions)
 		func.raw_body = nullptr;
@@ -1588,7 +1591,7 @@ void Translator::printFunctions(FILE *out)
 		}
 }
 
-void Translator::canonicalizeProgram(IR::Statement*& statement)
+void Translator::canonicalizeProgram(IR::Statement &statement)
 {
 	impl->IRtransformer->canonicalizeStatement(statement);
 	if (statement->kind == IR::IR_STAT_SEQ)
@@ -1602,23 +1605,23 @@ void Translator::canonicalizeFunctions()
 			continue;
 		switch (func.body->kind) {
 			case IR::CODE_EXPRESSION: {
-				IR::ExpressionCode *exp_code = (IR::ExpressionCode *) func.body;
+				IR::ExpressionCode *exp_code = std::static_pointer_cast<IR::ExpressionCode>(func.body).get();
 				impl->IRtransformer->canonicalizeExpression(
 					exp_code->exp, NULL, NULL);
 				impl->IRtransformer->arrangeJumpsInExpression(exp_code->exp);
 				break;
 			}
 			case IR::CODE_STATEMENT: {
-				IR::StatementCode *statm_code = (IR::StatementCode *) func.body;
+				IR::StatementCode *statm_code = std::static_pointer_cast<IR::StatementCode>(func.body).get();
 				canonicalizeProgram(statm_code->statm);
 				break;
 			}
 			case IR::CODE_JUMP_WITH_PATCHES: {
-				IR::Expression *expr = impl->IRenvironment->
-					killCodeToExpression(func.body);
+				IR::Expression expr = impl->IRenvironment->
+					codeToExpression(func.body);
 				impl->IRtransformer->canonicalizeExpression(expr, NULL, NULL);
 				impl->IRtransformer->arrangeJumpsInExpression(expr);
-				func.body = new IR::ExpressionCode(expr);
+				func.body = std::make_shared<IR::ExpressionCode>(expr);
 			}
 		}
 	}

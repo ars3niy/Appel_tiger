@@ -22,9 +22,9 @@ public:
 	~Translator();
 	
 	void translateProgram(Syntax::Tree expression,
-		IR::Statement *&result, IR::AbstractFrame *&frame);
+		IR::Statement &result, IR::AbstractFrame *&frame);
 	void printFunctions(FILE *out);
-	void canonicalizeProgram(IR::Statement *&statement);
+	void canonicalizeProgram(IR::Statement &statement);
 	void canonicalizeFunctions();
 	const std::list<Function> &getFunctions();
 };
