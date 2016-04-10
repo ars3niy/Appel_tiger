@@ -95,7 +95,7 @@ void VariablesAccessInfo::handleCall(Syntax::Tree function_exp,
 	if (function_exp->type != Syntax::IDENTIFIER)
 		return;
 	VarAccessDefInfo *callee_info = (VarAccessDefInfo *)impl->variable_names.
-		lookup(((Syntax::Identifier *)function_exp)->name);
+		lookup(std::static_pointer_cast<Syntax::Identifier>(function_exp)->name);
 		
 	if (callee_info == NULL)
 		return;
@@ -119,13 +119,15 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 			break;
 		case Syntax::VARDECLARATION:
 			impl->variables.push_back(VarAccessDefInfo(
-				((Syntax::VariableDeclaration *)declaration)->id,
+				std::static_pointer_cast<Syntax::VariableDeclaration>(declaration)->id,
 				current_function_id, false));
-			impl->variable_names.add(((Syntax::VariableDeclaration *)declaration)->name->name,
+			impl->variable_names.add(
+				std::static_pointer_cast<Syntax::VariableDeclaration>(declaration)->name->name,
 				&(impl->variables.back()));
 			break;
 		case Syntax::FUNCTION: {
-			Syntax::Function *func_declaration = (Syntax::Function *)declaration;
+			std::shared_ptr<Syntax::Function> func_declaration =
+				std::static_pointer_cast<Syntax::Function>(declaration);
 			impl->functions.push_back(VarAccessDefInfo(
 				func_declaration->id,
 				current_function_id, true));
@@ -147,9 +149,10 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 				for (Syntax::Tree param: func_declaration->parameters->expressions) {
 					assert(param->type == Syntax::PARAMETERDECLARATION);
 					impl->variables.push_back(VarAccessDefInfo(
-						((Syntax::ParameterDeclaration *) param)->id,
+						std::static_pointer_cast<Syntax::ParameterDeclaration>(param)->id,
 						func_declaration->id, false));
-					impl->variable_names.add(((Syntax::VariableDeclaration *) param)->name->name,
+					impl->variable_names.add(
+						std::static_pointer_cast<Syntax::VariableDeclaration>(param)->name->name,
 						&(impl->variables.back()));
 				}
 				func_stack.push_back(func_declaration->id);
@@ -170,7 +173,7 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 	switch (expression->type) {
 		case Syntax::IDENTIFIER: {
 			VarAccessDefInfo *variable = (VarAccessDefInfo *)impl->variable_names.
-				lookup(((Syntax::Identifier *)expression)->name);
+				lookup(std::static_pointer_cast<Syntax::Identifier>(expression)->name);
 			if ((variable != NULL) && (! variable->is_function) &&
 					(variable->owner_func_id != current_function_id)) {
 				impl->var_info.add(variable->object_id, variable);
@@ -195,66 +198,66 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 		case Syntax::BREAK:
 			break;
 		case Syntax::BINARYOP:
-			processExpression(((Syntax::BinaryOp *)expression)->left, current_function_id);
-			processExpression(((Syntax::BinaryOp *)expression)->right, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::BinaryOp>(expression)->left, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::BinaryOp>(expression)->right, current_function_id);
 			break;
 		case Syntax::SEQUENCE: {
-			for (Syntax::Tree child: ((Syntax::Sequence *)expression)->content->expressions)
+			for (Syntax::Tree child: std::static_pointer_cast<Syntax::Sequence>(expression)->content->expressions)
 				processExpression(child, current_function_id);
 			break;
 		}
 		case Syntax::ARRAYINDEXING:
-			processExpression(((Syntax::ArrayIndexing *)expression)->array, current_function_id);
-			processExpression(((Syntax::ArrayIndexing *)expression)->index, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::ArrayIndexing>(expression)->array, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::ArrayIndexing>(expression)->index, current_function_id);
 			break;
 		case Syntax::ARRAYINSTANTIATION:
-			processExpression(((Syntax::ArrayInstantiation *)expression)->arraydef->index, current_function_id);
-			processExpression(((Syntax::ArrayInstantiation *)expression)->value, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::ArrayInstantiation>(expression)->arraydef->index, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::ArrayInstantiation>(expression)->value, current_function_id);
 			break;
 		case Syntax::IF:
-			processExpression(((Syntax::If *)expression)->condition, current_function_id);
-			processExpression(((Syntax::If *)expression)->action, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::If>(expression)->condition, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::If>(expression)->action, current_function_id);
 			break;
 		case Syntax::IFELSE:
-			processExpression(((Syntax::IfElse *)expression)->condition, current_function_id);
-			processExpression(((Syntax::IfElse *)expression)->action, current_function_id);
-			processExpression(((Syntax::IfElse *)expression)->elseaction, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::IfElse>(expression)->condition, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::IfElse>(expression)->action, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::IfElse>(expression)->elseaction, current_function_id);
 			break;
 		case Syntax::WHILE:
-			processExpression(((Syntax::While *)expression)->condition, current_function_id);
-			processExpression(((Syntax::While *)expression)->action, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::While>(expression)->condition, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::While>(expression)->action, current_function_id);
 			break;
 		case Syntax::FOR:
 			impl->variables.push_back(VarAccessDefInfo(
-				((Syntax::For *)expression)->variable_id, current_function_id, false));
-			impl->variable_names.add(((Syntax::For *)expression)->variable->name,
+				std::static_pointer_cast<Syntax::For>(expression)->variable_id, current_function_id, false));
+			impl->variable_names.add(std::static_pointer_cast<Syntax::For>(expression)->variable->name,
 				&(impl->variables.back()));
-			processExpression(((Syntax::For *)expression)->start, current_function_id);
-			processExpression(((Syntax::For *)expression)->stop, current_function_id);
-			processExpression(((Syntax::For *)expression)->action, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::For>(expression)->start, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::For>(expression)->stop, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::For>(expression)->action, current_function_id);
 			break;
 		case Syntax::SCOPE: {
 			impl->variable_names.newLayer();
-			for (Syntax::Tree declaration: ((Syntax::Scope *)expression)->declarations->expressions)
+			for (Syntax::Tree declaration: std::static_pointer_cast<Syntax::Scope>(expression)->declarations->expressions)
 				processDeclaration(declaration, current_function_id);
-			for (Syntax::Tree body_expression: ((Syntax::Scope *)expression)->action->expressions)
+			for (Syntax::Tree body_expression: std::static_pointer_cast<Syntax::Scope>(expression)->action->expressions)
 				processExpression(body_expression, current_function_id);
 			impl->variable_names.removeLastLayer();
 			break;
 		}
 		case Syntax::RECORDFIELD:
-			processExpression(((Syntax::RecordField *)expression)->record, current_function_id);
+			processExpression(std::static_pointer_cast<Syntax::RecordField>(expression)->record, current_function_id);
 			break;
 		case Syntax::FUNCTIONCALL:
-			processExpression(((Syntax::FunctionCall *)expression)->function, current_function_id);
-			handleCall(((Syntax::FunctionCall *)expression)->function, current_function_id); 
-			for (Syntax::Tree child: ((Syntax::FunctionCall *)expression)->arguments->expressions)
+			processExpression(std::static_pointer_cast<Syntax::FunctionCall>(expression)->function, current_function_id);
+			handleCall(std::static_pointer_cast<Syntax::FunctionCall>(expression)->function, current_function_id); 
+			for (Syntax::Tree child: std::static_pointer_cast<Syntax::FunctionCall>(expression)->arguments->expressions)
 				processExpression(child, current_function_id);
 			break;
 		case Syntax::RECORDINSTANTIATION: {
-			for (Syntax::Tree field_def: ((Syntax::RecordInstantiation *)expression)->fieldvalues->expressions) {
+			for (Syntax::Tree field_def: std::static_pointer_cast<Syntax::RecordInstantiation>(expression)->fieldvalues->expressions) {
 				assert(field_def->type == Syntax::BINARYOP);
-				Syntax::BinaryOp *fieldvalue = (Syntax::BinaryOp *) field_def;
+				std::shared_ptr<Syntax::BinaryOp> fieldvalue = std::static_pointer_cast<Syntax::BinaryOp>(field_def);
 				assert(fieldvalue->operation == SYM_ASSIGN);
 				processExpression(fieldvalue->right, current_function_id);
 			}
@@ -270,13 +273,13 @@ bool VariablesAccessInfo::isAccessedByAddress(Syntax::Tree definition)
 	int id;
 	switch (definition->type) {
 		case Syntax::VARDECLARATION:
-			id = ((Syntax::VariableDeclaration *)definition)->id;
+			id = std::static_pointer_cast<Syntax::VariableDeclaration>(definition)->id;
 			break;
 		case Syntax::PARAMETERDECLARATION:
-			id = ((Syntax::ParameterDeclaration *)definition)->id;
+			id = std::static_pointer_cast<Syntax::ParameterDeclaration>(definition)->id;
 			break;
 		case Syntax::FOR:
-			id = ((Syntax::For *)definition)->variable_id;
+			id = std::static_pointer_cast<Syntax::For>(definition)->variable_id;
 			break;
 		default:
 			Error::fatalError("Variable access checked for non-variable declaration",

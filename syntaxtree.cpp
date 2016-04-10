@@ -2,9 +2,4 @@
 
 namespace Syntax {
 
-void DestroySyntaxTree(Tree &tree)
-{
-	tree = NULL;
-}
-
 }

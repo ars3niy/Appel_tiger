@@ -72,9 +72,15 @@ struct CodeInfo {
 	IR::AbstractFrame *frame;
 };
 
+Syntax::Tree parsed_progrom;
+
 void ProcessTree(Syntax::Tree tree)
 {
-	//Syntax::PrintTree(tree);
+	parsed_progrom = tree;
+}
+
+void TranslateProgram()
+{
 	IR::IREnvironment IR_env;
 	IR::X86_64FrameManager framemanager(&IR_env);
 	Semantic::Translator translator(&IR_env, &framemanager);
@@ -82,8 +88,8 @@ void ProcessTree(Syntax::Tree tree)
 	IR::AbstractFrame *body_frame;
 	Semantic::Type *type;
 	IR::Statement *program_body;
-	translator.translateProgram(tree, program_body, body_frame);
-	Syntax::DestroySyntaxTree(tree);
+	translator.translateProgram(parsed_progrom, program_body, body_frame);
+	parsed_progrom = nullptr;
 	
 	if (Error::getErrorCount() != 0)
 		return;
@@ -266,8 +272,10 @@ int main(int argc, char **argv)
 					Error::global_error("Cannot open " + inputname + ": " +
 						strerror(errno));
 				else {
+					printf("Parsing\n");
 					yyparse();
 					fclose(yyin);
+					TranslateProgram();
 					objfiles_translated.push_back(obj_name);
 					objfiles_input.push_back(obj_name);
 				}

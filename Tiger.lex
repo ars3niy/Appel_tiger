@@ -73,7 +73,7 @@ to   	{return SYM_TO;}
 break	{return SYM_BREAK;}
 
 \"          	{svalue = ""; BEGIN(STRING);}
-<STRING>\"  	{yylval = new Syntax::StringValue(svalue); BEGIN(INITIAL); return SYM_STRING;}
+<STRING>\"  	{yylval = std::make_shared<Syntax::StringValue>(svalue); BEGIN(INITIAL); return SYM_STRING;}
 <STRING>\\n 	{svalue += "\n";}
 <STRING>\\r 	{svalue += "\r";}
 <STRING>\\t 	{svalue += "\t";}
@@ -96,6 +96,6 @@ break	{return SYM_BREAK;}
 <COMMENT>\n  	{Error::newline();}
 <COMMENT>.   	{}
 
-[a-zA-Z][a-zA-Z0-9_]*	{yylval = new Syntax::Identifier(yytext); return SYM_ID;}
-[0-9]+	{yylval = new Syntax::IntValue(atoi(yytext)); return SYM_INT;}
+[a-zA-Z][a-zA-Z0-9_]*	{yylval = std::make_shared<Syntax::Identifier>(yytext); return SYM_ID;}
+[0-9]+	{yylval = std::make_shared<Syntax::IntValue>(atoi(yytext)); return SYM_INT;}
 .	{Error::error(std::string("Illegal character: ") + yytext);}

@@ -57,7 +57,7 @@ private:
 		IR::AbstractFrame *currentFrame, std::list<Variable *> &new_vars);
 	Declaration *findVariableOrFunction(Syntax::Identifier *id);
 
-	void processVariableDeclaration(Syntax::VariableDeclaration *declaration,
+	void processVariableDeclaration(std::shared_ptr<Syntax::VariableDeclaration> declaration,
 		IR::AbstractFrame *currentFrame, std::list<Variable *> &new_vars);
 	void processFunctionDeclarationBatch(std::list<Syntax::Tree>::iterator begin,
 		std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame);
@@ -95,7 +95,7 @@ private:
 		bool expect_comparison_in_actions);
 	void translateWhile(Syntax::While *expression, IR::Code *&translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
-	void translateFor(Syntax::For *expression, IR::Code *&translated,
+	void translateFor(std::shared_ptr<Syntax::For> expression, IR::Code *&translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
 	void translateBreak(IR::Code *&translated, IR::Label *loop_exit);
 	void translateScope(Syntax::Scope *expression, IR::Code *&translated,
@@ -178,7 +178,8 @@ Type *TypesEnvironment::createRecordType(Syntax::RecordTypeDefinition *definitio
 	
 	for (Syntax::Tree t: definition->fields->expressions) {
 		assert(t->type == Syntax::PARAMETERDECLARATION);
-		Syntax::ParameterDeclaration *param = (Syntax::ParameterDeclaration *)t;
+		std::shared_ptr<Syntax::ParameterDeclaration> param =
+			std::static_pointer_cast<Syntax::ParameterDeclaration>(t);
 		type->addField(param->name->name, getType(param->type,
 			allow_forward_references));
 	}
@@ -191,17 +192,18 @@ Type *TypesEnvironment::getType(Syntax::Tree definition,
 {
 	switch (definition->type) {
 		case Syntax::ARRAYTYPEDEFINITION:
-			return createArrayType((Syntax::ArrayTypeDefinition *)definition,
+			return createArrayType(std::static_pointer_cast<Syntax::ArrayTypeDefinition>(definition).get(),
 				allow_forward_references);
 		case Syntax::RECORDTYPEDEFINITION:
-			return createRecordType((Syntax::RecordTypeDefinition *)definition,
+			return createRecordType(std::static_pointer_cast<Syntax::RecordTypeDefinition>(definition).get(),
 				allow_forward_references);
 		case Syntax::IDENTIFIER: {
-			std::string &identifier = ((Syntax::Identifier *)definition)->name;
+			std::string &identifier = std::static_pointer_cast<Syntax::Identifier>(definition)->name;
 			Semantic::Type *type = (Semantic::Type *)typenames.lookup(identifier);
 			if (type == NULL) {
 				if (! allow_forward_references) {
-					Error::error(std::string("Undefined type ") + ((Syntax::Identifier *)definition)->name);
+					Error::error(std::string("Undefined type ") +
+						std::static_pointer_cast<Syntax::Identifier>(definition)->name);
 					return error_type;
 				}
 				type = new ForwardReferenceType(identifier, definition);
@@ -224,7 +226,8 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 	std::set<std::string> types_in_the_batch;
 	for (std::list<Syntax::Tree>::iterator i = begin; i != end; i++) {
 		assert((*i)->type == Syntax::TYPEDECLARATION);
-		Syntax::TypeDeclaration *declaration = (Syntax::TypeDeclaration *)*i;
+		std::shared_ptr<Syntax::TypeDeclaration> declaration =
+			std::static_pointer_cast<Syntax::TypeDeclaration>(*i);
 		if (types_in_the_batch.find(declaration->name->name) != types_in_the_batch.end())
 			Error::error("Type " + declaration->name->name +
 				"redefined in a same batch of consequtive types", declaration->name->linenumber);
@@ -434,7 +437,7 @@ bool CheckAssignmentTypes(Type *left, Type *right)
 }
 
 void TranslatorPrivate::processVariableDeclaration(
-	Syntax::VariableDeclaration *declaration, IR::AbstractFrame *currentFrame,
+	std::shared_ptr<Syntax::VariableDeclaration> declaration, IR::AbstractFrame *currentFrame,
 	std::list<Variable *> &new_vars)
 {
 	Type *vartype;
@@ -513,7 +516,7 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 	std::set<std::string> names_in_batch;
 	for (std::list<Syntax::Tree>::iterator f = begin; f != end; f++) {
 		assert((*f)->type == Syntax::FUNCTION);
-		Syntax::Function *declaration = (Syntax::Function *) *f;
+		Syntax::Function *declaration = std::static_pointer_cast<Syntax::Function>(*f).get();
 		if (names_in_batch.find(declaration->name->name) != names_in_batch.end())
 			Error::error("Function " + declaration->name->name +
 				"redefined in a successive batch of functions", declaration->name->linenumber);
@@ -551,8 +554,8 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		
 		for (Syntax::Tree param: declaration->parameters->expressions) {
 			assert(param->type == Syntax::PARAMETERDECLARATION);
-			Syntax::ParameterDeclaration *param_decl = 
-				(Syntax::ParameterDeclaration *) param;
+			std::shared_ptr<Syntax::ParameterDeclaration> param_decl = 
+				std::static_pointer_cast<Syntax::ParameterDeclaration>(param);
 			Type *param_type = type_environment->getType(param_decl->type, false)->resolve();
 			function->addArgument(param_decl->name->name, param_type,
 				function->frame->addParameter(
@@ -597,7 +600,7 @@ void TranslatorPrivate::processDeclarations(
 		Syntax::Tree declaration = *d;
 		Syntax::NodeType dectype = declaration->type;
 		if (dectype == Syntax::VARDECLARATION) {
-			processVariableDeclaration((Syntax::VariableDeclaration *)declaration,
+			processVariableDeclaration(std::static_pointer_cast<Syntax::VariableDeclaration>(declaration),
 				currentFrame, new_vars);
 			d++;
 		} else if ((dectype == Syntax::FUNCTION) || 
@@ -787,16 +790,14 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 	IR::AbstractFrame *currentFrame)
 {
 	if (expression->operation == SYM_AND) {
-		Syntax::IntValue zero(0);
 		Syntax::IfElse replacement(expression->left,
-			expression->right, &zero);
+			expression->right, std::make_shared<Syntax::IntValue>(0));
 		translateIfElse(&replacement, translated, type, last_loop_exit,
 			currentFrame, true);
 		return;
 	} else if (expression->operation == SYM_OR) {
-		Syntax::IntValue one(1);
 		Syntax::IfElse replacement(expression->left,
-			&one, expression->right);
+			std::make_shared<Syntax::IntValue>(1), expression->right);
 		translateIfElse(&replacement, translated, type, last_loop_exit,
 			currentFrame, true);
 		return;
@@ -992,7 +993,7 @@ void TranslatorPrivate::translateIf(
 {
 	type = type_environment->getVoidType();
 	if (expression->condition->type == Syntax::IFELSE) {
-		if (translateIf_IfElse_Then((Syntax::IfElse *)expression->condition,
+		if (translateIf_IfElse_Then((Syntax::IfElse *)expression->condition.get(),
 				expression->action, translated,
 				last_loop_exit, currentFrame))
 			return;
@@ -1039,7 +1040,7 @@ void TranslatorPrivate::translateIfElse(
 	bool expect_comparison_in_actions)
 {
 	if (expression->condition->type == Syntax::IFELSE) {
-		translateIf_IfElse_ThenElse((Syntax::IfElse *)expression->condition,
+		translateIf_IfElse_ThenElse((Syntax::IfElse *)expression->condition.get(),
 			expression->action, expression->elseaction, translated, type,
 			last_loop_exit, currentFrame);
 		return;
@@ -1148,7 +1149,7 @@ void TranslatorPrivate::translateWhile(
 }
 
 void TranslatorPrivate::translateFor(
-	Syntax::For *expression, IR::Code *&translated,
+	std::shared_ptr<Syntax::For> expression, IR::Code *&translated,
 	Type *&type, IR::AbstractFrame *currentFrame)
 {
 	type = type_environment->getVoidType();
@@ -1234,7 +1235,7 @@ void TranslatorPrivate::translateScope(
 {
 	newLayer();
 	std::list<Variable *> new_vars;
-	processDeclarations(expression->declarations, currentFrame, new_vars);
+	processDeclarations(expression->declarations.get(), currentFrame, new_vars);
 	IR::StatementSequence *sequence = new IR::StatementSequence;
 	for (Variable *newvar: new_vars)
 		if (newvar->type->basetype != TYPE_ERROR) {
@@ -1339,7 +1340,7 @@ void TranslatorPrivate::translateFunctionCall(
 	std::list<FunctionArgument>::iterator function_arg = function->arguments.begin();
 	bool already_too_many = false;
 	std::list<IR::Code *> arguments_code;
-	for (Syntax::Node *passed_arg: expression->arguments->expressions) {
+	for (Syntax::Tree passed_arg: expression->arguments->expressions) {
 		Type *argument_type = type_environment->getErrorType();
 		Type *passed_type;
 		IR::Code *argument_code;
@@ -1407,10 +1408,10 @@ void TranslatorPrivate::translateRecordInstantiation(
 		}
 		Type *field_type = (*record_field).type->resolve();
 		assert((*set_field)->type == Syntax::BINARYOP);
-		Syntax::BinaryOp *fieldvalue = (Syntax::BinaryOp *) *set_field;
+		Syntax::BinaryOp *fieldvalue = std::static_pointer_cast<Syntax::BinaryOp>(*set_field).get();
 		assert(fieldvalue->operation == SYM_ASSIGN);
 		assert(fieldvalue->left->type == Syntax::IDENTIFIER);
-		Syntax::Identifier * field = (Syntax::Identifier *)fieldvalue->left;
+		Syntax::Identifier *field = std::static_pointer_cast<Syntax::Identifier>(fieldvalue->left).get();
 		if (field->name != (*record_field).name) {
 			Error::error(std::string("Wrong field name ") + field->name +
 				" expected " + (*record_field).name,
@@ -1473,16 +1474,16 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 	translated = NULL;
 	switch (expression->type) {
 		case Syntax::INTVALUE:
-			translateIntValue(((Syntax::IntValue *)expression)->value, translated);
+			translateIntValue(std::static_pointer_cast<Syntax::IntValue>(expression)->value, translated);
 			type = type_environment->getIntType();
 			break;
 		case Syntax::STRINGVALUE:
-			translateStringValue((Syntax::StringValue *)expression, translated);
+			translateStringValue(std::static_pointer_cast<Syntax::StringValue>(expression).get(), translated);
 			type = type_environment->getStringType();
 			break;
 		case Syntax::IDENTIFIER:
-			translateIdentifier((Syntax::Identifier *)expression, translated, type,
-				currentFrame);
+			translateIdentifier(std::static_pointer_cast<Syntax::Identifier>(expression).get(),
+				translated, type, currentFrame);
 			break;
 		case Syntax::NIL:
 			type = type_environment->getNilType();
@@ -1490,38 +1491,40 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 			break;
 		case Syntax::BINARYOP: {
 			if (! expect_comparison &&
-					((Syntax::BinaryOp *)expression)->operation == SYM_EQUAL)
+					std::static_pointer_cast<Syntax::BinaryOp>(expression)->operation == SYM_EQUAL)
 				Error::warning("Might have written comparison instead of assignment",
 					expression->linenumber);
-			translateBinaryOperation((Syntax::BinaryOp *)expression, translated,
-				type, last_loop_exit, currentFrame);
+			translateBinaryOperation(std::static_pointer_cast<Syntax::BinaryOp>(expression).get(),
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		}
 		case Syntax::SEQUENCE:
-			translateSequence(((Syntax::Sequence *)expression)->content->expressions, translated, type,
-				last_loop_exit, currentFrame);
+			translateSequence(std::static_pointer_cast<Syntax::Sequence>(expression)->content->expressions,
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::ARRAYINDEXING:
-			translateArrayIndexing((Syntax::ArrayIndexing *)expression, translated,
-				type, last_loop_exit, currentFrame);
+			translateArrayIndexing(std::static_pointer_cast<Syntax::ArrayIndexing>(expression).get(),
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::ARRAYINSTANTIATION:
-			translateArrayInstantiation((Syntax::ArrayInstantiation *)expression,
+			translateArrayInstantiation(std::static_pointer_cast<Syntax::ArrayInstantiation>(expression).get(),
 				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::IF:
-			translateIf((Syntax::If *)expression, translated, type, last_loop_exit,
-				currentFrame);
+			translateIf(std::static_pointer_cast<Syntax::If>(expression).get(),
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::IFELSE:
-			translateIfElse((Syntax::IfElse *)expression, translated, type, last_loop_exit,
-				currentFrame, false);
+			translateIfElse(std::static_pointer_cast<Syntax::IfElse>(expression).get(),
+				translated, type, last_loop_exit, currentFrame, false);
 			break;
 		case Syntax::WHILE:
-			translateWhile((Syntax::While *)expression, translated, type, currentFrame);
+			translateWhile(std::static_pointer_cast<Syntax::While>(expression).get(),
+				translated, type, currentFrame);
 			break;
 		case Syntax::FOR:
-			translateFor((Syntax::For *)expression, translated, type, currentFrame);
+			translateFor(std::static_pointer_cast<Syntax::For>(expression),
+				translated, type, currentFrame);
 			break;
 		case Syntax::BREAK:
 			type = type_environment->getVoidType();
@@ -1531,19 +1534,19 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 				translateBreak(translated, last_loop_exit);
 			break;
 		case Syntax::SCOPE:
-			translateScope((Syntax::Scope *)expression, translated, type, last_loop_exit,
-				currentFrame);
+			translateScope(std::static_pointer_cast<Syntax::Scope>(expression).get(),
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::RECORDFIELD:
-			translateRecordField((Syntax::RecordField *)expression, translated, type,
-				last_loop_exit, currentFrame);
+			translateRecordField(std::static_pointer_cast<Syntax::RecordField>(expression).get(),
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::FUNCTIONCALL:
-			translateFunctionCall((Syntax::FunctionCall *)expression, translated, type,
-				last_loop_exit, currentFrame);
+			translateFunctionCall(std::static_pointer_cast<Syntax::FunctionCall>(expression).get(),
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::RECORDINSTANTIATION:
-			translateRecordInstantiation((Syntax::RecordInstantiation *)expression,
+			translateRecordInstantiation(std::static_pointer_cast<Syntax::RecordInstantiation>(expression).get(),
 				translated, type, last_loop_exit, currentFrame);
 			break;
 		default:
@@ -1571,6 +1574,9 @@ void Translator::translateProgram(Syntax::Tree expression,
 	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
 	impl->translateExpression(expression, code, type, NULL, frame, false);
 	result = impl->IRenvironment->killCodeToStatement(code);
+
+	for (Semantic::Function &func: impl->functions)
+		func.raw_body = nullptr;
 }
 
 void Translator::printFunctions(FILE *out)

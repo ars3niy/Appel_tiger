@@ -238,33 +238,33 @@ void print(FILE *out, Syntax::Tree tree, int indent = 0, const char *prefix = ""
 			fprintf(out, "break\n");
 			break;
 		case Syntax::INTVALUE:
-			fprintf(out, "%d\n", ((Syntax::IntValue *)tree)->value);
+			fprintf(out, "%d\n", std::static_pointer_cast<Syntax::IntValue>(tree)->value);
 			break;
 		case Syntax::IDENTIFIER:
-			fprintf(out, "%s\n", ((Syntax::Identifier *)tree)->name.c_str());
+			fprintf(out, "%s\n", std::static_pointer_cast<Syntax::Identifier>(tree)->name.c_str());
 			break;
 		case Syntax::STRINGVALUE:
-			fprintf(out, "\"%s\"\n", ((Syntax::StringValue *)tree)->value.c_str());
+			fprintf(out, "\"%s\"\n", std::static_pointer_cast<Syntax::StringValue>(tree)->value.c_str());
 			break;
 		case Syntax::BINARYOP:
-			fprintf(out, "%s\n", TokenName(((Syntax::BinaryOp *)tree)->operation));
-			print(out, ((Syntax::BinaryOp *)tree)->left, indent+4, "Left: ");
-			print(out, ((Syntax::BinaryOp *)tree)->right, indent+4, "Right: ");
+			fprintf(out, "%s\n", TokenName(std::static_pointer_cast<Syntax::BinaryOp>(tree)->operation));
+			print(out, std::static_pointer_cast<Syntax::BinaryOp>(tree)->left, indent+4, "Left: ");
+			print(out, std::static_pointer_cast<Syntax::BinaryOp>(tree)->right, indent+4, "Right: ");
 			break;
 		case Syntax::EXPRESSIONLIST: {
-			Syntax::ExpressionList *exp = (Syntax::ExpressionList *)tree;
+			std::shared_ptr<Syntax::ExpressionList> exp = std::static_pointer_cast<Syntax::ExpressionList>(tree);
 			for (Tree i: exp->expressions)
 				print(out, i, indent);
 			break;
 		}
 		case Syntax::SEQUENCE:
 			fprintf(out, "Sequence\n");
-			print(out, ((Syntax::Sequence *)tree)->content, indent+4, "Element: ");
+			print(out, std::static_pointer_cast<Syntax::Sequence>(tree)->content, indent+4, "Element: ");
 			break;
 		case Syntax::ARRAYINDEXING:
 			fprintf(out, "Array index\n");
-			print(out, ((Syntax::ArrayIndexing *)tree)->array, indent+4, "Array: ");
-			print(out, ((Syntax::ArrayIndexing *)tree)->index, indent+4, "Index: ");
+			print(out, std::static_pointer_cast<Syntax::ArrayIndexing>(tree)->array, indent+4, "Array: ");
+			print(out, std::static_pointer_cast<Syntax::ArrayIndexing>(tree)->index, indent+4, "Index: ");
 			break;
 #if 0
 	virtual void ArrayInstantiation::print(int indent = 0, const char *prefix = "")
