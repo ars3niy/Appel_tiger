@@ -102,9 +102,8 @@ void DestroyStatement(Statement *&statement)
 			break;
 		case IR_STAT_SEQ: {
 			StatementSequence *seq = ToStatementSequence(statement);
-			for (std::list<Statement *>::iterator s = seq->statements.begin();
-					s != seq->statements.end(); s++)
-				DestroyStatement(*s);
+			for (Statement *s: seq->statements)
+				DestroyStatement(s);
 			delete seq;
 			break;
 		}
@@ -186,12 +185,10 @@ Blob *IREnvironment::addBlob()
 void putLabels(const std::list<Label**> &replace_true, 
 	const std::list<Label**> &replace_false, Label *truelabel, Label *falselabel)
 {
-	for (std::list<Label**>::const_iterator plabel = replace_true.begin();
-			plabel != replace_true.end(); plabel++)
-		 *(*plabel) = truelabel;
-	for (std::list<Label**>::const_iterator plabel = replace_false.begin();
-			plabel != replace_false.end(); plabel++)
-		 *(*plabel) = falselabel;
+	for (Label **plabel: replace_true)
+		 *plabel = truelabel;
+	for (Label **plabel: replace_false)
+		 *plabel = falselabel;
 }
 
 Expression *IREnvironment::killCodeToExpression(Code *&code)

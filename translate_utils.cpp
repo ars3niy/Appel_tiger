@@ -44,9 +44,8 @@ void AbstractFrame::addParentFpParamVariable(bool cant_be_register)
 
 AbstractFrame::~AbstractFrame()
 {
-	for (std::list<AbstractVarLocation *>::iterator var = variables.begin();
-			var != variables.end(); var++)
-		delete *var;
+	for (AbstractVarLocation *var: variables)
+		delete var;
 }
 
 }
@@ -145,14 +144,12 @@ void VariablesAccessInfo::processDeclaration(Syntax::Tree declaration,
 			
 			if (func_declaration->body != NULL) {
 				impl->variable_names.newLayer();
-				for (std::list<Syntax::Tree>::iterator param = func_declaration->parameters->expressions.begin();
-						param != func_declaration->parameters->expressions.end();
-						param++) {
-					assert((*param)->type == Syntax::PARAMETERDECLARATION);
+				for (Syntax::Tree param: func_declaration->parameters->expressions) {
+					assert(param->type == Syntax::PARAMETERDECLARATION);
 					impl->variables.push_back(VarAccessDefInfo(
-						((Syntax::ParameterDeclaration *) *param)->id,
+						((Syntax::ParameterDeclaration *) param)->id,
 						func_declaration->id, false));
-					impl->variable_names.add(((Syntax::VariableDeclaration *) *param)->name->name,
+					impl->variable_names.add(((Syntax::VariableDeclaration *) param)->name->name,
 						&(impl->variables.back()));
 				}
 				func_stack.push_back(func_declaration->id);
@@ -202,11 +199,8 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 			processExpression(((Syntax::BinaryOp *)expression)->right, current_function_id);
 			break;
 		case Syntax::SEQUENCE: {
-			for (std::list<Syntax::Tree>::iterator child =
-					((Syntax::Sequence *)expression)->content->expressions.begin();
-					child != ((Syntax::Sequence *)expression)->content->expressions.end();
-					child++)
-				processExpression(*child, current_function_id);
+			for (Syntax::Tree child: ((Syntax::Sequence *)expression)->content->expressions)
+				processExpression(child, current_function_id);
 			break;
 		}
 		case Syntax::ARRAYINDEXING:
@@ -241,16 +235,10 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 			break;
 		case Syntax::SCOPE: {
 			impl->variable_names.newLayer();
-			for (std::list<Syntax::Tree>::iterator declaration =
-					((Syntax::Scope *)expression)->declarations->expressions.begin();
-					declaration != ((Syntax::Scope *)expression)->declarations->expressions.end();
-					declaration++)
-				processDeclaration(*declaration, current_function_id);
-			for (std::list<Syntax::Tree>::iterator body_expression =
-					((Syntax::Scope *)expression)->action->expressions.begin();
-					body_expression != ((Syntax::Scope *)expression)->action->expressions.end();
-					body_expression++)
-				processExpression(*body_expression, current_function_id);
+			for (Syntax::Tree declaration: ((Syntax::Scope *)expression)->declarations->expressions)
+				processDeclaration(declaration, current_function_id);
+			for (Syntax::Tree body_expression: ((Syntax::Scope *)expression)->action->expressions)
+				processExpression(body_expression, current_function_id);
 			impl->variable_names.removeLastLayer();
 			break;
 		}
@@ -260,19 +248,13 @@ void VariablesAccessInfo::processExpression(Syntax::Tree expression,
 		case Syntax::FUNCTIONCALL:
 			processExpression(((Syntax::FunctionCall *)expression)->function, current_function_id);
 			handleCall(((Syntax::FunctionCall *)expression)->function, current_function_id); 
-			for (std::list<Syntax::Tree>::iterator child =
-					((Syntax::FunctionCall *)expression)->arguments->expressions.begin();
-					child != ((Syntax::FunctionCall *)expression)->arguments->expressions.end();
-					child++)
-				processExpression(*child, current_function_id);
+			for (Syntax::Tree child: ((Syntax::FunctionCall *)expression)->arguments->expressions)
+				processExpression(child, current_function_id);
 			break;
 		case Syntax::RECORDINSTANTIATION: {
-			for (std::list<Syntax::Tree>::iterator field_def =
-					((Syntax::RecordInstantiation *)expression)->fieldvalues->expressions.begin();
-					field_def != ((Syntax::RecordInstantiation *)expression)->fieldvalues->expressions.end();
-					field_def++) {
-				assert((*field_def)->type == Syntax::BINARYOP);
-				Syntax::BinaryOp *fieldvalue = (Syntax::BinaryOp *) *field_def;
+			for (Syntax::Tree field_def: ((Syntax::RecordInstantiation *)expression)->fieldvalues->expressions) {
+				assert(field_def->type == Syntax::BINARYOP);
+				Syntax::BinaryOp *fieldvalue = (Syntax::BinaryOp *) field_def;
 				assert(fieldvalue->operation == SYM_ASSIGN);
 				processExpression(fieldvalue->right, current_function_id);
 			}

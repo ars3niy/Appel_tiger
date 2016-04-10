@@ -102,9 +102,8 @@ void PrintExpression(FILE *out, Expression *exp, int indent, const char *prefix 
 		if (ToCallExpression(exp)->callee_parentfp != NULL)
 			PrintExpression(out, ToCallExpression(exp)->callee_parentfp, indent+4, "Parent FP parameter: ");
 		PrintExpression(out, ToCallExpression(exp)->function, indent+4, "Call address: ");
-		for (std::list<Expression *>::iterator arg = ((CallExpression *)exp)->arguments.begin(); 
-				arg != ((CallExpression *)exp)->arguments.end(); arg++)
-			 PrintExpression(out, *arg, indent+4, "Argument: ");
+		for (Expression *arg: ToCallExpression(exp)->arguments)
+			 PrintExpression(out, arg, indent+4, "Argument: ");
 		break;
 	case IR_STAT_EXP_SEQ: 
 		fprintf(out, "Statement and expression\n");
@@ -152,9 +151,8 @@ void PrintStatement(FILE *out, Statement *statm, int indent, const char *prefix)
 		break;
 	case IR_STAT_SEQ:
 		fprintf(out, "Sequence\n");
-		for (std::list<Statement *>::iterator p = ((StatementSequence*)statm)->statements.begin(); 
-				p != ((StatementSequence*)statm)->statements.end(); p++)
-			 PrintStatement(out, *p, indent+4);
+		for (Statement *p: ToStatementSequence(statm)->statements)
+			 PrintStatement(out, p, indent+4);
 		break;
 	case IR_LABEL:
 		fprintf(out, "Label here: %s\n", ((LabelPlacementStatement *)statm)->label->getName().c_str());
@@ -179,21 +177,19 @@ void PrintCode(FILE *out, Code *code, int indent)
 
 void IREnvironment::printBlobs(FILE *out)
 {
-	for (std::list<Blob>::iterator blob = blobs.begin();
-			blob != blobs.end(); blob++) {
-		fprintf(out, "Label here: %s\n", (*blob).label->getName().c_str());
-		if ((*blob).data.size() == 0)
+	for (Blob &blob: blobs) {
+		fprintf(out, "Label here: %s\n", blob.label->getName().c_str());
+		if (blob.data.size() == 0)
 			fprintf(out, "(0 bytes)");
 		else {
-			for (int i = 0; i < (*blob).data.size(); i++) {
-				if (i != 0)
-					fputc(' ', out);
-				fprintf(out, "0x%.2x", (*blob).data[i]);
+			fputc(' ', out);
+			for (unsigned char c: blob.data) {
+				fprintf(out, "0x%.2x", c);
 			}
 		}
 		fprintf(out, " \"");
-		for (int i = 0; i < (*blob).data.size(); i++)
-			fprintf(out, "%c", (*blob).data[i]);
+		for (unsigned char c: blob.data)
+			fprintf(out, "%c", c);
 		fprintf(out, "\"\n");
 	}
 }
@@ -257,9 +253,8 @@ void print(FILE *out, Syntax::Tree tree, int indent = 0, const char *prefix = ""
 			break;
 		case Syntax::EXPRESSIONLIST: {
 			Syntax::ExpressionList *exp = (Syntax::ExpressionList *)tree;
-			for (std::list<Syntax::Tree>::iterator i = exp->expressions.begin();
-					i != exp->expressions.end(); i++)
-				print(out, *i, indent);
+			for (Tree i: exp->expressions)
+				print(out, i, indent);
 			break;
 		}
 		case Syntax::SEQUENCE:

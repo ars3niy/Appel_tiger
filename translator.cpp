@@ -156,8 +156,8 @@ TypesEnvironment::~TypesEnvironment()
 	delete void_type;
 	delete error_type;
 	
-	for (std::list<Type*>::iterator i = types.begin(); i != types.end(); i++)
-		delete *i;
+	for (Type *t: types)
+		delete t;
 }
 
 Type *TypesEnvironment::createArrayType(Syntax::ArrayTypeDefinition *definition,
@@ -176,10 +176,9 @@ Type *TypesEnvironment::createRecordType(Syntax::RecordTypeDefinition *definitio
 	RecordType *type = new RecordType(id_provider.getId());
 	types.push_back(type);
 	
-	for (std::list<Syntax::Tree>::iterator i = definition->fields->expressions.begin();
-	     i != definition->fields->expressions.end(); i++) {
-		assert((*i)->type == Syntax::PARAMETERDECLARATION);
-		Syntax::ParameterDeclaration *param = (Syntax::ParameterDeclaration *)*i;
+	for (Syntax::Tree t: definition->fields->expressions) {
+		assert(t->type == Syntax::PARAMETERDECLARATION);
+		Syntax::ParameterDeclaration *param = (Syntax::ParameterDeclaration *)t;
 		type->addField(param->name->name, getType(param->type,
 			allow_forward_references));
 	}
@@ -244,19 +243,17 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 			typenames.add(declaration->name->name, type);
 	}
 	
-	for (std::list<ForwardReferenceType *>::iterator t = unknown_types.begin();
-		 t != unknown_types.end(); t++) {
-		if ((*t)->meaning == NULL) {
-			Error::error(std::string("Type not defined in this scope: ") + (*t)->name,
-						 (*t)->reference_position->linenumber);
-			(*t)->meaning = error_type;
+	for (ForwardReferenceType *t: unknown_types) {
+		if (t->meaning == NULL) {
+			Error::error(std::string("Type not defined in this scope: ") + t->name,
+						 t->reference_position->linenumber);
+			t->meaning = error_type;
 		}
 	}
 		
-	for (std::list<ForwardReferenceType *>::iterator t = unknown_types.begin();
-		 t != unknown_types.end(); t++) {
+	for (ForwardReferenceType *t: unknown_types) {
 		std::set<ForwardReferenceType *> visited_types;
-		ForwardReferenceType *current = *t;
+		ForwardReferenceType *current = t;
 		while (current->meaning->basetype == TYPE_NAMEREFERENCE) {
 			visited_types.insert(current);
 			ForwardReferenceType *next = (ForwardReferenceType *)current->meaning;
@@ -272,15 +269,13 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 		}
 	}
 	
-	for (std::list<Type *>::iterator rec = new_records.begin();
-			rec != new_records.end(); rec++) {
-		assert((*rec)->basetype == TYPE_RECORD);
-		RecordType *record = (RecordType *) *rec;
+	for (Type *rec: new_records) {
+		assert(rec->basetype == TYPE_RECORD);
+		RecordType *record = (RecordType *) rec;
 		record->data_size = 0;
-		for (RecordType::FieldsList::iterator field = record->field_list.begin();
-				field != record->field_list.end(); field++) {
-			(*field).offset = record->data_size;
-		framemanager->updateRecordSize(record->data_size, (*field).type->resolve());
+		for (RecordField &field: record->field_list) {
+			field.offset = record->data_size;
+			framemanager->updateRecordSize(record->data_size, field.type->resolve());
 		}
 	}
 	
@@ -370,12 +365,10 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 
 TranslatorPrivate::~TranslatorPrivate()
 {
-	for (std::list<Variable>::iterator var = variables.begin();
-		 var != variables.end(); var++)
-		 delete (*var).value;
-	for (std::list<Function>::iterator func = functions.begin();
-		 func != functions.end(); func++)
-		 delete (*func).body;
+	for (Variable &var: variables)
+		 delete var.value;
+	for (Function &func: functions)
+		 delete func.body;
 	delete undefined_variable->value;
 	delete undefined_variable;
 	delete type_environment;
@@ -487,12 +480,11 @@ void TranslatorPrivate::prependPrologue(IR::Code*& translated,
 {
 	IR::Statement *sequence = new IR::StatementSequence;
 	
-	for (std::list<IR::AbstractFrame::ParameterMovement>::const_iterator move =
-			func_frame->getMovementPrologue().begin();
-			move != func_frame->getMovementPrologue().end(); move++) {
+	for (const IR::AbstractFrame::ParameterMovement &move:
+			func_frame->getMovementPrologue()) {
 		ToStatementSequence(sequence)->addStatement(new IR::MoveStatement(
-			(*move).where_store->createCode(func_frame),
-			(*move).parameter->createCode(func_frame)
+			move.where_store->createCode(func_frame),
+			move.parameter->createCode(func_frame)
 		));
 	}
 	
@@ -557,12 +549,10 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		func_and_var_names.add(declaration->name->name, function);
 		recent_functions.push_back(function);
 		
-		for (std::list<Syntax::Tree>::iterator param =
-				declaration->parameters->expressions.begin();
-				param != declaration->parameters->expressions.end(); param++) {
-			assert((*param)->type == Syntax::PARAMETERDECLARATION);
+		for (Syntax::Tree param: declaration->parameters->expressions) {
+			assert(param->type == Syntax::PARAMETERDECLARATION);
 			Syntax::ParameterDeclaration *param_decl = 
-				(Syntax::ParameterDeclaration *) *param;
+				(Syntax::ParameterDeclaration *) param;
 			Type *param_type = type_environment->getType(param_decl->type, false)->resolve();
 			function->addArgument(param_decl->name->name, param_type,
 				function->frame->addParameter(
@@ -573,29 +563,27 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			);
 		}
 	}
-	for (std::list<Function *>::iterator fcn = recent_functions.begin();
-		 fcn != recent_functions.end(); fcn++) {
-		if ((*fcn)->raw_body == NULL)
+	for (Function *fcn: recent_functions) {
+		if (fcn->raw_body == NULL)
 			continue;
 		
 		Type *actual_return_type;
 		func_and_var_names.newLayer();
-		for (std::list<FunctionArgument>::iterator param = (*fcn)->arguments.begin();
-				param != (*fcn)->arguments.end(); param++)
-			func_and_var_names.add((*param).name, &(*param));
-		translateExpression((*fcn)->raw_body, ((*fcn)->body), actual_return_type,
-			NULL, (*fcn)->frame, true);
+		for (FunctionArgument &param: fcn->arguments)
+			func_and_var_names.add(param.name, &param);
+		translateExpression(fcn->raw_body, fcn->body, actual_return_type,
+			NULL, fcn->frame, true);
 		func_and_var_names.removeLastLayer();
-		prependPrologue((*fcn)->body, (*fcn)->frame);
-		if (((*fcn)->return_type->basetype != TYPE_VOID) &&
-			! CheckAssignmentTypes((*fcn)->return_type, actual_return_type))
+		prependPrologue(fcn->body, fcn->frame);
+		if ((fcn->return_type->basetype != TYPE_VOID) &&
+				! CheckAssignmentTypes(fcn->return_type, actual_return_type))
 			Error::error("Type of function body doesn't match specified return type",
-				(*fcn)->raw_body->linenumber);
-		else if (((*fcn)->return_type->basetype == TYPE_VOID) &&
+				fcn->raw_body->linenumber);
+		else if ((fcn->return_type->basetype == TYPE_VOID) &&
 				(actual_return_type->basetype != TYPE_VOID) &&
 				(actual_return_type->basetype != TYPE_ERROR))
 			Error::error("Body of a function without return value produces a value",
-				(*fcn)->raw_body->linenumber);
+				fcn->raw_body->linenumber);
 	}
 }
 
@@ -898,9 +886,8 @@ void TranslatorPrivate::translateSequence(const std::list<Syntax::Tree> &express
 		sequence = new IR::StatementSequence;
 	IR::Expression *last_expression = NULL;
 	for (std::list<Syntax::Tree>::const_iterator e = expressions.begin();
-			e != expressions.end();
-			e++) {
-		std::list<Syntax::Tree>::const_iterator next = e;
+			e != expressions.end(); ) {
+		auto next = e;
 		next++;
 		IR::Code *item_code;
 		translateExpression(*e, item_code, type, last_loop_exit, currentFrame, false);
@@ -908,6 +895,7 @@ void TranslatorPrivate::translateSequence(const std::list<Syntax::Tree> &express
 			sequence->addStatement(IRenvironment->killCodeToStatement(item_code));
 		else
 			last_expression = IRenvironment->killCodeToExpression(item_code);
+		e = next;
 	}
 	if (last_expression == NULL)
 		translated = new IR::StatementCode(sequence);
@@ -1248,14 +1236,13 @@ void TranslatorPrivate::translateScope(
 	std::list<Variable *> new_vars;
 	processDeclarations(expression->declarations, currentFrame, new_vars);
 	IR::StatementSequence *sequence = new IR::StatementSequence;
-	for (std::list<Variable *>::iterator newvar = new_vars.begin();
-			newvar != new_vars.end(); newvar++)
-		if ((*newvar)->type->basetype != TYPE_ERROR) {
+	for (Variable *newvar: new_vars)
+		if (newvar->type->basetype != TYPE_ERROR) {
 			IR::Code *var_code = new IR::ExpressionCode(
-				(*newvar)->implementation->createCode(currentFrame));
+				newvar->implementation->createCode(currentFrame));
 			sequence->addStatement(new IR::MoveStatement(
 				IRenvironment->killCodeToExpression(var_code),
-				IRenvironment->killCodeToExpression((*newvar)->value)
+				IRenvironment->killCodeToExpression(newvar->value)
 			));
 		}
 	translateSequence(expression->action->expressions, translated, type,
@@ -1279,7 +1266,7 @@ void TranslatorPrivate::translateRecordField(
 		translated = ErrorPlaceholderCode();
 	} else {
 		RecordType *record = (RecordType *)recType;
-		RecordType::FieldsMap::iterator field = record->fields.find(expression->field->name);
+		auto field = record->fields.find(expression->field->name);
 		if (field == record->fields.end()) {
 			Error::error("This field is not in that record",
 				expression->field->linenumber);
@@ -1321,9 +1308,8 @@ void TranslatorPrivate::makeCallCode(Function *function,
 	IR::CallExpression *call = new IR::CallExpression(
 		new IR::LabelAddressExpression(function->label),
 		callee_parentfp);
-	for (std::list<IR::Code *>::iterator arg = arguments.begin();
-			arg != arguments.end(); arg++)
-		 call->addArgument(IRenvironment->killCodeToExpression(*arg));
+	for (IR::Code *arg: arguments)
+		 call->addArgument(IRenvironment->killCodeToExpression(arg));
 	result = new IR::ExpressionCode(call);
 }
 
@@ -1351,27 +1337,26 @@ void TranslatorPrivate::translateFunctionCall(
 	Function *function = (Function *)var_or_function;
 	type = function->return_type->resolve();
 	std::list<FunctionArgument>::iterator function_arg = function->arguments.begin();
-	bool already_too_many;
+	bool already_too_many = false;
 	std::list<IR::Code *> arguments_code;
-	for (std::list<Syntax::Tree>::iterator passed_arg = expression->arguments->expressions.begin();
-		 passed_arg != expression->arguments->expressions.end(); passed_arg++) {
+	for (Syntax::Node *passed_arg: expression->arguments->expressions) {
 		Type *argument_type = type_environment->getErrorType();
 		Type *passed_type;
 		IR::Code *argument_code;
-		translateExpression(*passed_arg, argument_code, passed_type, NULL,
+		translateExpression(passed_arg, argument_code, passed_type, NULL,
 			currentFrame, true);
 		arguments_code.push_back(argument_code);
 		if (! already_too_many && (function_arg == function->arguments.end())) {
 			already_too_many = true;
 			Error::error("Too many arguments to the function",
-				(*passed_arg)->linenumber);
+				passed_arg->linenumber);
 		}
 		
 		if (! already_too_many) {
 			argument_type = (*function_arg).type->resolve();
 			if (! CheckAssignmentTypes(argument_type, passed_type)) {
 				Error::error("Incompatible type passed as an argument",
-					(*passed_arg)->linenumber);
+					passed_arg->linenumber);
 			}
 			function_arg++;
 		}
@@ -1413,7 +1398,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 		IRenvironment->killCodeToExpression(alloc_code)));
 		
 	RecordType::FieldsList::iterator record_field = record->field_list.begin();
-	for (std::list<Syntax::Tree>::iterator set_field = expression->fieldvalues->expressions.begin();
+	for (auto set_field = expression->fieldvalues->expressions.begin();
 			set_field != expression->fieldvalues->expressions.end(); set_field++) {
 		if (record_field == record->field_list.end()) {
 			Error::error("More field initialized than there are in the record",
@@ -1590,11 +1575,10 @@ void Translator::translateProgram(Syntax::Tree expression,
 
 void Translator::printFunctions(FILE *out)
 {
-	for (std::list<Function>::iterator func = impl->functions.begin();
-			func != impl->functions.end(); func++)
-		if ((*func).body != NULL) {
-			fprintf(out, "Function %s\n", (*func).label->getName().c_str());
-			IR::PrintCode(out, (*func).body);
+	for (Function &func: impl->functions)
+		if (func.body != NULL) {
+			fprintf(out, "Function %s\n", func.label->getName().c_str());
+			IR::PrintCode(out, func.body);
 		}
 }
 
@@ -1607,29 +1591,28 @@ void Translator::canonicalizeProgram(IR::Statement*& statement)
 
 void Translator::canonicalizeFunctions()
 {
-	for (std::list<Function>::iterator func = impl->functions.begin();
-			func != impl->functions.end(); func++) {
-		if ((*func).body == NULL)
+	for (Function &func: impl->functions) {
+		if (func.body == NULL)
 			continue;
-		switch ((*func).body->kind) {
+		switch (func.body->kind) {
 			case IR::CODE_EXPRESSION: {
-				IR::ExpressionCode *exp_code = (IR::ExpressionCode *) (*func).body;
+				IR::ExpressionCode *exp_code = (IR::ExpressionCode *) func.body;
 				impl->IRtransformer->canonicalizeExpression(
 					exp_code->exp, NULL, NULL);
 				impl->IRtransformer->arrangeJumpsInExpression(exp_code->exp);
 				break;
 			}
 			case IR::CODE_STATEMENT: {
-				IR::StatementCode *statm_code = (IR::StatementCode *) (*func).body;
+				IR::StatementCode *statm_code = (IR::StatementCode *) func.body;
 				canonicalizeProgram(statm_code->statm);
 				break;
 			}
 			case IR::CODE_JUMP_WITH_PATCHES: {
 				IR::Expression *expr = impl->IRenvironment->
-					killCodeToExpression((*func).body);
+					killCodeToExpression(func.body);
 				impl->IRtransformer->canonicalizeExpression(expr, NULL, NULL);
 				impl->IRtransformer->arrangeJumpsInExpression(expr);
-				(*func).body = new IR::ExpressionCode(expr);
+				func.body = new IR::ExpressionCode(expr);
 			}
 		}
 	}

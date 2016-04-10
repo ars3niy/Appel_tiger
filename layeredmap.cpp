@@ -31,9 +31,8 @@ void LayeredMap::add(const std::string &name, void *value)
 
 void *LayeredMap::lookup(const std::string &name)
 {
-	for (LayeredMapPrivate::MapList::reverse_iterator i = d->maps.rbegin();
-		 i != d->maps.rend(); i++) {
-		std::map<std::string, void*>::iterator entry = (*i).find(name);
+	for (auto i = d->maps.rbegin(); i != d->maps.rend(); ++i) {
+		auto entry = (*i).find(name);
 		if (entry != (*i).end())
 			return (*entry).second;
 	}
@@ -42,7 +41,7 @@ void *LayeredMap::lookup(const std::string &name)
 
 void *LayeredMap::lookup_last_layer(const std::string &name)
 {
-	std::map<std::string, void*>::iterator entry = d->maps.back().find(name);
+	auto entry = d->maps.back().find(name);
 	if (entry != d->maps.back().end())
 		return (*entry).second;
 	return NULL;

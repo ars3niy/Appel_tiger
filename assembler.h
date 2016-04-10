@@ -87,9 +87,11 @@ public:
 	explicit Instruction(const std::string &_notation,
 		bool _reg_to_reg_assign = false);
 	
-	Instruction(const std::string &_notation, int ninput, IR::VirtualRegister **inputs,
-		int noutput, IR::VirtualRegister **outputs, int ndest = 1,
-		IR::Label **_destinations = NULL, bool _reg_to_reg_assign = false);
+	Instruction(const std::string &_notation,
+		const std::vector<IR::VirtualRegister *> &_inputs,
+		const std::vector<IR::VirtualRegister *> &_outputs,
+		bool _reg_to_reg_assign,
+		const std::vector<IR::Label *> &_destinations = {});
 };
 
 typedef std::list<Instruction> Instructions;

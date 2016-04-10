@@ -350,9 +350,8 @@ public:
 		assert(_name->type == IDENTIFIER);
 		assert((_type == NULL) || (_type->type == IDENTIFIER));
 		assert(_parameters->type == EXPRESSIONLIST);
-		for (std::list<Tree>::iterator i = parameters->expressions.begin();
-			 i != parameters->expressions.end(); i++)
-			assert((*i)->type == PARAMETERDECLARATION);
+		for (Tree p: parameters->expressions)
+			assert(p->type == PARAMETERDECLARATION);
 	}
 };
 

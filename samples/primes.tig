@@ -1,6 +1,6 @@
 let
 	type ints = array of int
-	var maxn := 32
+	var maxn := 100
 
 	function printint(i: int) =
 		let
@@ -26,7 +26,7 @@ let
 		let
 			var result: int := 1
 			var p := 0
-			var i := 1
+			var i := 0
 		in
 			while 1 do (
 				p := primes[i];

@@ -35,11 +35,8 @@ void IRTransformer::canonicalizeMemoryExp(Expression *&exp)
 void growStatementSequence(StatementSequence *sequence, Statement *statement)
 {
 	if (statement->kind == IR_STAT_SEQ) {
-		for (std::list<Statement *>::iterator newstatm =
-				ToStatementSequence(statement)->statements.begin();
-				newstatm != ToStatementSequence(statement)->statements.end();
-				newstatm++)
-			sequence->addStatement(*newstatm);
+		for (Statement *newstatm: ToStatementSequence(statement)->statements)
+			sequence->addStatement(newstatm);
 	} else
 		sequence->addStatement(statement);
 }
@@ -110,13 +107,12 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 	arg_saved.resize(call_exp->arguments.size(), false);
 	
 	int arg_index = 0;
-	for (std::list<Expression *>::iterator arg = call_exp->arguments.begin();
+	for (auto arg = call_exp->arguments.begin();
 			arg != call_exp->arguments.end(); arg++) {
 		if ((*arg)->kind == IR_STAT_EXP_SEQ) {
 			StatExpSequence *stat_exp = ToStatExpSequence(*arg);
 			int prev_index = 0;
-			for (std::list<Expression *>::iterator prev_arg =
-					call_exp->arguments.begin();
+			for (auto prev_arg = call_exp->arguments.begin();
 					prev_arg != arg;  prev_arg++) {
 				if (! arg_saved[prev_index] &&
 						! canSwapExpAndStatement(*prev_arg, stat_exp->stat)) {
@@ -124,8 +120,7 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 					// save the expression with implies pulling the expression
 					// past all previously unsaved expressions
 					int pre_prev_index = 0;
-					for (std::list<Expression *>::iterator pre_prev_arg =
-							call_exp->arguments.begin();
+					for (auto pre_prev_arg = call_exp->arguments.begin();
 							pre_prev_arg != prev_arg;  pre_prev_arg++) {
 						if (! arg_saved[pre_prev_index] &&
 								! canSwapExps(*pre_prev_arg, *prev_arg)) {
@@ -236,10 +231,8 @@ void IRTransformer::canonicalizeExpression(Expression *&exp,
 			break;
 		case IR_FUN_CALL: {
 			subexpressions.push_back(& ToCallExpression(exp)->function);
-			for (std::list<Expression *>::iterator arg =
-					ToCallExpression(exp)->arguments.begin();
-					arg != ToCallExpression(exp)->arguments.end(); arg++)
-				subexpressions.push_back(&(*arg));
+			for (Expression *&arg: ToCallExpression(exp)->arguments)
+				subexpressions.push_back(&arg);
 			break;
 		}
 		case IR_STAT_EXP_SEQ:
@@ -250,9 +243,8 @@ void IRTransformer::canonicalizeExpression(Expression *&exp,
 			Error::fatalError("Unhandled IR::Expression kind");
 	}
 	
-	for (std::list<Expression **>::iterator subexp = subexpressions.begin();
-			 subexp != subexpressions.end(); subexp++)
-		canonicalizeExpression(*(*subexp), exp, NULL);
+	for (Expression **subexp: subexpressions)
+		canonicalizeExpression(*subexp, exp, NULL);
 	
 	switch (exp->kind) {
 		case IR_INTEGER:
@@ -355,18 +347,16 @@ void IRTransformer::canonicalizeCondJumpStatement(Statement *&statm)
 
 void IRTransformer::doChildrenAndMergeChildStatSequences(StatementSequence *statm)
 {
-	std::list<Statement *>::iterator child = statm->statements.begin();
+	auto child = statm->statements.begin();
 	while (child != statm->statements.end()) {
-		std::list<Statement *>::iterator next = child;
+		auto next = child;
 		canonicalizeStatement(*child);
 		next++;
 		if ((*child)->kind == IR_STAT_SEQ) {
 			StatementSequence *subsequence = ToStatementSequence(*child);
-			for (std::list<Statement *>::iterator subitem =
-					subsequence->statements.begin();
-					subitem != subsequence->statements.end(); subitem++) {
-				assert((*subitem)->kind != IR_STAT_SEQ);
-				statm->statements.insert(child, *subitem);
+			for (Statement *subitem: subsequence->statements) {
+				assert(subitem->kind != IR_STAT_SEQ);
+				statm->statements.insert(child, subitem);
 			}
 			delete subsequence;
 			statm->statements.erase(child);
@@ -410,7 +400,7 @@ void IRTransformer::canonicalizeStatement(Statement *&statm)
 void IRTransformer::splitToBlocks(StatementSequence* sequence,
 	BlockSequence& blocks)
 {
-	std::list<Statement *>::iterator statm = sequence->statements.begin();
+	auto statm = sequence->statements.begin();
 	blocks.finish_label = NULL;
 	while (statm != sequence->statements.end()) {
 		blocks.blocks.push_back(StatementBlock());
@@ -459,13 +449,12 @@ void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 	std::map<int, BlockInfo> blocks_info_by_labelid;
 	new_order.clear();
 	
-	for (std::list<StatementBlock>::iterator block = blocks.blocks.begin();
-			block != blocks.blocks.end(); block++) {
-		std::list<StatementBlock *>::iterator position_in_remaining_list =
-			remaining_blocks.insert(remaining_blocks.end(), &(*block));
+	for (StatementBlock &block: blocks.blocks) {
+		auto position_in_remaining_list =
+			remaining_blocks.insert(remaining_blocks.end(), &block);
 		blocks_info_by_labelid.insert(std::make_pair(
-			(*block).start_label->getIndex(),
-			BlockInfo(&(*block), position_in_remaining_list)
+			block.start_label->getIndex(),
+			BlockInfo(&block, position_in_remaining_list)
 		));
 	}
 	if (blocks.finish_label != NULL)
@@ -527,19 +516,18 @@ void IRTransformer::arrangeJumps(StatementSequence* sequence)
 	sequence->statements.clear();
 	Label *finish_label = blocks.finish_label;
 	
-	for (BlockOrdering::iterator block = order.begin(); block != order.end();
-			block++) {
-		assert(! (*block)->statements.empty());
+	for (StatementBlock *block: order) {
+		assert(! block->statements.empty());
 	
 		if ((! sequence->statements.empty()) &&
 				(sequence->statements.back()->kind == IR_COND_JUMP)) {
 			CondJumpStatement *last_cond_jump =
 				ToCondJumpStatement(sequence->statements.back());
-			if ((*block)->start_label->getIndex() ==
+			if (block->start_label->getIndex() ==
 					last_cond_jump->false_dest->getIndex())
 				// already good, do nothing
 				;
-			else if ((*block)->start_label->getIndex() ==
+			else if (block->start_label->getIndex() ==
 					last_cond_jump->true_dest->getIndex()) {
 				FlipComparison(last_cond_jump);
 			} else {
@@ -555,17 +543,15 @@ void IRTransformer::arrangeJumps(StatementSequence* sequence)
 			Expression *prev_jump_dest =
 				ToJumpStatement(sequence->statements.back())->dest;
 			if ((prev_jump_dest->kind == IR_LABELADDR) &&
-				((*block)->start_label->getIndex() ==
+				(block->start_label->getIndex() ==
 					ToLabelAddressExpression(prev_jump_dest)->label->getIndex())
 			) {
 				delete ToJumpStatement(sequence->statements.back());
 				sequence->statements.pop_back();
 			}
 		}
-		for (std::list<Statement *>::iterator block_statm =
-				(*block)->statements.begin();
-				block_statm != (*block)->statements.end(); block_statm++)
-			sequence->addStatement(*block_statm);
+		for (Statement *block_statm: block->statements)
+			sequence->addStatement(block_statm);
 	}
 	if (blocks.finish_label != NULL) {
 		if ((! sequence->statements.empty()) &&

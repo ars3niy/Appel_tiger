@@ -1,5 +1,6 @@
 project(compiler)
 #add_definitions(-DDEBUG)
+set(CMAKE_CXX_FLAGS "-std=c++11")
 
 find_package(FLEX)
 find_package(BISON)
@@ -7,6 +8,8 @@ find_package(BISON)
 BISON_TARGET(TigerParser Tiger.y ${CMAKE_CURRENT_BINARY_DIR}/parser.cpp)
 FLEX_TARGET(TigerScanner Tiger.lex ${CMAKE_CURRENT_BINARY_DIR}/lexer.cpp)
 ADD_FLEX_BISON_DEPENDENCY(TigerScanner TigerParser)
+
+
 include_directories(${CMAKE_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 

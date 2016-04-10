@@ -136,8 +136,8 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	addTemplate(I_YIELD, exp_label);
 	addTemplate(I_LABEL, new IR::LabelPlacementStatement(NULL));
 	addTemplate(I_YIELD, exp_register);
-	for (int i = 0; i < memory_exp.size(); i++)
-		addTemplate(I_YIELD, new IR::MemoryExpression(memory_exp[i]));
+	for (IR::Expression *exp: memory_exp)
+		addTemplate(I_YIELD, new IR::MemoryExpression(exp));
 	
 	make_arithmetic(I_ADD, IR::OP_PLUS);
 	make_arithmetic(I_SUB, IR::OP_MINUS);
@@ -210,35 +210,35 @@ void X86_64Assembler::make_arithmetic(int asm_code, IR::BinaryOp ir_code)
 	// don't forget cqo
 	addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_register, exp_int));
 	addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_register, exp_register));
-	for (int i = 0; i < memory_exp.size(); i++) {
+	for (IR::Expression *exp: memory_exp) {
 		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_register,
-			new IR::MemoryExpression(memory_exp[i])));
+			new IR::MemoryExpression(exp)));
 		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code, exp_int,
-			new IR::MemoryExpression(memory_exp[i])));
+			new IR::MemoryExpression(exp)));
 		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code,
-			new IR::MemoryExpression(memory_exp[i]), exp_register));
+			new IR::MemoryExpression(exp), exp_register));
 		addTemplate(asm_code, new IR::BinaryOpExpression(ir_code,
-			new IR::MemoryExpression(memory_exp[i]), exp_int));
+			new IR::MemoryExpression(exp), exp_int));
 	}
-	for (int i = 0; i < memory_exp.size(); i++)
-		for (int j = 0; j < memory_exp.size(); j++)
+	for (IR::Expression *exp1: memory_exp)
+		for (IR::Expression *exp2: memory_exp)
 			addTemplate(asm_code, new IR::BinaryOpExpression(ir_code,
-				new IR::MemoryExpression(memory_exp[i]), new IR::MemoryExpression(memory_exp[j])));
+				new IR::MemoryExpression(exp1), new IR::MemoryExpression(exp2)));
 }
 
 void X86_64Assembler::make_comparison(int asm_code, IR::ComparisonOp ir_code)
 {
 	addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_register, exp_int, NULL, NULL));
 	addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_register, exp_register, NULL, NULL));
-	for (int i = 0; i < memory_exp.size(); i++) {
+	for (IR::Expression *exp: memory_exp) {
 		addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_register,
-			new IR::MemoryExpression(memory_exp[i]), NULL, NULL));
+			new IR::MemoryExpression(exp), NULL, NULL));
 		addTemplate(asm_code, new IR::CondJumpStatement(ir_code, exp_int,
-			new IR::MemoryExpression(memory_exp[i]), NULL, NULL));
+			new IR::MemoryExpression(exp), NULL, NULL));
 		addTemplate(asm_code, new IR::CondJumpStatement(ir_code,
-			new IR::MemoryExpression(memory_exp[i]), exp_register, NULL, NULL));
+			new IR::MemoryExpression(exp), exp_register, NULL, NULL));
 		addTemplate(asm_code, new IR::CondJumpStatement(ir_code,
-			new IR::MemoryExpression(memory_exp[i]), exp_int, NULL, NULL));
+			new IR::MemoryExpression(exp), exp_int, NULL, NULL));
 	}
 }
 
@@ -248,16 +248,16 @@ void X86_64Assembler::make_assignment()
 	addTemplate(asm_code, new IR::MoveStatement(exp_register, exp_int));
 	addTemplate(asm_code, new IR::MoveStatement(exp_register, exp_label));
 	addTemplate(asm_code, new IR::MoveStatement(exp_register, exp_register));
-	for (int i = 0; i < memory_exp.size(); i++) {
+	for (IR::Expression *exp: memory_exp) {
 		addTemplate(asm_code, new IR::MoveStatement(exp_register,
-			new IR::MemoryExpression(memory_exp[i])));
-		addTemplate(asm_code, new IR::MoveStatement(exp_register, memory_exp[i]));
+			new IR::MemoryExpression(exp)));
+		addTemplate(asm_code, new IR::MoveStatement(exp_register, exp));
 		addTemplate(asm_code, new IR::MoveStatement(
-			new IR::MemoryExpression(memory_exp[i]), exp_register));
+			new IR::MemoryExpression(exp), exp_register));
 		addTemplate(asm_code, new IR::MoveStatement(
-			new IR::MemoryExpression(memory_exp[i]), exp_int));
+			new IR::MemoryExpression(exp), exp_int));
 		addTemplate(asm_code, new IR::MoveStatement(
-			new IR::MemoryExpression(memory_exp[i]), exp_label));
+			new IR::MemoryExpression(exp), exp_label));
 	}
 }
 
@@ -341,21 +341,20 @@ void X86_64Assembler::addInstruction(Instructions &result,
 	if (extra_input != NULL)
 		inputs.push_back(extra_input);
 	notation = prefix + notation + suffix;
-	IR::VirtualRegister *outputs[] = {output0, extra_output};
+	std::vector<IR::VirtualRegister *> outputs;
 	int noutput = 0;
 	if (output0 != NULL) {
+		outputs.push_back(output0);
 		if (extra_output != NULL)
-			noutput = 2;
-		else
-			noutput = 1;
+			outputs.push_back(extra_output);
 	}
 	Instructions::iterator position = result.end();
 	if (insert_before != NULL)
 		position = *insert_before;
 	
 	Instructions::iterator newinst = result.insert(position,
-		Instruction(notation, inputs.size(), inputs.data(),
-			noutput, outputs, 1, NULL,
+		Instruction(notation, inputs,
+			outputs,
 			(prefix == "movq ") && (operand->kind == IR::IR_REGISTER)));
 	if (insert_before != NULL)
 		debug("Spill: %s -> prepend %s", (*position).notation.c_str(),
@@ -372,33 +371,33 @@ void X86_64Assembler::addInstruction(Instructions &result,
 	std::string s1;
 	makeOperand(operand1, inputs, s1);
 	result.push_back(Instruction(prefix + s0 + suffix + s1,
-		inputs.size(), inputs.data(), 0, NULL));
+		inputs, {}, false));
 }
 
 void X86_64Assembler::placeCallArguments(const std::list<IR::Expression * >& arguments,
 	Instructions &result)
 {
 	int arg_count = 0;
-	std::list<IR::Expression *>::const_iterator arg;
-	for (arg = arguments.begin(); arg != arguments.end(); arg++) {
+	auto arg = arguments.begin();
+	for (; arg != arguments.end(); arg++) {
 		assert((*arg)->kind == IR::IR_REGISTER);
 		result.push_back(Instruction(
 			"movq " + Instruction::Input(0) + ", " + Instruction::Output(0),
-			1, &IR::ToRegisterExpression(*arg)->reg, 1,
-			&machine_registers[paramreg_list[arg_count]],
-			1, NULL, true));
+			{IR::ToRegisterExpression(*arg)->reg},
+			{machine_registers[paramreg_list[arg_count]]},
+			true));
 		arg_count++;
 		if (arg_count == paramreg_count)
 			break;
 	}
 	if (arg_count == paramreg_count) {
-		std::list<IR::Expression *>::const_iterator extra_arg = arguments.end();
+		auto extra_arg = arguments.end();
 		extra_arg--; 
 		while (extra_arg != arg) {
 			assert((*extra_arg)->kind == IR::IR_REGISTER);
 			result.push_back(Instruction(
 				"push " + Instruction::Input(0),
-				1, &IR::ToRegisterExpression(*extra_arg)->reg, 0, NULL));
+				{IR::ToRegisterExpression(*extra_arg)->reg}, {}, false));
 			extra_arg--;
 		}
 	}
@@ -460,15 +459,11 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 							addInstruction(result, "movq ", bin_op->right,
 								", " + Instruction::Output(0), tmp_reg);
 							debug("\t%s", result.back().notation.c_str());
-							IR::VirtualRegister *inputs[] = {
-								machine_registers[RAX],
-								tmp_reg};
-							IR::VirtualRegister *outputs[] = {
-								machine_registers[RAX],
-								machine_registers[RDX]};
 							result.push_back(Instruction(
 								"imulq " + Instruction::Input(1),
-								2, &inputs[0], 2, &outputs[0]));
+								{machine_registers[RAX], tmp_reg},
+								{machine_registers[RAX], machine_registers[RDX]},
+								false));
 							debug("\t%s", result.back().notation.c_str());
 						} else {
 							addInstruction(result, "imulq ", bin_op->right,
@@ -478,8 +473,8 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 						}
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
-							1, &machine_registers[RAX], 1, &value_storage,
-							1, NULL, true));
+							{machine_registers[RAX]}, {value_storage},
+							true));
 						debug("\t%s", result.back().notation.c_str());
 						break;
 					case IR::OP_DIV:
@@ -487,7 +482,8 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 							", " + Instruction::Output(0), machine_registers[RAX]);
 						debug("\t%s", result.back().notation.c_str());
 						result.push_back(Instruction("cqo",
-							0, NULL, 1, &machine_registers[RDX]));
+							{machine_registers[RAX]},
+							{machine_registers[RAX], machine_registers[RDX]}, false));
 						debug("\t%s", result.back().notation.c_str());
 						if ((bin_op->right->kind == IR::IR_INTEGER) ||
 							(bin_op->right->kind == IR::IR_LABELADDR)) {
@@ -495,16 +491,10 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 							addInstruction(result, "movq ", bin_op->right,
 								", " + Instruction::Output(0), tmp_reg);
 							debug("\t%s", result.back().notation.c_str());
-							IR::VirtualRegister *inputs[] = {
-								machine_registers[RAX],
-								machine_registers[RDX],
-								tmp_reg};
-							IR::VirtualRegister *outputs[] = {
-								machine_registers[RAX],
-								machine_registers[RDX]};
 							result.push_back(Instruction(
 								"idivq " + Instruction::Input(2),
-								3, &inputs[0], 2, &outputs[0]));
+								{machine_registers[RAX], machine_registers[RDX], tmp_reg},
+								{machine_registers[RAX], machine_registers[RDX]}, false));
 						debug("\t%s", result.back().notation.c_str());
 						} else {
 							addInstruction(result, "idivq ", bin_op->right,
@@ -514,8 +504,8 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 						}
 						result.push_back(Instruction("movq " +
 							Instruction::Input(0) + ", " + Instruction::Output(0),
-							1, &machine_registers[RAX], 1, &value_storage,
-							1, NULL, true));
+							{machine_registers[RAX]}, {value_storage},
+							true));
 						debug("\t%s", result.back().notation.c_str());
 						break;
 					default:
@@ -531,16 +521,14 @@ void X86_64Assembler::translateExpressionTemplate(IR::Expression *templ,
 			}
 			placeCallArguments(call->arguments, result);
 			assert(call->function->kind == IR::IR_LABELADDR);
-			IR::VirtualRegister **callersave = callersave_registers.data();
 			result.push_back(Instruction("call " + 
 				IR::ToLabelAddressExpression(call->function)->label->getName(),
-				0, NULL, callersave_count, callersave));
+				{}, callersave_registers, false));
 			removeCallArguments(call->arguments, result);
 			if (value_storage != NULL)
 				result.push_back(Instruction("movq " + Instruction::Input(0) +
 					", " + Instruction::Output(0),
-					1, &machine_registers[RAX], 1, &value_storage,
-					1, NULL, true));
+					{machine_registers[RAX]}, {value_storage}, true));
 			break;
 		}
 		default:
@@ -570,15 +558,14 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 			assert(jump->dest->kind == IR::IR_LABELADDR);
 			result.push_back(Instruction("jmp " +
 				IR::ToLabelAddressExpression(jump->dest)->label->getName(),
-				0, NULL, 0, NULL, 1, &IR::ToLabelAddressExpression(jump->dest)->label));
+				{}, {}, false, {IR::ToLabelAddressExpression(jump->dest)->label}));
 			break;
 		}
 		case IR::IR_COND_JUMP: {
 			IR::CondJumpStatement *jump = IR::ToCondJumpStatement(templ);
 			addInstruction(result, "cmp ", jump->right, ", ", jump->left);
-			IR::Label *destinations[] = {NULL, jump->true_dest};
 			result.push_back(Instruction(std::string(cond_jumps[jump->comparison]) +
-				" " + jump->true_dest->getName(), 0, NULL, 0, NULL, 2, destinations));
+				" " + jump->true_dest->getName(), {}, {}, false, {NULL, jump->true_dest}));
 			break;
 		}
 		case IR::IR_LABEL:
@@ -610,7 +597,7 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement *templ,
 					makeOperand(move->from, registers, operand0);
 					makeOperand(move->to, registers, operand1);
 					result.push_back(Instruction("movq " + operand0 + ", " +
-						operand1, registers.size(), registers.data(), 0, NULL));
+						operand1, registers, {}, false));
 				}
 			}
 			break;
@@ -624,9 +611,9 @@ void X86_64Assembler::translateBlob(const IR::Blob& blob, Instructions& result)
 {
 	result.push_back(Instruction(blob.label->getName() + ":"));
 	std::string content = "";
-	for (int i = 0; i < blob.data.size(); i++) {
+	for (unsigned char c: blob.data) {
 		char buf[20];
-		sprintf(buf, ".byte 0x%.2x\n", blob.data[i]);
+		sprintf(buf, ".byte 0x%.2x\n", c);
 		content += buf;
 	}
 	result.push_back(Instruction(content));
@@ -665,32 +652,30 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 	IR::AbstractFrame *frame, Instructions &result,
 	std::vector<IR::VirtualRegister *> &prologue_regs)
 {
-	IR::VirtualRegister **calleesave = calleesave_registers.data();
 	result.push_back(Instruction("# callee-save registers",
-		0, NULL, calleesave_count, calleesave));
+		{}, calleesave_registers, false));
 	prologue_regs.resize(calleesave_count);
 	for (int i = 0; i < calleesave_count; i++) {
 		prologue_regs[i] = IRenvironment->addRegister();
 		result.push_back(Instruction("movq " + Instruction::Input(0) +
 			", " + Instruction::Output(0),
-			1, &calleesave_registers[i], 1, &prologue_regs[i], 1, NULL, true));
+			{calleesave_registers[i]}, {prologue_regs[i]}, true));
 	}
 	
 	const std::list<IR::AbstractVarLocation *>parameters =
 		frame->getParameters();
 	int param_index = 0;
-	for (std::list<IR::AbstractVarLocation *>::const_iterator param =
-			parameters.begin(); param != parameters.end(); ++param) {
+	for (IR::AbstractVarLocation *param: parameters) {
 		if (param_index < paramreg_count) {
-			assert((*param)->isRegister());
+			assert(param->isRegister());
 			IR::VirtualRegister *storage_reg =
-				((IR::X86_64VarLocation *) *param)->getRegister();
+				((IR::X86_64VarLocation *) param)->getRegister();
 			result.push_back(Instruction(std::string("movq ") +
 				Instruction::Input(0) + ", " + Instruction::Output(0),
-				1, &machine_registers[paramreg_list[param_index]], 
-				1, &storage_reg, 1, NULL, true));
+				{machine_registers[paramreg_list[param_index]]}, 
+				{storage_reg}, true));
 		} else
-			assert(! (*param)->isRegister());
+			assert(! param->isRegister());
 		param_index++;
 	}
 	IR::AbstractVarLocation *parent_fp = frame->getParentFpForUs();
@@ -700,8 +685,8 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 			((IR::X86_64VarLocation *) parent_fp)->getRegister();
 		result.push_back(Instruction(std::string("movq ") +
 			Instruction::Input(0) + ", " + Instruction::Output(0),
-			1, &machine_registers[R10], 
-			1, &storage_reg, 1, NULL, true));
+			{machine_registers[R10]}, 
+			{storage_reg}, true));
 	}
 }
 
@@ -712,18 +697,17 @@ void X86_64Assembler::functionEpilogue(IR::AbstractFrame *frame,
 {
 	if (result_storage != NULL)
 		result.push_back(Instruction("movq " + Instruction::Input(0) + ", " +
-			Instruction::Output(0), 1, &result_storage, 1, &machine_registers[RAX],
-			1, NULL, true));
+			Instruction::Output(0), {result_storage}, {machine_registers[RAX]},
+			true));
 
-	IR::VirtualRegister **calleesave = calleesave_registers.data();
 	assert(prologue_regs.size() == calleesave_registers.size());
 	for (int i = 0; i < calleesave_count; i++) {
 		result.push_back(Instruction("movq " + Instruction::Input(0) +
 			", " + Instruction::Output(0),
-			1, &prologue_regs[i], 1, &calleesave_registers[i], 1, NULL, true));
+			{prologue_regs[i]}, {calleesave_registers[i]}, true));
 	}
 	result.push_back(Instruction("# callee-save registers",
-		calleesave_count, calleesave, 0, NULL));
+		calleesave_registers, {}, false));
 }
 
 void X86_64Assembler::programPrologue(IR::AbstractFrame *frame, Instructions &result)
@@ -782,15 +766,15 @@ void X86_64Assembler::addOffset(std::string &command, int inputreg_index, int of
 
 void X86_64Assembler::implementFramePointer(IR::AbstractFrame* frame, Instructions& result)
 {
-	for (Instructions::iterator inst = result.begin(); inst != result.end(); inst++) {
-		debug("Inserting frame pointer: %s", (*inst).notation.c_str());
-		for (int i = 0; i < (*inst).outputs.size(); i++)
-			if ((*inst).outputs[i]->getIndex() == frame->getFramePointer()->getIndex())
+	for (Instruction &inst: result) {
+		debug("Inserting frame pointer: %s", inst.notation.c_str());
+		for (IR::VirtualRegister *output: inst.outputs)
+			if (output->getIndex() == frame->getFramePointer()->getIndex())
 				Error::fatalError("Cannot write to frame pointer");
-		for (int i = 0; i < (*inst).inputs.size(); i++)
-			if ((*inst).inputs[i]->getIndex() == frame->getFramePointer()->getIndex()) {
-				(*inst).inputs[i] = machine_registers[RSP];
-				addOffset((*inst).notation, i,
+		for (int i = 0; i < inst.inputs.size(); i++)
+			if (inst.inputs[i]->getIndex() == frame->getFramePointer()->getIndex()) {
+				inst.inputs[i] = machine_registers[RSP];
+				addOffset(inst.notation, i,
 					((IR::X86_64Frame *)frame)->getFrameSize());
 				break;
 			}
@@ -887,8 +871,7 @@ void X86_64Assembler::replaceRegisterAssignment(Instructions &code,
 				std::string operand1;
 				makeOperand(replacement, registers, operand1);
 				std::string new_command = "movq " + operand0 + ", " + operand1;
-				code.insert(inst, Instruction(new_command, registers.size(),
-					registers.data(), 0, NULL));
+				code.insert(inst, Instruction(new_command, registers, {}, false));
 				debug("spilling %s -> append %s", original.c_str(),
 					new_command.c_str());
 			}
@@ -904,12 +887,11 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 		IR::Expression *storage_exp =
 			stored_location->createCode(stored_location->owner_frame);
 		
-		Instructions::iterator inst = code.begin();
 		bool seen_usage = false, seen_assignment = false;
 		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
 			bool is_assigned = false;
-			for (int i = 0; i < (*inst).outputs.size(); i++)
-				if ((*inst).outputs[i]->getIndex() == reg->getIndex()) {
+			for (IR::VirtualRegister *output: (*inst).outputs)
+				if (output->getIndex() == reg->getIndex()) {
 					is_assigned = true;
 					seen_assignment = true;
 					assert((*inst).is_reg_to_reg_assign);
@@ -931,8 +913,8 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 				}
 			
 			bool is_used = false;
-			for (int i = 0; i < (*inst).inputs.size(); i++)
-				if ((*inst).inputs[i]->getIndex() == reg->getIndex()) {
+			for (IR::VirtualRegister *input: (*inst).inputs)
+				if (input->getIndex() == reg->getIndex()) {
 					assert(! is_assigned);
 					assert(seen_assignment);
 					is_used = true;
@@ -954,11 +936,11 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
 			debug("Spilling: %s", (*inst).notation.c_str());
 			bool is_assigned = false, is_used = false;
-			for (int i = 0; i < (*inst).outputs.size(); i++)
-				if ((*inst).outputs[i]->getIndex() == reg->getIndex())
+			for (IR::VirtualRegister *output: (*inst).outputs)
+				if (output->getIndex() == reg->getIndex())
 					is_assigned = true;
-			for (int i = 0; i < (*inst).inputs.size(); i++)
-				if ((*inst).inputs[i]->getIndex() == reg->getIndex())
+			for (IR::VirtualRegister *input: (*inst).inputs)
+				if (input->getIndex() == reg->getIndex())
 					is_used = true;
 			if (is_used) {
 				if (! is_assigned)
@@ -969,9 +951,9 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 					addInstruction(code, "movq ", storage_exp,
 						", " + Instruction::Output(0), temp,
 						NULL, NULL, &inst);
-					for (int i = 0; i < (*inst).inputs.size(); i++)
-						if ((*inst).inputs[i]->getIndex() == reg->getIndex())
-							(*inst).inputs[i] = temp;
+					for (IR::VirtualRegister *&input: (*inst).inputs)
+						if (input->getIndex() == reg->getIndex())
+							input = temp;
 					replaceRegisterAssignment(code, inst, reg,
 						IR::ToMemoryExpression(storage_exp));
 				}

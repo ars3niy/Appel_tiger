@@ -114,25 +114,23 @@ void ProcessTree(Syntax::Tree tree)
 	f = fopen("liveness", "w");
 #endif
 	
-	for (std::list<Semantic::Function>::const_iterator func =
-			translator.getFunctions().begin(); 
-			func != translator.getFunctions().end(); func++)
-		if ((*func).body != NULL) {
+	for (Semantic::Function func: translator.getFunctions())
+		if (func.body != NULL) {
 			code.push_back(Asm::Instructions());
 			chunks.push_back(CodeInfo());
-			assembler.translateFunctionBody((*func).body, (*func).label,
-				(*func).frame, code.back());
+			assembler.translateFunctionBody(func.body, func.label,
+				func.frame, code.back());
 #ifdef DEBUG
-			Optimize::PrintLivenessInfo(f, code.back(), (*func).frame);
+			Optimize::PrintLivenessInfo(f, code.back(), func.frame);
 #endif
 			chunks.back().code = &code.back();
-			chunks.back().frame = (*func).frame;
-			chunks.back().funclabel = (*func).label;
+			chunks.back().frame = func.frame;
+			chunks.back().funclabel = func.label;
 		}
 	code.push_back(Asm::Instructions());
 	assembler.translateProgram(program_body, body_frame, code.back());
 #ifdef DEBUG
-	Optimize::PrintLivenessInfo(f, code.back(), body_frame);
+	//Optimize::PrintLivenessInfo(f, code.back(), body_frame);
 	fclose(f);
 #endif
 
@@ -147,19 +145,18 @@ void ProcessTree(Syntax::Tree tree)
 		assembler.getAvailableRegisters();
 	//IR::VirtualRegister *fp_register = assembler.getFramePointerRegister();
 	IR::RegisterMap virtual_register_map;
-	for (std::list<CodeInfo>::iterator chunk = chunks.begin();
-			chunk != chunks.end(); chunk++) {
+	for (CodeInfo &chunk: chunks) {
 		IR::RegisterMap vreg_map;
-		Optimize::AssignRegisters(*(*chunk).code,
+		Optimize::AssignRegisters(*chunk.code,
 			assembler,
-			(*chunk).frame,
+			chunk.frame,
 			machine_registers,
 			vreg_map);
 
 		MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
 		
-		assembler.implementFunctionFrameSize((*chunk).funclabel,
-			(*chunk).frame, *(*chunk).code);
+		assembler.implementFunctionFrameSize(chunk.funclabel,
+			chunk.frame, *chunk.code);
 	}
 	
 	IR::RegisterMap vreg_map;
@@ -194,10 +191,9 @@ std::string ourname;
 void link(const std::list<std::string> &filenames, const std::string &out_name)
 {
 	std::string input_list;
-	for (std::list<std::string>::const_iterator obj_name = filenames.begin();
-			obj_name != filenames.end(); obj_name++) {
+	for (const std::string &obj_name: filenames) {
 		input_list += " ";
-		input_list += *obj_name;
+		input_list += obj_name;
 	}
 	std::string link_cmd = "ld -o " + out_name +
 		input_list +
@@ -299,9 +295,8 @@ int main(int argc, char **argv)
 		if (Error::getErrorCount() == 0)
 			link(objfiles_input, out_name);
 		
-		for (std::list<std::string>::iterator s = objfiles_translated.begin();
-				s != objfiles_translated.end(); s++)
-			unlink((*s).c_str());
+		for (const std::string &s: objfiles_translated)
+			unlink(s.c_str());
 	}
 	
 	if (Error::getErrorCount() == 0)

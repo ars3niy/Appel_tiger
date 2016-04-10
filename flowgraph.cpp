@@ -8,14 +8,12 @@ FlowGraphNode::FlowGraphNode(int _index, const Asm::Instruction* _instruction,
 	: index(_index), instruction(_instruction)
 {
 	is_reg_to_reg_assign = instruction->is_reg_to_reg_assign;
-	for (int i = 0; i < instruction->outputs.size(); i++)
-		assert(instruction->outputs[i]->getIndex() !=
-			ignored_register->getIndex());
-	for (int i = 0; i < instruction->inputs.size(); i++)
+	for (IR::VirtualRegister *output: instruction->outputs)
+		assert(output->getIndex() != ignored_register->getIndex());
+	for (IR::VirtualRegister *input: instruction->inputs)
 		if ((ignored_register == NULL) ||
-				(instruction->inputs[i]->getIndex() !=
-				ignored_register->getIndex()))
-			used.push_back(instruction->inputs[i]);
+				input->getIndex() != ignored_register->getIndex())
+			used.push_back(input);
 		else
 			is_reg_to_reg_assign = false;
 }
@@ -37,25 +35,22 @@ FlowGraph::FlowGraph(const Asm::Instructions &code,
 	nodecount = 0;
 	FlowGraphNode *newnode = NULL;
 	
-	for (Asm::Instructions::const_iterator inst = code.begin();
-			inst != code.end(); inst++) {
-		nodes.push_back(FlowGraphNode(nodecount, &(*inst), ignored_register));
-		if ((*inst).label != NULL)
-			label_positions[(*inst).label->getName()] = & nodes.back();;
+	for (const Asm::Instruction &inst: code) {
+		nodes.push_back(FlowGraphNode(nodecount, &inst, ignored_register));
+		if (inst.label != NULL)
+			label_positions[inst.label->getName()] = & nodes.back();;
 		nodecount++;
 	}
 	
 	last_instruction = newnode;
 	
-	for (std::list<FlowGraphNode>::iterator node = nodes.begin();
-			node != nodes.end(); node++) {
+	for (auto node = nodes.begin();
+			node != nodes.end(); ++node) {
 		FlowGraphNode *current = &(*node);
-		for (int i = 0; i < current->instruction->destinations.size(); i++)  {
-			const IR::Label *label = current->instruction->destinations[i];
-		
+		for (IR::Label *label: current->instruction->destinations)  {
 			FlowGraphNode *nextnode = NULL;
 			if (label == NULL) {
-				std::list<FlowGraphNode>::iterator next_iter = node;
+				auto next_iter = node;
 				next_iter++;
 				if (next_iter != nodes.end())
 					nextnode = &(*next_iter);
