@@ -1040,10 +1040,10 @@ void TranslatorPrivate::translateIfElse(
 	bool expect_comparison_in_actions)
 {
 	if (expression->condition->type == Syntax::IFELSE) {
-		translateIf_IfElse_ThenElse((Syntax::IfElse *)expression->condition.get(),
-			expression->action, expression->elseaction, translated, type,
-			last_loop_exit, currentFrame);
-		return;
+		if (translateIf_IfElse_ThenElse((Syntax::IfElse *)expression->condition.get(),
+				expression->action, expression->elseaction, translated, type,
+				last_loop_exit, currentFrame))
+			return;
 	}
 	Type *conditionType, *actionType, *elseType;
 	IR::Code condition_code, action_code, elseaction_code;

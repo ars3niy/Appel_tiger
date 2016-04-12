@@ -272,7 +272,6 @@ int main(int argc, char **argv)
 					Error::global_error("Cannot open " + inputname + ": " +
 						strerror(errno));
 				else {
-					printf("Parsing\n");
 					yyparse();
 					fclose(yyin);
 					TranslateProgram();
