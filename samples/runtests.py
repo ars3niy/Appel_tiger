@@ -75,6 +75,7 @@ def add(name, output):
 	expected_outputs += [[name+".bin", output]]
 
 add("recursion", open("recursion.out", "r").read())
+add("nest2", open("nest2.out", "r").read())
 add("emptyrecursion", "")
 add("queens", open("queens.out", "r").read())
 
