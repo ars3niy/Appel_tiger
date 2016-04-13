@@ -123,20 +123,21 @@ void IRTransformer::canonicalizeCallExp(Expression *&exp,
 					// Cannot move the statement pust this expression, need to
 					// save the expression with implies pulling the expression
 					// past all previously unsaved expressions
+					
+					// The statement from arg is non-trivial since we
+					// have failed to move it past something. 
+					// However, we have previously tried to the statement
+					// past all unsaved expressions to the left of pre_arg
+					// and succeeded. With the current conservative "can move
+					// statement past" algorithm, it means that all unsaved 
+					// expressions to the left of pre_arg are trivial and we
+					// can move pre_arg past them
 					int pre_prev_index = 0;
 					for (std::list<Expression *>::iterator pre_prev_arg =
 							call_exp->arguments.begin();
 							pre_prev_arg != prev_arg;  pre_prev_arg++) {
-						if (! arg_saved[pre_prev_index] &&
-								! canSwapExps(*pre_prev_arg, *prev_arg)) {
-							// Cannot move pre_arg expression past this expression
-							// Need to save this expression
-							arg_saved[pre_prev_index] = true;
-							VirtualRegister *save_arg = ir_env->addRegister();
-							pre_statements->addStatement(new MoveStatement(
-								new RegisterExpression(save_arg), *pre_prev_arg));
-							*pre_prev_arg = new RegisterExpression(save_arg);
-						}
+						if (! arg_saved[pre_prev_index])
+							assert(canSwapExps(*pre_prev_arg, *prev_arg));
 						pre_prev_index++;
 					}
 					
