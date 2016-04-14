@@ -213,7 +213,7 @@ void IRTransformer::canonicalizeExpression(Expression &exp,
 			break;
 		case IR_BINARYOP:
 			subexpressions.push_back(& ToBinaryOpExpression(exp)->left);
-			subexpressions.push_back(& ToBinaryOpExpression(exp)->left);
+			subexpressions.push_back(& ToBinaryOpExpression(exp)->right);
 			break;
 		case IR_MEMORY:
 			subexpressions.push_back(& ToMemoryExpression(exp)->address);
