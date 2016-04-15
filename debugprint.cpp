@@ -4,6 +4,13 @@
 #include <stdarg.h>
 #include <map>
 
+std::string IntToStr(int x)
+{
+	char buf[30];
+	sprintf(buf, "%d", x);
+	return std::string(buf);
+}
+
 #ifdef DEBUG
 std::map<std::string, FILE*> open_files;
 #endif

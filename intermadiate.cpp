@@ -73,12 +73,14 @@ Label *LabelFactory::addLabel(const std::string &name)
 
 VirtualRegister *RegisterFactory::addRegister()
 {
+	debug("Adding new unnamed register #%d", registers.size());
 	registers.push_back(VirtualRegister(registers.size()));
 	return &(registers.back());
 }
 
 VirtualRegister *RegisterFactory::addRegister(const std::string &name)
 {
+	debug("Adding new register %s as #%d", name.c_str(), registers.size());
 	registers.push_back(VirtualRegister(registers.size(), name));
 	return &(registers.back());
 }

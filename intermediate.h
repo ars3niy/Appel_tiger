@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <vector>
 #include <memory>
+#include "debugprint.h"
 
 namespace IR { // Intermediate Representation
 
@@ -75,10 +76,11 @@ public:
 
 typedef std::vector<IR::VirtualRegister *> RegisterMap;
 
-class RegisterFactory {
+class RegisterFactory: public DebugPrinter {
 private:
 	std::list<VirtualRegister> registers;
 public:
+	RegisterFactory() : DebugPrinter("registers.log") {}
 	VirtualRegister *addRegister();
 	VirtualRegister *addRegister(const std::string &name);
 };
