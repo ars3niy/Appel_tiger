@@ -1,0 +1,19 @@
+<?eclipse.ant.import?>
+<project basedir="." name="parser">
+	<taskdef classname="jflex.anttask.JFlexTask" name="jflex"
+			classpath="tools/jflex-1.6.1.jar" />
+	<taskdef classname="anttask.JayAntTask" name="jay"
+			classpath="tools/jay.jar:tools/jay_ant.jar" />
+	<target name="buildparser">
+		<jflex
+			file="${basedir}/parse/Tiger.lex"
+			destdir="${basedir}"
+		/>
+
+		<jay
+			file="${basedir}/parse/Tiger.y"
+			destdir="${basedir}"
+			skeleton="${basedir}/parse/parser_skeleton"
+		/>
+	</target>
+</project>

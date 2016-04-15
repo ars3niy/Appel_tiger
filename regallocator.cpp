@@ -925,6 +925,7 @@ void PartialRegAllocator::tryColoring()
 	printStatus();
 	assignColors();
 	printStatus();
+	checkColors();
 }
 
 const std::vector< int > &PartialRegAllocator::getColors()
@@ -951,6 +952,8 @@ void PartialRegAllocator::checkColors()
 				assignment_source = r1;
 			}
 		}
+		if (assignment_source < 0)
+			continue;
 		for (int assign_ind = 0; assign_ind < liveness->assigned_at_node[i].size();
 				assign_ind++) {
 			int assigned_here = liveness->assigned_at_node[i][assign_ind];
@@ -962,8 +965,8 @@ void PartialRegAllocator::checkColors()
 					if ((*livehere != assigned_here) &&
 							(*livehere != assignment_source)) {
 						if ((colors[*livehere] >= 0) &&
-								(colors[assignment_source] >= 0) &&
-								(colors[*livehere] == colors[assignment_source]))
+								(colors[assigned_here] >= 0) &&
+								(colors[*livehere] == colors[assigned_here]))
 							Error::fatalError("Colliding nodes colored the same");
 					}
 				}

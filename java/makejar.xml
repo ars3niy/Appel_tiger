@@ -1,0 +1,14 @@
+<?eclipse.ant.import?>
+<project basedir="." name="parser">
+	<target name="makejar">
+		<jar
+			basedir="build/classes"
+			destfile="build/compiler.jar"
+		>
+			<zipfileset includes="**/*.class **/*.properties" src="lib/java-getopt-1.0.14.jar"/>
+			<manifest>
+				<attribute name="Main-Class" value="compiler.Main"/>
+			</manifest>
+		</jar>
+	</target>
+</project>

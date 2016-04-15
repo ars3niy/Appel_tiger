@@ -1,0 +1,3 @@
+#!/bin/sh
+
+java -ea -jar `dirname $0`/compiler.jar -x `dirname $0`/compiler.jar "$@"
