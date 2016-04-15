@@ -2,8 +2,14 @@
 
 import os
 import subprocess
+import sys
 
-executable = subprocess.Popen(["find", "..", "-type", "f", "-name", "compiler"], stdout=subprocess.PIPE).communicate()[0].strip()
+if len(sys.argv) < 2:
+    executable = subprocess.Popen(["find", "..", "-type", "f", "-name", "compiler"], stdout=subprocess.PIPE).communicate()[0].strip()
+else:
+    executable = sys.argv[1]
+
+open(executable).close()
 
 tests = [ \
 	["denest.tig", True], \
