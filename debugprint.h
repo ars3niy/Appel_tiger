@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string>
 
+std::string IntToStr(int x);
+
 class DebugPrinter {
 private:
 	FILE *f;
