@@ -15,8 +15,15 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <sys/time.h>
+
 extern "C" {
 extern FILE *yyin;
+}
+
+static int dt(timeval t1, timeval t2)
+{
+	return 1000000*(t2.tv_sec-t1.tv_sec) + (t2.tv_usec-t1.tv_usec);
 }
 
 void MergeVirtualRegisterMaps(IR::RegisterMap &merge_to,
@@ -79,7 +86,7 @@ void ProcessTree(Syntax::Tree tree)
 	parsed_progrom = tree;
 }
 
-void TranslateProgram()
+void TranslateProgram(bool assemble)
 {
 	IR::IREnvironment IR_env;
 	IR::X86_64FrameManager framemanager(&IR_env);
@@ -88,8 +95,13 @@ void TranslateProgram()
 	IR::AbstractFrame *body_frame;
 	Semantic::Type *type;
 	IR::Statement program_body;
+	timeval t1;
+	gettimeofday(&t1, NULL);
 	translator.translateProgram(parsed_progrom, program_body, body_frame);
 	parsed_progrom = nullptr;
+	timeval t2;
+	gettimeofday(&t2, NULL);
+	printf("Translate to IR: %d\n", dt(t1, t2));
 	
 	if (Error::getErrorCount() != 0)
 		return;
@@ -104,6 +116,8 @@ void TranslateProgram()
 	
 	translator.canonicalizeFunctions();
 	translator.canonicalizeProgram(program_body);
+	gettimeofday(&t1, NULL);
+	printf("Canonicalize: %d\n", dt(t2, t1));
 	
 #ifdef DEBUG
 	f = fopen("canonical", "w");
@@ -135,6 +149,8 @@ void TranslateProgram()
 		}
 	code.push_back(Asm::Instructions());
 	assembler.translateProgram(program_body, body_frame, code.back());
+	gettimeofday(&t2, NULL);
+	printf("Translate to assembler: %d\n", dt(t1, t2));
 #ifdef DEBUG
 	//Optimize::PrintLivenessInfo(f, code.back(), body_frame);
 	fclose(f);
@@ -151,18 +167,26 @@ void TranslateProgram()
 		assembler.getAvailableRegisters();
 	//IR::VirtualRegister *fp_register = assembler.getFramePointerRegister();
 	IR::RegisterMap virtual_register_map;
+	int frametime=0;
+	Optimize::Timer alloctime;
 	for (CodeInfo &chunk: chunks) {
 		IR::RegisterMap vreg_map;
 		Optimize::AssignRegisters(*chunk.code,
 			assembler,
 			chunk.frame,
 			machine_registers,
-			vreg_map);
-
+			vreg_map,
+			alloctime);
+		
 		MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
 		
+		timeval t1;
+		gettimeofday(&t1, NULL);
 		assembler.implementFunctionFrameSize(chunk.funclabel,
 			chunk.frame, *chunk.code);
+		timeval t2;
+		gettimeofday(&t2, NULL);
+		frametime += dt(t1, t2);
 	}
 	
 	IR::RegisterMap vreg_map;
@@ -170,9 +194,24 @@ void TranslateProgram()
 		assembler,
 		body_frame,
 		machine_registers,
-		vreg_map);
+		vreg_map,
+		alloctime);
 	MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
+	gettimeofday(&t1, NULL);
 	assembler.implementProgramFrameSize(body_frame, code.back());
+	gettimeofday(&t2, NULL);
+	frametime += dt(t1, t2);
+	printf("Allocator init flow: %d\n", alloctime.flowtime);
+	printf("Allocator init liveness: %d\n", alloctime.livenesstime);
+	printf("Allocator init allocator: %d\n", alloctime.selfinittime);
+	printf("Allocator build: %d\n", alloctime.buildtime);
+	printf("Allocator remove: %d\n", alloctime.removetime);
+	printf("Allocator coalesce: %d\n", alloctime.coalescetime);
+	printf("Allocator freeze: %d\n", alloctime.freezetime);
+	printf("Allocator prespill: %d\n", alloctime.prespilltime);
+	printf("Allocator assign total: %d\n", alloctime.assigntime);
+	printf("Allocator spill: %d\n", alloctime.spilltime);
+	printf("Inserting frame size: %d\n", frametime);
 	
 	std::string basename = StripExtension(inputname);
 	std::string asm_name = basename + ".s";
@@ -182,14 +221,16 @@ void TranslateProgram()
 	assembler.outputBlobs(asm_out, IR_env.getBlobs());
 	fclose(asm_out);
 	
-	std::string obj_name = basename + ".o";
-	std::string asm_cmd = "as -o " + obj_name + " " + asm_name;
-	if (system(asm_cmd.c_str()) != 0)
-		Error::fatalError("Failed to run assembler on " + asm_name);
-	
-#ifndef DEBUG
-	unlink(asm_name.c_str());
-#endif
+	if (assemble) {
+		std::string obj_name = basename + ".o";
+		std::string asm_cmd = "as -o " + obj_name + " " + asm_name;
+		if (system(asm_cmd.c_str()) != 0)
+			Error::fatalError("Failed to run assembler on " + asm_name);
+		
+	#ifndef DEBUG
+		unlink(asm_name.c_str());
+	#endif
+	}
 }
 
 std::string ourname;
@@ -216,21 +257,30 @@ void link(const std::list<std::string> &filenames, const std::string &out_name)
 
 int main(int argc, char **argv)
 {
-	bool compile_only = false;
+	enum {
+		MODE_TRANSLATE,
+		MODE_COMPILE,
+		MODE_FULL
+	};
+	int mode = MODE_FULL;
 	const char *USAGE =
 		"Usage: compiler [options] <input-files>\n\n"
 		       "Options:\n"
-		       "  -c           Compile but do not link\n";
+		       "  -c           Compile but do not link\n"
+		       "  -S           Translate to assemble but do not compile or link\n"
 			   "  -C COMMAND   Specify C compiler (default: cc)\n"
 			   "  -o FILENAME  Specify executable file name (default: first input without extension)\n";
 	int opt;
 	std::string c_compiler = "cc";
 	std::string out_name = "";
 	
-	while ((opt = getopt(argc, argv, "cC:o:")) >= 0) {
+	while ((opt = getopt(argc, argv, "cSC:o:")) >= 0) {
 		switch (opt) {
 			case 'c':
-				compile_only = true;
+				mode = MODE_COMPILE;
+				break;
+			case 'S':
+				mode = MODE_TRANSLATE;
 				break;
 			case 'C':
 				c_compiler = optarg;
@@ -273,15 +323,23 @@ int main(int argc, char **argv)
 						strerror(errno));
 				else {
 					yyparse();
+					timeval t1;
+					gettimeofday(&t1, NULL);
 					fclose(yyin);
-					TranslateProgram();
+					timeval t2;
+					gettimeofday(&t2, NULL);
+					printf("Parse: %d\n", dt(t1, t2));
+					TranslateProgram(mode != MODE_TRANSLATE);
 					objfiles_translated.push_back(obj_name);
 					objfiles_input.push_back(obj_name);
 				}
 			}
 		} else if (extension == "c") {
-			std::string cmd = c_compiler + " -c " + inputname +
-				" -o " + obj_name;
+			std::string cmd;
+			if (mode != MODE_TRANSLATE)
+				cmd = c_compiler + " -c " + inputname +	" -o " + obj_name;
+			else
+				cmd = c_compiler + " -S " + inputname;
 			int ret = system(cmd.c_str());
 			if (ret != 0)
 				Error::error("C compiler failed on " + inputname);
@@ -298,7 +356,7 @@ int main(int argc, char **argv)
 			break;
 	}
 	
-	if (! compile_only) {
+	if (mode == MODE_FULL) {
 		if (Error::getErrorCount() == 0)
 			link(objfiles_input, out_name);
 		

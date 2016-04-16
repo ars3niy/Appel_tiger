@@ -3,6 +3,7 @@
 #include <vector>
 #include <stdio.h>
 #include <stdarg.h>
+#include <sys/time.h>
 
 namespace Optimize {
 
@@ -126,6 +127,7 @@ public:
 class PartialRegAllocator: public DebugPrinter {
 private:
 	const LivenessInfo *liveness;
+	Timer *timer;
 	
 	std::vector<bool> table;
 	std::vector<Intlist > list;
@@ -178,7 +180,7 @@ private:
 	void checkColors();
 public:
 	PartialRegAllocator(const LivenessInfo *_liveness, int _colorcount,
-		const std::string &funcname);
+		const std::string &funcname, Timer *_timer);
 	~PartialRegAllocator();
 	void precolor(int node, int color);
 	void tryColoring();
@@ -407,6 +409,9 @@ static std::string IntToStr(int x)
 
 void PartialRegAllocator::printStatus()
 {
+#ifndef DEBUG
+	return;
+#endif
 	for (NodeStatus ns = (NodeStatus)0; ns < MAX_NODESTATUS; ns = (NodeStatus)((int)ns+1)) {
 		debug("%s nodes:", node_status_names[(int)ns]);
 		const Intlist &nodes = status.getNodes(ns);
@@ -436,9 +441,10 @@ void PartialRegAllocator::printStatus()
 }
 
 PartialRegAllocator::PartialRegAllocator(const LivenessInfo *_liveness,
-	int _colorcount, const std::string &funcname) :
+	int _colorcount, const std::string &funcname, Timer *_timer) :
 	liveness(_liveness),
-	DebugPrinter(("allocator_" + funcname + ".log").c_str())
+	DebugPrinter(("allocator_" + funcname + ".log").c_str()),
+	timer(_timer)
 {
 	colorcount = _colorcount;
 	nodecount = liveness->virtuals.size();
@@ -871,23 +877,54 @@ void PartialRegAllocator::assignColors()
 		colors[coalesced] = colors[getRemaingFromCoalescedGroup(coalesced)];
 }
 
+static int dt(timeval t1, timeval t2)
+{
+	return 1000000*(t2.tv_sec-t1.tv_sec) + (t2.tv_usec-t1.tv_usec);
+}
+
 void PartialRegAllocator::tryColoring()
 {
+	timeval t1;
+	gettimeofday(&t1, NULL);
 	buildGraph();
 	classifyNodes();
+	timeval t2;
+	gettimeofday(&t2, NULL);
+	timer->buildtime += dt(t1, t2);
 	
 	do {
-		if (! status.getNodes(S_REMOVABLE).empty())
+		if (! status.getNodes(S_REMOVABLE).empty()) {
+			timeval t1;
+			gettimeofday(&t1, NULL);
 			remove_one_removable();
-		else if (! status.getMoves(M_COALESCABLE).empty())
+			timeval t2;
+			gettimeofday(&t2, NULL);
+			timer->removetime += dt(t1, t2);
+		} else if (! status.getMoves(M_COALESCABLE).empty()) {
+			timeval t1;
+			gettimeofday(&t1, NULL);
 			coalesce_one();
-		else if (! status.getNodes(S_FREEZEABLE).empty()) {
+			timeval t2;
+			gettimeofday(&t2, NULL);
+			timer->coalescetime += dt(t1, t2);
+		} else if (! status.getNodes(S_FREEZEABLE).empty()) {
 			debug("================ Freezing phase");
 			printStatus();
+			timeval t1;
+			gettimeofday(&t1, NULL);
 			freezeOne();
+			timeval t2;
+			gettimeofday(&t2, NULL);
+			timer->freezetime += dt(t1, t2);
 			debug("================ Freezing done");
-		} else if (! status.getNodes(S_SPILLABLE).empty())
+		} else if (! status.getNodes(S_SPILLABLE).empty()) {
+			timeval t1;
+			gettimeofday(&t1, NULL);
 			prespillOne();
+			timeval t2;
+			gettimeofday(&t2, NULL);
+			timer->prespilltime += dt(t1, t2);
+		}
 	} while (
 		! status.getNodes(S_REMOVABLE).empty() ||
 		! status.getMoves(M_COALESCABLE).empty() ||
@@ -897,7 +934,9 @@ void PartialRegAllocator::tryColoring()
 	printStatus();
 	assignColors();
 	printStatus();
+#ifdef DEBUG
 	checkColors();
+#endif
 }
 
 const std::vector< int > &PartialRegAllocator::getColors()
@@ -947,7 +986,8 @@ void AssignRegisters(Asm::Instructions& code,
 	Asm::Assembler &assembler,
 	IR::AbstractFrame *frame,
 	const std::vector<IR::VirtualRegister *> &machine_registers,
-	IR::RegisterMap &id_to_machine_map)
+	IR::RegisterMap &id_to_machine_map,
+	Timer &timer)
 {
 	bool finished = false;
 	FlowGraph *graph = NULL;
@@ -957,13 +997,22 @@ void AssignRegisters(Asm::Instructions& code,
 	const Intlist *spilled = NULL;
 	
 	do {
+		timeval t1;
+		gettimeofday(&t1, NULL);
 		delete graph;
 		delete liveness;
 		delete allocator;
 		graph = new FlowGraph(code, frame->getFramePointer());
+		timeval t2;
+		gettimeofday(&t2, NULL);
+		timer.flowtime += dt(t1, t2);
 		liveness = new LivenessInfo(*graph);
+		gettimeofday(&t1, NULL);
+		timer.livenesstime += dt(t2, t1);
 		allocator = new PartialRegAllocator(liveness, machine_registers.size(),
-			frame->getName());
+			frame->getName(), &timer);
+		gettimeofday(&t2, NULL);
+		timer.selfinittime += dt(t1, t2);
 		allocator->debug("%d colors", machine_registers.size());
 		bool found_fp = false;
 		for (int i = 0; i < machine_registers.size(); i++)
@@ -974,28 +1023,36 @@ void AssignRegisters(Asm::Instructions& code,
 				allocator->precolor(index, i);
 			}
 		}
+		gettimeofday(&t1, NULL);
+		timer.inittime += dt(t2, t1);
 		allocator->tryColoring();
+		gettimeofday(&t2, NULL);
+		timer.assigntime += dt(t1, t2);
 		spilled = & allocator->getSpilled();
 		colors = & allocator->getColors();
+		
 		
 		if (! spilled->empty()) {
 			allocator->debug("================================ SPILLING AND RESTARTING");
 		}
 		
+		gettimeofday(&t1, NULL);
 		for (int n: *spilled)
 			assembler.spillRegister(frame, code, liveness->virtuals[n]);
+		gettimeofday(&t2, NULL);
+		timer.spilltime += dt(t1, t2);
 	} while (! spilled->empty());
 	
-		id_to_machine_map.resize(liveness->getMaxVirtualRegisterId()+1, NULL);
-		assert(colors->size() == liveness->virtuals.size());
-		for (int i = 0; i < colors->size(); i++) {
-			assert(colors->at(i) < (int)machine_registers.size());
-			if (spilled->empty())
-				assert(colors->at(i) >= 0);
-			if (colors->at(i) >= 0)
-				id_to_machine_map[liveness->virtuals[i]->getIndex()] =
-					machine_registers[colors->at(i)];
-		}
+	id_to_machine_map.resize(liveness->getMaxVirtualRegisterId()+1, NULL);
+	assert(colors->size() == liveness->virtuals.size());
+	for (int i = 0; i < colors->size(); i++) {
+		assert(colors->at(i) < (int)machine_registers.size());
+		if (spilled->empty())
+			assert(colors->at(i) >= 0);
+		if (colors->at(i) >= 0)
+			id_to_machine_map[liveness->virtuals[i]->getIndex()] =
+				machine_registers[colors->at(i)];
+	}
 
 	delete graph;
 	delete liveness;

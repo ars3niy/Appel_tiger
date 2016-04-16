@@ -24,7 +24,7 @@ public:
 	int index;
 	std::list<FlowGraphNode *> previous, next;
 	
-	FlowGraphNode(int _index, const Asm::Instruction *_instruction,
+	void init(int _index, const Asm::Instruction *_instruction,
 		IR::VirtualRegister *ignored_register);
 	
 	const std::vector<IR::VirtualRegister *> &usedRegisters() const;
@@ -34,7 +34,7 @@ public:
 
 class FlowGraph {
 public:
-	typedef std::list<FlowGraphNode> NodeList;
+	typedef std::vector<FlowGraphNode> NodeList;
 private:
 	NodeList nodes;
 	int nodecount;

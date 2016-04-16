@@ -3,19 +3,23 @@
 
 namespace Optimize {
 
-FlowGraphNode::FlowGraphNode(int _index, const Asm::Instruction* _instruction,
+void FlowGraphNode::init(int _index, const Asm::Instruction* _instruction,
 	IR::VirtualRegister *ignored_register)
-	: index(_index), instruction(_instruction)
 {
+	index = _index;
+	instruction = _instruction;
 	is_reg_to_reg_assign = instruction->is_reg_to_reg_assign;
 	for (IR::VirtualRegister *output: instruction->outputs)
 		assert(output->getIndex() != ignored_register->getIndex());
+	used.resize(instruction->inputs.size());
+	int n_used = 0;
 	for (IR::VirtualRegister *input: instruction->inputs)
 		if ((ignored_register == NULL) ||
 				input->getIndex() != ignored_register->getIndex())
-			used.push_back(input);
+			used[n_used++] = input;
 		else
 			is_reg_to_reg_assign = false;
+	used.resize(n_used);
 }
 
 const std::vector< IR::VirtualRegister* >& FlowGraphNode::usedRegisters() const
@@ -34,9 +38,12 @@ FlowGraph::FlowGraph(const Asm::Instructions &code,
 	std::map<std::string, FlowGraphNode *> label_positions;
 	nodecount = 0;
 	FlowGraphNode *newnode = NULL;
+	nodes.resize(code.size());
 	
+	int i = 0;
 	for (const Asm::Instruction &inst: code) {
-		nodes.push_back(FlowGraphNode(nodecount, &inst, ignored_register));
+		//nodes.push_back(FlowGraphNode(nodecount, &inst, ignored_register));
+		nodes[i++].init(nodecount, &inst, ignored_register);
 		if (inst.label != NULL)
 			label_positions[inst.label->getName()] = & nodes.back();;
 		nodecount++;
