@@ -1351,7 +1351,7 @@ void TranslatorPrivate::translateFunctionCall(
 	Function *function = (Function *)var_or_function;
 	type = function->return_type->resolve();
 	std::list<FunctionArgument>::iterator function_arg = function->arguments.begin();
-	bool already_too_many;
+	bool already_too_many = false;
 	std::list<IR::Code *> arguments_code;
 	for (std::list<Syntax::Tree>::iterator passed_arg = expression->arguments->expressions.begin();
 		 passed_arg != expression->arguments->expressions.end(); passed_arg++) {

@@ -164,14 +164,16 @@ public class Main {
 		
 		String asm_name = StripExtension(inputname) + ".s";
 		OutputAsm(assembler, code, IR_env, register_map, asm_name);
-
-		String[] asm_cmd = {"as", "-o", objname, asm_name};
-		if (system(asm_cmd) != 0)
-			Error.current.fatalError("Failed to run assembler on " + asm_name);
 		
-		if (! util.DebugPrinter.ENABLE) {
-			File f = new File(asm_name);
-			f.delete();
+		if (objname != null) {
+			String[] asm_cmd = {"as", "-o", objname, asm_name};
+			if (system(asm_cmd) != 0)
+				Error.current.fatalError("Failed to run assembler on " + asm_name);
+			
+			if (! util.DebugPrinter.ENABLE) {
+				File f = new File(asm_name);
+				f.delete();
+			}
 		}
 	}
 	
