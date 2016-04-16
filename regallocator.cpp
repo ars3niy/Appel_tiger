@@ -1012,12 +1012,12 @@ void AssignRegisters(Asm::Instructions& code,
 		delete liveness;
 		delete allocator;
 		timeval t1;
-		//gettimeofday(&t1, NULL);
-		//timer.destruct += dt(t0, t1);
+		gettimeofday(&t1, NULL);
+		timer.destruct += dt(t0, t1);
 		graph = new FlowGraph(code, frame->getFramePointer());
 		timeval t2;
 		gettimeofday(&t2, NULL);
-		timer.flowtime += dt(t0, t2);
+		timer.flowtime += dt(t1, t2);
 		liveness = new LivenessInfo(*graph);
 		gettimeofday(&t1, NULL);
 		timer.livenesstime += dt(t2, t1);
