@@ -266,28 +266,36 @@ LivenessInfo::LivenessInfo(const FlowGraph& flowgraph) : DebugPrinter("liveness.
 			node_is_reg_reg_move[node.index] = node.isRegToRegAssignment();
 			used_at_node[node.index].resize(regs.size());
 			for (int i = 0; i < regs.size(); i++) {
-				if (virt_indices_by_id.find(regs[i]->getIndex()) == virt_indices_by_id.end()) {
-					virt_indices_by_id.insert(std::make_pair(regs[i]->getIndex(),  VirtualRegInfo(n_virtreg, regs[i])));
-					if (regs[i]->getIndex() > max_virt_reg_id)
-						max_virt_reg_id = regs[i]->getIndex();
+				int reg_id = regs[i]->getIndex();
+				int reg_ind = -1;
+				auto p_info = virt_indices_by_id.find(regs[i]->getIndex());
+				if (p_info == virt_indices_by_id.end()) {
+					virt_indices_by_id.insert(std::make_pair(reg_id,  VirtualRegInfo(n_virtreg, regs[i])));
+					if (reg_id > max_virt_reg_id)
+						max_virt_reg_id = reg_id;
+					reg_ind = n_virtreg;
 					n_virtreg++;
-				}
-				used_at_node[node.index][i] =
-					virt_indices_by_id.at(regs[i]->getIndex()).index;
+				} else
+					reg_ind = (*p_info).second.index;
+				used_at_node[node.index][i] = reg_ind;
 			}
 		}
 		{
 			const std::vector<IR::VirtualRegister *> &regs = node.assignedRegisters();
 			assigned_at_node[node.index].resize(regs.size());
 			for (int i = 0; i < regs.size(); i++) {
-				if (virt_indices_by_id.find(regs[i]->getIndex()) == virt_indices_by_id.end()) {
-					virt_indices_by_id.insert(std::make_pair(regs[i]->getIndex(),  VirtualRegInfo(n_virtreg, regs[i])));
-					if (regs[i]->getIndex() > max_virt_reg_id)
-						max_virt_reg_id = regs[i]->getIndex();
+				int reg_id = regs[i]->getIndex();
+				int reg_ind = -1;
+				auto p_info = virt_indices_by_id.find(regs[i]->getIndex());
+				if (p_info == virt_indices_by_id.end()) {
+					virt_indices_by_id.insert(std::make_pair(reg_id,  VirtualRegInfo(n_virtreg, regs[i])));
+					if (reg_id > max_virt_reg_id)
+						max_virt_reg_id = reg_id;
+					reg_ind = n_virtreg;
 					n_virtreg++;
-				}
-				assigned_at_node[node.index][i] =
-					virt_indices_by_id.at(regs[i]->getIndex()).index;
+				} else
+					reg_ind = (*p_info).second.index;
+				assigned_at_node[node.index][i] = reg_ind;
 			}
 		}
 	}
