@@ -10,22 +10,28 @@ Instruction::Instruction(const std::string &_notation,
 		: notation(_notation), label(NULL),
 		is_reg_to_reg_assign(_reg_to_reg_assign)
 {
-	destinations.resize(1);
-	destinations[0] = NULL;
+	jumps_to_next = true;
 }
 
 Instruction::Instruction(const std::string &_notation,
 		const std::vector<IR::VirtualRegister *> &_inputs,
 		const std::vector<IR::VirtualRegister *> &_outputs,
 		bool _reg_to_reg_assign,
-		const std::vector<IR::Label *> &_destinations) :
+		const std::vector<IR::Label *> &_destinations,
+		bool also_jump_to_next) :
 	notation(_notation), inputs(_inputs), outputs(_outputs),
-	destinations(_destinations),
-	is_reg_to_reg_assign(_reg_to_reg_assign),
-	label(NULL)
+	//destinations(_destinations),
+	label(NULL),
+	is_reg_to_reg_assign(_reg_to_reg_assign)
 {
-	if (destinations.size() == 0)
-		destinations.push_back(NULL);
+	//if (destinations.size() == 0)
+	//	destinations.push_back(NULL);
+	if (_destinations.size() == 0)
+		jumps_to_next = true;
+	else {
+		extra_destinations = _destinations;
+		jumps_to_next = also_jump_to_next;
+	}
 }
 
 Assembler::Assembler(IR::IREnvironment *ir_env)

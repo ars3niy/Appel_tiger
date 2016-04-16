@@ -201,6 +201,7 @@ void TranslateProgram(bool assemble)
 	assembler.implementProgramFrameSize(body_frame, code.back());
 	gettimeofday(&t2, NULL);
 	frametime += dt(t1, t2);
+	printf("Allocator destroy: %d\n", alloctime.destruct);
 	printf("Allocator init flow: %d\n", alloctime.flowtime);
 	printf("Allocator init liveness: %d\n", alloctime.livenesstime);
 	printf("Allocator init allocator: %d\n", alloctime.selfinittime);

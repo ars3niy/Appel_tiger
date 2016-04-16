@@ -567,14 +567,16 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement templ,
 			assert(jump->dest->kind == IR::IR_LABELADDR);
 			result.push_back(Instruction("jmp " +
 				IR::ToLabelAddressExpression(jump->dest)->label->getName(),
-				{}, {}, false, {IR::ToLabelAddressExpression(jump->dest)->label}));
+				{}, {}, false, {IR::ToLabelAddressExpression(jump->dest)->label},
+				false));
 			break;
 		}
 		case IR::IR_COND_JUMP: {
 			IR::CondJumpStatement *jump = IR::ToCondJumpStatement(templ).get();
 			addInstruction(result, "cmp ", jump->right, ", ", jump->left);
 			result.push_back(Instruction(std::string(cond_jumps[jump->comparison]) +
-				" " + jump->true_dest->getName(), {}, {}, false, {NULL, jump->true_dest}));
+				" " + jump->true_dest->getName(), {}, {}, false, {jump->true_dest},
+				true));
 			break;
 		}
 		case IR::IR_LABEL:

@@ -11,6 +11,7 @@ namespace Optimize {
 class Timer {
 public:
 	int inittime;
+	int destruct;
 	int flowtime;
 	int livenesstime;
 	int selfinittime;

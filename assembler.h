@@ -79,10 +79,8 @@ public:
 	IR::Label *label;
 	bool is_reg_to_reg_assign;
 	
-	/**
-	 * NULL element means fall through to the next instruction
-	 */
-	std::vector<IR::Label *> destinations;
+	bool jumps_to_next;
+	std::vector<IR::Label *> extra_destinations;
 	
 	explicit Instruction(const std::string &_notation,
 		bool _reg_to_reg_assign = false);
@@ -91,7 +89,8 @@ public:
 		const std::vector<IR::VirtualRegister *> &_inputs,
 		const std::vector<IR::VirtualRegister *> &_outputs,
 		bool _reg_to_reg_assign,
-		const std::vector<IR::Label *> &_destinations = {});
+		const std::vector<IR::Label *> &_destinations = {},
+		bool also_jump_to_next = true);
 };
 
 typedef std::list<Instruction> Instructions;

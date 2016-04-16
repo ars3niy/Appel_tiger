@@ -218,13 +218,20 @@ void LivenessInfo::findLiveness(int virt_reg, const FlowGraphNode* node)
 // 				prev != node->previous.end(); prev++)
 // 			findLiveness(virt_reg, *prev);
 // 	}
-		for (FlowGraphNode* prev: node->previous) {
-			if (! isLiveAfterNode(prev, virt_reg)) {
-				live_after_node[prev->index].push_back(virt_reg);
-				if (! isAssignedAtNode(prev, virt_reg))
-					findLiveness(virt_reg, prev);
-			}
+	//FlowGraphNode *const* prevs = node->previous();
+	//int nprev = node->prevCount();
+	
+	//for (int i = 0; i < nprev; i++) {
+	//	FlowGraphNode* prev = prevs[i];
+	//for (FlowGraphNode *prev: node->previous) {
+	FlowGraphNode *prev = node->__prev;
+	if (prev != NULL) {
+		if (! isLiveAfterNode(prev, virt_reg)) {
+			live_after_node[prev->index].push_back(virt_reg);
+			if (! isAssignedAtNode(prev, virt_reg))
+				findLiveness(virt_reg, prev);
 		}
+	}
 }
 
 int LivenessInfo::getVirtualRegisterIndex(IR::VirtualRegister* vreg)
@@ -248,8 +255,10 @@ LivenessInfo::LivenessInfo(const FlowGraph& flowgraph) : DebugPrinter("liveness.
 	
 	const FlowGraph::NodeList &nodes = flowgraph.getNodes();	
 	for (const FlowGraphNode &node: nodes) {
-		debug("node %d, %d next, %d prev", node.index,
-			  node.next.size(), node.previous.size());
+#ifdef DEBUG
+		debug("node %d, %d prev", node.index,
+			  node.previous.size());
+#endif
 		{
 			const std::vector<IR::VirtualRegister *> &regs = node.usedRegisters();
 			if (node.isRegToRegAssignment())
@@ -997,11 +1006,14 @@ void AssignRegisters(Asm::Instructions& code,
 	const Intlist *spilled = NULL;
 	
 	do {
-		timeval t1;
-		gettimeofday(&t1, NULL);
+		timeval t0;
+		gettimeofday(&t0, NULL);
 		delete graph;
 		delete liveness;
 		delete allocator;
+		timeval t1;
+		gettimeofday(&t1, NULL);
+		timer.destruct += dt(t0, t1);
 		graph = new FlowGraph(code, frame->getFramePointer());
 		timeval t2;
 		gettimeofday(&t2, NULL);
