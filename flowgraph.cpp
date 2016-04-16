@@ -13,7 +13,7 @@ FlowGraphNode::FlowGraphNode(int _index, const Asm::Instruction* _instruction,
 	//nnext = 0;
 	//overflow_next = false;
 	//sequential_next = NULL;
-	__prev = NULL;
+	//__prev = NULL;
 	is_reg_to_reg_assign = instruction->is_reg_to_reg_assign;
 	for (IR::VirtualRegister *output: instruction->outputs)
 		assert(output->getIndex() != ignored_register->getIndex());
@@ -63,11 +63,13 @@ FlowGraph::FlowGraph(const Asm::Instructions &code,
 		
 		if (prev != NULL) {
 			if (prev->instruction->jumps_to_next)
-				current->__prev = prev;
+				//current->__prev = prev;
+				current->previous.push_back(prev);
 			for (IR::Label *label: prev->instruction->extra_destinations) {
 				auto labelpos = label_positions.find(label->getIndex());
 				if (labelpos != label_positions.end())
-					(*labelpos).second->__prev = prev;
+					//(*labelpos).second->__prev = prev;
+					(*labelpos).second->previous.push_back(prev);
 				else
 					links.push_back(NodeLink(label->getIndex(), prev));
 			}
@@ -77,8 +79,19 @@ FlowGraph::FlowGraph(const Asm::Instructions &code,
 		nodecount++;
 	}
 	
+	if (prev != NULL) {
+		for (IR::Label *label: prev->instruction->extra_destinations) {
+			auto labelpos = label_positions.find(label->getIndex());
+			if (labelpos != label_positions.end())
+				(*labelpos).second->previous.push_back(prev);
+			else
+				links.push_back(NodeLink(label->getIndex(), prev));
+		}
+	}
+		
+	
 	for (NodeLink &link: links) {
-		label_positions[link.labelid]->__prev = link.who_is_prev;
+		label_positions[link.labelid]->previous.push_back(link.who_is_prev);
 	}
 	
 	/*for (auto node = nodes.begin();

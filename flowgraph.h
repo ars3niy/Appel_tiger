@@ -29,8 +29,8 @@ private:
 	
 public:
 	int index;
-	//std::list<FlowGraphNode *> previous;
-	FlowGraphNode *__prev;
+	std::list<FlowGraphNode *> previous;
+	//FlowGraphNode *__prev;
 	
 	FlowGraphNode(int _index, const Asm::Instruction *_instruction,
 		IR::VirtualRegister *ignored_register);
