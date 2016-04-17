@@ -319,7 +319,7 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	addTemplate(Template::Input(0) + ":",
 		std::make_shared<IR::LabelPlacementStatement>(nullptr));
 	addTemplate("movq " + Template::Input(0) + ", " +
-		Template::Output(), exp_register);
+		Template::Output(), true, exp_register);
 	for (Operand &exp: memory_exp)
 		addTemplate("movq " + exp.implement(0) + ", " +
 			Template::Output(), exp.expression());
@@ -561,11 +561,11 @@ void X86_64Assembler::make_assignment()
 	Operand second_simple("%", {0}, nullptr);
 	int ind = 0;
 	for (const Operand &exp: memory_exp) {
-		addTemplate("movq " + exp.implement(1) + ", " + Template::Input(0),
+		addTemplate("movq " + exp.implement(1) + ", " + Template::InputAssigned(0),
 			std::make_shared<IR::MoveStatement>(exp_register,
 				exp.expression()));
 		if ((ind >= first_assign_by_lea) && (ind <= last_assign_by_lea))
-			addTemplate("leaq " + exp.implement(1) + ", " + Template::Input(0),
+			addTemplate("leaq " + exp.implement(1) + ", " + Template::InputAssigned(0),
 				std::make_shared<IR::MoveStatement>(exp_register,
 					IR::ToMemoryExpression(exp.expression())->address));
 		addTemplate("movq " + second_simple.implement(exp.elementCount()) + ", " + exp.implement(0),
