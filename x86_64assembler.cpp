@@ -376,20 +376,29 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 	if ((ir_code == IR::OP_PLUS) || (ir_code == IR::OP_MINUS)) {
 		t_reg_int = {"movq " + Template::Input(0) + ", " + Template::Output(),
 			std::string(command) + " $" + Template::Input(1) + ", " + Template::Output()};
-		t_int_reg = {"movq " + Template::Input(1) + ", " + Template::Output(),
-			std::string(command) + " $" + Template::Input(0) + ", " + Template::Output()};
+		if (ir_code == IR::OP_PLUS)
+			t_int_reg = {"movq " + Template::Input(1) + ", " + Template::Output(),
+				std::string(command) + " $" + Template::Input(0) + ", " + Template::Output()};
+		else
+			t_int_reg = {"movq $" + Template::Input(0) + ", " + Template::Output(),
+				std::string(command) + " " + Template::Input(1) + ", " + Template::Output()};
 		t_reg_reg = {"movq " + Template::Input(0) + ", " + Template::Output(),
 			std::string(command) + " " + Template::Input(1) + ", " + Template::Output()};
 		extra_inputs = {{}, {}};
 		extra_outputs = {{}, {}};
 		is_move_reg_int = {true, false};
-		is_move_int_reg = {true, false};
 		is_move_reg_reg = {true, false};
 		is_move_reg_mem = {true, false};
 		is_move_int_mem = {false, false};
-		is_move_mem_reg = {true, false};
 		is_move_mem_int = {false, false};
 		is_move_mem_mem = {false, false};
+		if (ir_code == IR::OP_PLUS) {
+			is_move_int_reg = {true, false};
+			is_move_mem_reg = {true, false};
+		} else {
+			is_move_int_reg = {false, false};
+			is_move_mem_reg = {false, false};
+		}
 	} else if (ir_code == IR::OP_MUL) {
 		t_reg_int = {"movq $" + Template::Input(1) + ", " + register_names[RAX],
 			std::string(command) + " " + Template::Input(0),
@@ -447,10 +456,14 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 		if ((ir_code == IR::OP_PLUS) || (ir_code == IR::OP_MINUS)) {
 			t_reg_mem = {"movq " + Template::Input(0) + ", " + Template::Output(),
 				std::string(command) + " " + exp.implement(1) + ", " + Template::Output()};
-			t_int_mem = {"movq " + exp.implement(1) + ", " + Template::Output(),
-				std::string(command) + " $" + Template::Input(0) + ", " + Template::Output()},
-			t_mem_reg = {"movq " + second_simple.implement(exp.elementCount()) + ", " + Template::Output(),
-				std::string(command) + " " + exp.implement(0) + ", " + Template::Output()};
+			t_int_mem = {"movq $" + Template::Input(0) + ", " + Template::Output(),
+				std::string(command) + " " + exp.implement(1) + ", " + Template::Output()};
+			if (ir_code == IR::OP_PLUS)
+				t_mem_reg = {"movq " + second_simple.implement(exp.elementCount()) + ", " + Template::Output(),
+					std::string(command) + " " + exp.implement(0) + ", " + Template::Output()};
+			else
+				t_mem_reg = {"movq " + exp.implement(0) + ", " + Template::Output(),
+					std::string(command) + " " + second_simple.implement(exp.elementCount()) + ", " + Template::Output()};
 			t_mem_int = {"movq " + exp.implement(0) + ", " + Template::Output(),
 				std::string(command) + " $" + second_simple.implement(exp.elementCount()) + ", " + Template::Output()};
 		} else if (ir_code == IR::OP_MUL) {
@@ -682,22 +695,6 @@ void X86_64Assembler::addInstruction(Instructions &result,
 			  (*newinst).notation.c_str());
 }
 
-#if 0
-void X86_64Assembler::addInstruction(Instructions &result,
-	const std::string &prefix, IR::Expression operand0,
-	const std::string &suffix, IR::Expression operand1)
-{
-	std::vector<IR::VirtualRegister *> inputs;
-	std::string s0;
-	makeOperand(operand0, inputs, s0);
-	std::string s1;
-	makeOperand(operand1, inputs, s1);
-	result.push_back(Instruction(prefix + s0 + suffix + s1,
-		inputs, {}, false));
-}
-
-#endif
-
 void X86_64Assembler::placeCallArguments(const std::list<IR::Expression>& arguments,
 	IR::AbstractFrame *frame,
 	const IR::Expression parentfp_param, Instructions &result)
@@ -740,206 +737,6 @@ void X86_64Assembler::removeCallArguments(const std::list< IR::Expression>& argu
  		result.push_back(Instruction(std::string("add ") +
 			IntToStr(stack_arg_count*8) + std::string(", %rsp")));
 }
-
-#if 0
-
-void X86_64Assembler::translateExpressionTemplate(IR::Expression templ,
-	IR::AbstractFrame *frame, IR::VirtualRegister *value_storage,
-	const std::list<TemplateChildInfo> &children, Instructions &result)
-{
-	switch (templ->kind) {
-		case IR::IR_INTEGER:
-		case IR::IR_LABELADDR:
-		case IR::IR_REGISTER:
-		case IR::IR_MEMORY:
-			if (value_storage != NULL) {
-				addInstruction(result, "movq ", templ,
-					", " + Instruction::Output(0), value_storage);
-				debug("Simple expression type %d, translated as %s", templ->kind,
-					result.back().notation.c_str());
-			}
-			break;
-		case IR::IR_BINARYOP:
-			if (value_storage != NULL) {
-				IR::BinaryOpExpression *bin_op = IR::ToBinaryOpExpression(templ).get();
-				debug("Translating binary operation %d translated as:", bin_op->operation);
-				switch (bin_op->operation) {
-					case IR::OP_PLUS:
-						addInstruction(result, "movq ", bin_op->left,
-							", " + Instruction::Output(0), value_storage);
-						debug("\t%s", result.back().notation.c_str());
-						addInstruction(result, "addq ", bin_op->right,
-							", " + Instruction::Output(0), value_storage);
-						debug("\t%s", result.back().notation.c_str());
-						break;
-					case IR::OP_MINUS:
-						addInstruction(result, "movq ", bin_op->left,
-							", " + Instruction::Output(0), value_storage);
-						debug("\t%s", result.back().notation.c_str());
-						addInstruction(result, "subq ", bin_op->right,
-							", " + Instruction::Output(0), value_storage);
-						debug("\t%s", result.back().notation.c_str());
-						break;
-					case IR::OP_MUL:
-						addInstruction(result, "movq ", bin_op->left,
-							", " + Instruction::Output(0), machine_registers[RAX]);
-						debug("\t%s", result.back().notation.c_str());
-						if ((bin_op->right->kind == IR::IR_INTEGER) ||
-							(bin_op->right->kind == IR::IR_LABELADDR)) {
-							IR::VirtualRegister *tmp_reg = IRenvironment->addRegister();
-							addInstruction(result, "movq ", bin_op->right,
-								", " + Instruction::Output(0), tmp_reg);
-							debug("\t%s", result.back().notation.c_str());
-							result.push_back(Instruction(
-								"imulq " + Instruction::Input(1),
-								{machine_registers[RAX], tmp_reg},
-								{machine_registers[RAX], machine_registers[RDX]},
-								false));
-							debug("\t%s", result.back().notation.c_str());
-						} else {
-							addInstruction(result, "imulq ", bin_op->right,
-								"", machine_registers[RAX],
-								machine_registers[RAX], machine_registers[RDX]);
-							debug("\t%s", result.back().notation.c_str());
-						}
-						result.push_back(Instruction("movq " +
-							Instruction::Input(0) + ", " + Instruction::Output(0),
-							{machine_registers[RAX]}, {value_storage},
-							true));
-						debug("\t%s", result.back().notation.c_str());
-						break;
-					case IR::OP_DIV:
-						addInstruction(result, "movq ", bin_op->left,
-							", " + Instruction::Output(0), machine_registers[RAX]);
-						debug("\t%s", result.back().notation.c_str());
-						result.push_back(Instruction("cqo",
-							{machine_registers[RAX]},
-							{machine_registers[RAX], machine_registers[RDX]}, false));
-						debug("\t%s", result.back().notation.c_str());
-						if ((bin_op->right->kind == IR::IR_INTEGER) ||
-							(bin_op->right->kind == IR::IR_LABELADDR)) {
-							IR::VirtualRegister *tmp_reg = IRenvironment->addRegister();
-							addInstruction(result, "movq ", bin_op->right,
-								", " + Instruction::Output(0), tmp_reg);
-							debug("\t%s", result.back().notation.c_str());
-							result.push_back(Instruction(
-								"idivq " + Instruction::Input(2),
-								{machine_registers[RAX], machine_registers[RDX], tmp_reg},
-								{machine_registers[RAX], machine_registers[RDX]}, false));
-						debug("\t%s", result.back().notation.c_str());
-						} else {
-							addInstruction(result, "idivq ", bin_op->right,
-								"", machine_registers[RAX],
-								machine_registers[RAX], machine_registers[RDX]);
-							debug("\t%s", result.back().notation.c_str());
-						}
-						result.push_back(Instruction("movq " +
-							Instruction::Input(0) + ", " + Instruction::Output(0),
-							{machine_registers[RAX]}, {value_storage},
-							true));
-						debug("\t%s", result.back().notation.c_str());
-						break;
-					default:
-						Error::fatalError("X86_64Assembler::translateExpressionTemplate unexpected binary operation");
-				}
-			}
-			break;
-		case IR::IR_FUN_CALL: {
-			IR::CallExpression *call = IR::ToCallExpression(templ).get();
-			if (call->callee_parentfp != NULL) {
-				translateExpression(call->callee_parentfp, frame, 
-					machine_registers[R10], result);
-			}
-			placeCallArguments(call->arguments, result);
-			assert(call->function->kind == IR::IR_LABELADDR);
-			result.push_back(Instruction("call " + 
-				IR::ToLabelAddressExpression(call->function)->label->getName(),
-				{}, callersave_registers, false));
-			removeCallArguments(call->arguments, result);
-			if (value_storage != NULL)
-				result.push_back(Instruction("movq " + Instruction::Input(0) +
-					", " + Instruction::Output(0),
-					{machine_registers[RAX]}, {value_storage}, true));
-			break;
-		}
-		default:
-			Error::fatalError("X86_64Assembler::translateExpressionTemplate unexpected expression kind");
-	}
-}
-
-const char *cond_jumps[] = {
-	"je",
-	"jne",
-	"jl",
-	"jle",
-	"jg",
-	"jge",
-	"jb",
-	"jbe",
-	"ja",
-	"jae",
-};
-
-void X86_64Assembler::translateStatementTemplate(IR::Statement templ,
-	const std::list<TemplateChildInfo> &children, Instructions &result)
-{
-	switch (templ->kind) {
-		case IR::IR_JUMP: {
-			IR::JumpStatement *jump = IR::ToJumpStatement(templ).get();
-			assert(jump->dest->kind == IR::IR_LABELADDR);
-			result.push_back(Instruction("jmp " +
-				IR::ToLabelAddressExpression(jump->dest)->label->getName(),
-				{}, {}, false, {IR::ToLabelAddressExpression(jump->dest)->label},
-				false));
-			break;
-		}
-		case IR::IR_COND_JUMP: {
-			IR::CondJumpStatement *jump = IR::ToCondJumpStatement(templ).get();
-			addInstruction(result, "cmp ", jump->right, ", ", jump->left);
-			result.push_back(Instruction(std::string(cond_jumps[jump->comparison]) +
-				" " + jump->true_dest->getName(), {}, {}, false, {jump->true_dest},
-				true));
-			break;
-		}
-		case IR::IR_LABEL:
-			result.push_back(Instruction(
-				IR::ToLabelPlacementStatement(templ)->label->getName() + ":"));
-			break;
-		case IR::IR_MOVE: {
-			IR::MoveStatement *move = IR::ToMoveStatement(templ).get();
-			const char *cmd = "movq ";
-			IR::Expression from = move->from;
-			if (move->from->kind == IR::IR_BINARYOP) {
-				assert(move->to->kind == IR::IR_REGISTER);
-				std::shared_ptr<IR::MemoryExpression> fake_addr =
-					std::make_shared<IR::MemoryExpression>(move->from);
-				addInstruction(result, "leaq ", fake_addr, ", "  + Instruction::Output(0),
-					ToRegisterExpression(move->to)->reg);
-			} else if (move->from->kind == IR::IR_MEMORY) {
-				assert(move->to->kind == IR::IR_REGISTER);
-				addInstruction(result, "movq ", move->from, ", " + Instruction::Output(0),
-					ToRegisterExpression(move->to)->reg);
-			} else {
-				if (move->to->kind == IR::IR_REGISTER)
-					addInstruction(result, "movq ", move->from, ", " + Instruction::Output(0),
-						ToRegisterExpression(move->to)->reg);
-				else {
-					assert(move->to->kind == IR::IR_MEMORY);
-					std::vector<IR::VirtualRegister *> registers;
-					std::string operand0, operand1;
-					makeOperand(move->from, registers, operand0);
-					makeOperand(move->to, registers, operand1);
-					result.push_back(Instruction("movq " + operand0 + ", " +
-						operand1, registers, {}, false));
-				}
-			}
-			break;
-		}
-		default:
-			Error::fatalError("X86_64Assembler::translateStatementTemplate unexpected statement kind");
-	}
-}
-#endif
 
 void X86_64Assembler::translateBlob(const IR::Blob& blob, Instructions& result)
 {
