@@ -8,6 +8,7 @@
 #include <vector>
 #include <memory>
 #include "debugprint.h"
+#include "errormsg.h"
 
 namespace IR { // Intermediate Representation
 
@@ -139,8 +140,9 @@ enum ComparisonOp {
 class ExpressionClass {
 public:
 	ExpressionKind kind;
+	Error::InputPos position;
 	
-	ExpressionClass(ExpressionKind _kind) : kind(_kind) {}
+	ExpressionClass(ExpressionKind _kind) : kind(_kind) {position.linenumber = -1;}
 };
 
 class IntegerExpression: public ExpressionClass {

@@ -119,13 +119,13 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	);
 	last_assign_by_lea = memory_exp.size()-1;
 	
-	/*
-	// reg + reg
-	memory_exp.push_back(Operand("(%+%)", {0,1},
-		std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_register, exp_register)));
 	
-	// reg+reg+const
-	IR::Expression terms[3];
+	// reg + reg
+	memory_exp.push_back(Operand("(%,%)", {0,1}, std::make_shared<IR::MemoryExpression>(
+		std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_register, exp_register))));
+	
+	// reg+reg±const and permutations
+	/*IR::Expression terms[3];
 	for (int p_c = 0; p_c < 3; p_c++) {
 		int p_r1 = (p_c == 0) ? 1 : 0;
 		int p_r2 = 3 - p_c - p_r1;
@@ -203,7 +203,7 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 			debug("%s - (%s - %s)\n = -%d(%d,%d)\n",
 				names[0], names[1], names[2], p_c, p_r1, p_r2);
 		}
-	}
+	}*/
 
 	int mul_index[] = {2,4,8};
 	enum {NMUL = 3};
@@ -222,11 +222,50 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 // 		exp_mul_index_plus[i+NMUL] = std::make_shared<IR::BinaryOpExpression>
 // 			(IR::OP_MUL, std::make_shared<IR::IntegerExpression>(mul_index[i]+1), exp_register);
 // 	}
+
+	for (int i = 0; i < 2*NMUL; i++) {
+		std::vector<int> order;
+		if (i < NMUL)
+			order = {2,0,1};
+		else
+			order = {2,1,0};
+		// reg*(2,4,8) + reg
+		memory_exp.push_back(Operand("(%,%,%)", order, std::make_shared<IR::MemoryExpression>(
+			std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
+				exp_mul_index[i], exp_register)))
+		);
+		// reg*(2,4,8) ± const
+		memory_exp.push_back(Operand("%(%,%)", order, std::make_shared<IR::MemoryExpression>(
+			std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
+				exp_mul_index[i], exp_int)))
+		);
+		memory_exp.push_back(Operand("-%(%,%)", order, std::make_shared<IR::MemoryExpression>(
+			std::make_shared<IR::BinaryOpExpression>(IR::OP_MINUS,
+				exp_mul_index[i], exp_int)))
+		);
+		
+		if (i < NMUL)
+			order = {0,1,2};
+		else
+			order = {0,2,1};
+		// reg + reg*(2,4,8)
+		memory_exp.push_back(Operand("(%,%,%)", order, std::make_shared<IR::MemoryExpression>(
+			std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
+				exp_register, exp_mul_index[i])))
+		);
+		// const + reg*(2,4,8)
+		memory_exp.push_back(Operand("%(%,%)", order, std::make_shared<IR::MemoryExpression>(
+			std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
+				exp_int, exp_mul_index[i])))
+		);
+	}
 	
- 	for (int factor = 0; factor < 2*NMUL; factor++) {
- 		for (int p_mul = 0; p_mul < 3; p_mul++)
- 			for (int p_reg = 0; p_reg < 3; p_reg++) if (p_reg != p_mul) {
- 				int p_c = 3-p_mul-p_reg;
+	/*
+	// reg*(2,4,8) + reg ± const and permutations
+	for (int factor = 0; factor < 2*NMUL; factor++) {
+		for (int p_mul = 0; p_mul < 3; p_mul++)
+			for (int p_reg = 0; p_reg < 3; p_reg++) if (p_reg != p_mul) {
+				int p_c = 3-p_mul-p_reg;
 				terms[p_mul] = exp_mul_index[factor];
 				terms[p_reg] = exp_register;
 				terms[p_c] = exp_int;
@@ -360,6 +399,164 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 		std::make_shared<IR::JumpStatement>(exp_register));
 }
 
+int powerof2(int x)
+{
+	if (x <= 0)
+		return -1;
+	int res = 0;
+	while (x > 1) {
+		if (x % 2 != 0)
+			return -1;
+		res++;
+		x /= 2;
+	}
+	return res;
+}
+
+bool mul_to_shl(bool int_at_front, bool other_is_reg,
+	const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements)
+{
+	const TemplateChildInfo *int_element = NULL;
+	assert(! elements.empty());
+	if (int_at_front)
+		int_element = &elements.front();
+	else
+		int_element = &elements.back();
+	assert (! int_element->value_storage);
+	int value = IR::ToIntegerExpression(int_element->expression)->value;
+	bool negative = false;
+	if (value < 0) {
+		negative = true;
+		value = -value;
+	}
+	int power = powerof2(value);
+	if (power < 0)
+		return false;
+	Instructions::const_iterator second = templ.begin();
+	++second;
+	assert (second != templ.end());
+	std::string prefix = "imulq ";
+	assert((*second).notation.substr(0, prefix.size()) == prefix);
+	result.clear();
+	
+	std::string cmd_base = "movq " + (*second).notation.substr(prefix.size(),
+		(*second).notation.size() - prefix.size()) + ", ";
+	IR::VirtualRegister *tmp_reg = NULL;
+	if (negative)
+		result.push_back(Instruction(cmd_base + Template::XOutput(0), {},
+			{tmp_reg}, other_is_reg));
+	else
+		result.push_back(Instruction(cmd_base + Template::Output(), other_is_reg));
+	DebugPrinter dbg("assembler.log");
+	dbg.debug("Multiply by shl: %s", result.back().notation.c_str());
+
+	cmd_base = "salq $" + IntToStr(power) + ", ";
+	if (negative)
+		result.push_back(Instruction(cmd_base + Template::XOutput(0), {},
+			{tmp_reg}, false));
+	else
+		result.push_back(Instruction(cmd_base + Template::Output(), false));
+	dbg.debug("Multiply by shl: %s", result.back().notation.c_str());
+	if (negative) {
+		result.push_back(Instruction("xorq " + Template::Output() + ", " + Template::Output()));
+		dbg.debug("Divide by shr: %s", result.back().notation.c_str());
+		result.push_back(Instruction("subq " + Template::XInput(0) + ", " + Template::Output()));
+		result.back().inputs.push_back(tmp_reg);
+		dbg.debug("Divide by shr: %s", result.back().notation.c_str());
+	}
+	
+	return true;
+}
+
+bool mul_int_reg_to_shl(const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements)
+{
+	return mul_to_shl(true, true, templ, ir_env, result, elements);
+}
+
+bool mul_int_nonreg_to_shl(const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements)
+{
+	return mul_to_shl(true, false, templ, ir_env, result, elements);
+}
+
+bool mul_reg_int_to_shl(const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements)
+{
+	return mul_to_shl(false, true, templ, ir_env, result, elements);
+}
+
+bool mul_nonreg_int_to_shl(const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements)
+{
+	return mul_to_shl(false, false, templ, ir_env, result, elements);
+}
+
+bool div_X_int_to_shr(const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements)
+{
+	assert (! elements.back().value_storage);
+	int value = IR::ToIntegerExpression(elements.back().expression)->value;
+	bool negative = false;
+	if (value < 0) {
+		negative = true;
+		value = -value;
+	}
+	int power = powerof2(value);
+	assert(power >= 0);
+	result.clear();
+	const Instruction &load = templ.front();
+	const Instruction &shift = templ.back();
+	assert(load.notation.substr(load.notation.size()-2, 2) == Template::Output());
+	const char *shift_prefix = "sarq $";
+	assert(shift.notation == shift_prefix + Template::Input(elements.size()-1) +
+		+ ", " + Template::Output());
+	result.push_back(load);
+	IR::VirtualRegister *tmp_reg = NULL;
+	if (negative) {
+		tmp_reg = ir_env->addRegister();
+		result.back().outputs.push_back(tmp_reg);
+		result.back().notation = load.notation.substr(0, load.notation.size()-2) +
+			Template::XOutput(result.back().outputs.size()-1);
+	}
+	DebugPrinter dbg("assembler.log");
+	dbg.debug("Divide by shr: %s", result.back().notation.c_str());
+	result.push_back(shift);
+	result.back().notation = shift_prefix + IntToStr(power) + ", ";
+	if (negative) {
+		result.back().outputs.push_back(tmp_reg);
+		result.back().notation += Template::XOutput(result.back().outputs.size()-1);
+	} else
+		result.back().notation += Template::Output();
+	dbg.debug("Divide by shr: %s", result.back().notation.c_str());
+	if (negative) {
+		result.push_back(Instruction("xorq " + Template::Output() + ", " + Template::Output()));
+		dbg.debug("Divide by shr: %s", result.back().notation.c_str());
+		result.push_back(Instruction("subq " + Template::XInput(0) + ", " + Template::Output()));
+		result.back().inputs.push_back(tmp_reg);
+		dbg.debug("Divide by shr: %s", result.back().notation.c_str());
+	}
+	return true;
+}
+
+bool can_divide_by_const(const IR::Expression expression)
+{
+	if (expression->kind != IR::IR_BINARYOP)
+		return false;
+	std::shared_ptr<IR::BinaryOpExpression> bin_op = IR::ToBinaryOpExpression(expression);
+	if ((bin_op->operation != IR::OP_DIV) || (bin_op->right->kind != IR::IR_INTEGER))
+		return false;
+	int value = IR::ToIntegerExpression(bin_op->right)->value;
+	int power = powerof2(abs(value));
+	DebugPrinter dbg("assembler.log");
+	dbg.debug("Checking if we can divide by %d: shift power = %d", value, power);
+	return power >= 0;
+// 	assert (! elements.back().value_storage);
+// 	int value = IR::ToIntegerExpression(elements.back().expression)->value;
+// 	return powerof2(abs(value)) >= 0;
+}
+
 // IR::VirtualRegister* X86_64Assembler::getFramePointerRegister()
 // {
 // 	return machine_registers[FP];
@@ -373,6 +570,9 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 	std::vector<bool> is_move_reg_int, is_move_int_reg, is_move_reg_reg;
 	std::vector<bool> is_move_reg_mem, is_move_int_mem, is_move_mem_reg, is_move_mem_int;
 	std::vector<bool> is_move_mem_mem;
+	TemplateAdjuster adjust_int_reg = NULL, adjust_int_mem = NULL,
+	                 adjust_reg_int = NULL, adjust_mem_int = NULL;
+	ExpressionMatchChecker match_X_int = NULL;
 	if ((ir_code == IR::OP_PLUS) || (ir_code == IR::OP_MINUS)) {
 		t_reg_int = {"movq " + Template::Input(0) + ", " + Template::Output(),
 			std::string(command) + " $" + Template::Input(1) + ", " + Template::Output()};
@@ -421,7 +621,13 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 		is_move_mem_reg = {true, false, true};
 		is_move_mem_int = {false, false, true};
 		is_move_mem_mem = {false, false, true};
+		adjust_reg_int = mul_reg_int_to_shl;
+		adjust_int_reg = mul_int_reg_to_shl;
+		adjust_mem_int = mul_nonreg_int_to_shl;
+		adjust_int_mem = mul_int_nonreg_to_shl;
 	} else if (ir_code == IR::OP_DIV) {
+		t_reg_int = {"movq " + Template::Input(0) + ", " + Template::Output(),
+			"sarq $" + Template::Input(1) + ", " + Template::Output()};
 		t_int_reg = {"movq $" + Template::Input(0) + ", " + register_names[RAX],
 			"cqo",
 			std::string(command) + " " + Template::Input(1),
@@ -435,20 +641,31 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 		extra_outputs = {{machine_registers[RAX]},
 			{machine_registers[RAX], machine_registers[RDX]},
 			{machine_registers[RAX], machine_registers[RDX]}, {}};
+		is_move_reg_int = {true, false};
 		is_move_int_reg = {false, false, false, true};
 		is_move_reg_reg = {true, false, false, true};
 		is_move_reg_mem = {true, false, false, true};
 		is_move_int_mem = {false, false, false, true};
 		is_move_mem_reg = {false, false, false, true};
+		is_move_mem_int = {false, false};
 		is_move_mem_mem = {false, false, false, true};
+		match_X_int = can_divide_by_const;
+		adjust_reg_int = div_X_int_to_shr;
+		adjust_mem_int = div_X_int_to_shr;
 	} else
 		Error::fatalError("x86_64 assembler: Strange binary operation");
 
-	if (ir_code != IR::OP_DIV)
+	if (ir_code == IR::OP_DIV)
+		addTemplate(t_reg_int, {{},{}}, {{},{}}, is_move_reg_int,
+			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_int),
+			adjust_reg_int, match_X_int);
+	else
 		addTemplate(t_reg_int, extra_inputs, extra_outputs, is_move_reg_int,
-			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_int));
+			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_int),
+			adjust_reg_int, match_X_int);
 	addTemplate(t_int_reg, extra_inputs, extra_outputs, is_move_int_reg,
-		std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int, exp_register));
+		std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int, exp_register),
+		adjust_int_reg);
 	addTemplate(t_reg_reg, extra_inputs, extra_outputs, is_move_reg_reg,
 		std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_register));
 	Operand second_simple("%", {0}, nullptr);
@@ -489,6 +706,8 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 			t_mem_reg = {"movq " + exp.implement(0) + ", " + register_names[RAX], "cqo",
 				std::string(command) + " " + second_simple.implement(exp.elementCount()),
 				"movq " + register_names[RAX] + ", " + Template::Output()};
+			t_mem_int = {"movq " + exp.implement(0) + ", " + Template::Output(),
+				"sarq $" + second_simple.implement(exp.elementCount()) + ", " + Template::Output()};
 		}
 		addTemplate(t_reg_mem, extra_inputs, extra_outputs, is_move_reg_mem,
 			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register,
@@ -496,16 +715,20 @@ void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 		
 		addTemplate(t_int_mem, extra_inputs, extra_outputs, is_move_int_mem, 
 			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int,
-				exp.expression()));
+				exp.expression()), adjust_int_mem);
 		
  		addTemplate(t_mem_reg, extra_inputs, extra_outputs, is_move_mem_reg,
 			std::make_shared<IR::BinaryOpExpression>(ir_code,
 				exp.expression(), exp_register));
 		
-		if (ir_code != IR::OP_DIV)
+		if (ir_code == IR::OP_DIV)
+			addTemplate(t_mem_int, {{},{}}, {{},{}}, is_move_mem_int,
+				std::make_shared<IR::BinaryOpExpression>(ir_code,
+					exp.expression(), exp_int), adjust_mem_int, match_X_int);
+		else
 			addTemplate(t_mem_int, extra_inputs, extra_outputs, is_move_mem_int,
 				std::make_shared<IR::BinaryOpExpression>(ir_code,
-					exp.expression(), exp_int));
+					exp.expression(), exp_int), adjust_mem_int, match_X_int);
 	}
 	std::vector<std::string> t_mem_mem;
 	for (const Operand &exp1: memory_exp)

@@ -2,7 +2,7 @@
 #define _ASSEMBLER_H
 
 #include "intermediate.h"
-#include "translate_utils.h"
+#include "frame.h"
 #include "debugprint.h"
 
 namespace Asm {
@@ -51,6 +51,19 @@ public:
 		: value_storage(_value), expression(_expr) {}
 };
 
+/**
+ * Possibly generate template instructions different from those
+ * in Template::instruction based on the child elements
+ * @return true if we have done it
+ */
+typedef bool (*TemplateAdjuster)(const Instructions &templ, IR::IREnvironment *ir_env,
+	Instructions &result, const std::list<TemplateChildInfo> &elements);
+
+/**
+ * Certain templates might be inapplicable to certain child elements
+ */
+typedef bool (*ExpressionMatchChecker)(const IR::Expression expression);
+
 class Template: public DebugPrinter {
 public:
 	IR::Code code;
@@ -61,6 +74,8 @@ public:
 	 * destinations for that IR::(Jump/CondJump)Statement"
 	 */
 	Instructions instructions;
+	TemplateAdjuster adjuster_fcn;
+	ExpressionMatchChecker match_fcn;
 	
 	static std::string Input(int ind)
 	{
@@ -77,6 +92,16 @@ public:
 		return "&o";
 	}
 	
+	static std::string XOutput(int ind)
+	{
+		return "&O" + IntToStr(ind);
+	}
+	
+	static std::string XInput(int ind)
+	{
+		return "&I" + IntToStr(ind);
+	}
+	
 // 	static std::string XInput(int ind)
 // 	{
 // 		return "&I" + IntToStr(ind);
@@ -87,38 +112,46 @@ public:
 // 		return "&O" + IntToStr(ind);
 // 	}
 	
-	Template(IR::Expression expression) :
+	Template(IR::Expression expression, TemplateAdjuster _adjuster_fcn = NULL,
+		ExpressionMatchChecker _match_fcn = NULL) :
 		DebugPrinter("assembler.log"),
-		code(std::make_shared<IR::ExpressionCode>(expression)) {}
+		code(std::make_shared<IR::ExpressionCode>(expression)),
+		adjuster_fcn(_adjuster_fcn),
+		match_fcn(_match_fcn) {}
 
 	Template(IR::Statement statement) : 
 		DebugPrinter("assembler.log"),
-		code(std::make_shared<IR::StatementCode>(statement)) {}
+		code(std::make_shared<IR::StatementCode>(statement)),
+		adjuster_fcn(NULL), match_fcn(NULL) {}
 
 	Template(const std::string &_command, bool is_reg_to_reg_assign, IR::Expression expression) :
 		DebugPrinter("assembler.log"),
-		code(std::make_shared<IR::ExpressionCode>(expression))
+		code(std::make_shared<IR::ExpressionCode>(expression)),
+		adjuster_fcn(NULL), match_fcn(NULL)
 	{
 		instructions.push_back(Instruction(_command, is_reg_to_reg_assign));
 	}
 
 	Template(const std::string &_command, bool is_reg_to_reg_assign, IR::Statement statement) :
 		DebugPrinter("assembler.log"),
-		code(std::make_shared<IR::StatementCode>(statement))
+		code(std::make_shared<IR::StatementCode>(statement)),
+		adjuster_fcn(NULL), match_fcn(NULL)
 	{
 		instructions.push_back(Instruction(_command, is_reg_to_reg_assign));
 	}
 
 	Template(const std::string &_command, bool is_reg_to_reg_assign, IR::Code _code) :
 		DebugPrinter("assembler.log"),
-		code(_code)
+		code(_code),
+		adjuster_fcn(NULL), match_fcn(NULL)
 	{
 		instructions.push_back(Instruction(_command, is_reg_to_reg_assign));
 	}
 	
 	Template(const std::vector<std::string> &_commands, IR::Expression expression) :
 		DebugPrinter("assembler.log"),
-		code(std::make_shared<IR::ExpressionCode>(expression))
+		code(std::make_shared<IR::ExpressionCode>(expression)),
+		adjuster_fcn(NULL), match_fcn(NULL)
 	{
 		for (const std::string &cmd: _commands)
 			instructions.push_back(Instruction(cmd));
@@ -126,7 +159,8 @@ public:
 
 	Template(const std::vector<std::string> &_commands, IR::Statement statement) :
 		DebugPrinter("assembler.log"),
-		code(std::make_shared<IR::StatementCode>(statement))
+		code(std::make_shared<IR::StatementCode>(statement)),
+		adjuster_fcn(NULL), match_fcn(NULL)
 	{
 		for (const std::string &cmd: _commands)
 			instructions.push_back(Instruction(cmd));
@@ -134,7 +168,8 @@ public:
 
 	Template(const std::vector<std::string> &_commands, IR::Code _code) :
 		DebugPrinter("assembler.log"),
-		code(_code)
+		code(_code),
+		adjuster_fcn(NULL), match_fcn(NULL)
 	{
 		for (const std::string &cmd: _commands)
 			instructions.push_back(Instruction(cmd));
@@ -156,7 +191,8 @@ public:
 			_reg_to_reg_assign, _destinations, also_jump_to_next));
 	}
 	
-	void implement(Instructions &result, const std::list<TemplateChildInfo> &elements,
+	void implement(IR::IREnvironment *ir_env, Instructions &result,
+		const std::list<TemplateChildInfo> &elements,
 		IR::VirtualRegister *value_storage, const std::vector<IR::Label *> &extra_dest = {});
 };
 
@@ -233,7 +269,8 @@ protected:
 	void addTemplate(const std::vector<std::string> &_commands,
 		const std::vector<std::vector<IR::VirtualRegister *> > &extra_inputs,
 		const std::vector<std::vector<IR::VirtualRegister *> > &extra_outputs,
-		const std::vector<bool> is_reg_to_reg_assign, IR::Expression expr);
+		const std::vector<bool> is_reg_to_reg_assign, IR::Expression expr,
+		TemplateAdjuster adjuster_fcn = NULL, ExpressionMatchChecker match_fcn = NULL);
 	void addTemplate(const std::vector<std::string> &_commands,
 		const std::vector<bool> &is_jump_to_extra_dest,
 		const std::vector<bool> &jumps_to_next, IR::Statement statm);

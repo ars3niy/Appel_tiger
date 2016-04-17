@@ -89,8 +89,70 @@ void IRTransformer::canonicalizeBinaryOpExp(Expression &exp)
 	
 	pullStatementsOutOfTwoOperands(op_exp->left, op_exp->right, pre_statements);
 	
+	std::shared_ptr<IntegerExpression> left_const = nullptr, right_const = nullptr;
+	if (op_exp->left->kind == IR_INTEGER)
+		left_const = ToIntegerExpression(op_exp->left);
+	if (op_exp->right->kind == IR_INTEGER)
+		right_const = ToIntegerExpression(op_exp->right);
+	
+	switch (op_exp->operation) {
+	case OP_PLUS:
+		if (left_const && (left_const->value == 0))
+			exp = op_exp->right;
+		else if (right_const &&	(right_const->value == 0))
+			exp = op_exp->left;
+		else if (left_const && right_const)
+			exp = std::make_shared<IntegerExpression>(left_const->value + right_const->value);
+		else if (
+			((op_exp->left->kind == IR_INTEGER) || (op_exp->left->kind == IR_LABELADDR) ||
+				(op_exp->left->kind == IR_REGISTER)) &&
+			(op_exp->right->kind == IR_BINARYOP)) {
+			// Transform simple + (A operation B) to (A operation B) + simple
+			// Should get better assembly code than way
+			Expression tmp = op_exp->left;
+			op_exp->left = op_exp->right;
+			op_exp->right = tmp;
+		}
+		break;
+	case OP_MINUS:
+		if (right_const &&	(right_const->value == 0))
+			exp = op_exp->left;
+		else if (left_const && right_const)
+			exp = std::make_shared<IntegerExpression>(left_const->value - right_const->value);
+		break;
+	case OP_MUL:
+		if (left_const && (left_const->value == 1))
+			exp = op_exp->right;
+		else if (right_const &&	(right_const->value == 1))
+			exp = op_exp->left;
+		else if (left_const && right_const)
+			exp = std::make_shared<IntegerExpression>(left_const->value * right_const->value);
+		else if (
+			((op_exp->left->kind == IR_INTEGER) || (op_exp->left->kind == IR_LABELADDR) ||
+				(op_exp->left->kind == IR_REGISTER)) &&
+			(op_exp->right->kind == IR_BINARYOP)) {
+			// Transform simple + (A operation B) to (A operation B) + simple
+			// Should get better assembly code than way
+			Expression tmp = op_exp->left;
+			op_exp->left = op_exp->right;
+			op_exp->right = tmp;
+		}
+		break;
+	case OP_DIV:
+		if (right_const && (right_const->value == 0))
+			Error::warning("Division by zero", op_exp->position);
+		if (right_const &&	(right_const->value == 1))
+			exp = op_exp->left;
+		else if (left_const && right_const) {
+			if (right_const->value != 0)
+				exp = std::make_shared<IntegerExpression>(left_const->value / right_const->value);
+		}
+		break;
+	default: ;
+	}
+	
 	if (! pre_statements->statements.empty())
-		exp = std::make_shared<StatExpSequence>(pre_statements, op_exp);
+		exp = std::make_shared<StatExpSequence>(pre_statements, exp);
 }
 
 void IRTransformer::canonicalizeCallExp(Expression &exp,
@@ -463,7 +525,7 @@ void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 				jump_label = ToJumpStatement(jump_statement)->possible_results.front();
 				debug("Unconditionally jumps to %s", jump_label->getName().c_str());
 			} else {
-				jump_label = ToCondJumpStatement(jump_statement)->false_dest;
+				jump_label = ToCondJumpStatement(jump_statement)->true_dest;
 				debug("Conditionally jumps, true destination %s, false destination %s",
 					ToCondJumpStatement(jump_statement)->true_dest->getName().c_str(),
 					jump_label->getName().c_str());

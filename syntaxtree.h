@@ -53,8 +53,8 @@ class Node {
 protected:
 public:
 	NodeType type;
-	int linenumber;
-	Node(NodeType _type) : type(_type), linenumber(Error::getLineNumber()) {}
+	Error::InputPos linenumber;
+	Node(NodeType _type) : type(_type), linenumber(Error::getPosition()) {}
 };
 
 class IntValue: public Node {

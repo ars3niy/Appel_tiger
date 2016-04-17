@@ -825,8 +825,12 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 		case SYM_SLASH: {
 			IR::Expression left_expr = IRenvironment->codeToExpression(left);
 			IR::Expression right_expr = IRenvironment->codeToExpression(right);
-			translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::BinaryOpExpression>(
-				getIRBinaryOp(expression->operation), left_expr, right_expr));
+			std::shared_ptr<IR::BinaryOpExpression> bin_op =
+				std::make_shared<IR::BinaryOpExpression>(
+					getIRBinaryOp(expression->operation), left_expr, right_expr);
+			// In case we need to report constant division by zero
+			bin_op->position = expression->linenumber;
+			translated = std::make_shared<IR::ExpressionCode>(bin_op);
 			break;
 		}
 		case SYM_EQUAL:
@@ -1329,6 +1333,7 @@ void TranslatorPrivate::translateFunctionCall(
 		translated = ErrorPlaceholderCode();
 		return;
 	}
+	currentFrame->addFunctionCall();
 	if (var_or_function->kind != DECL_FUNCTION) {
 		Error::error("Variable used as a function",
 			expression->function->linenumber);

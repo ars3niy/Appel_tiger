@@ -4,7 +4,9 @@
 
 namespace Error {
 
-static int linenumber = 1;
+InputPos DEFAULT_POS = {.linenumber = -1};
+
+static InputPos position = {.linenumber = 1};
 static int errorCount = 0;
 
 std::string filename;
@@ -14,9 +16,9 @@ void setFileName(const std::string& _filename)
 	filename = _filename;
 }
 
-int getLineNumber()
+const InputPos &getPosition()
 {
-	return linenumber;
+	return position;
 }
 
 int getErrorCount()
@@ -26,7 +28,7 @@ int getErrorCount()
 
 void newline()
 {
-    linenumber++;
+    position.linenumber++;
 }
 
 void global_error(const std::string &message)
@@ -35,28 +37,28 @@ void global_error(const std::string &message)
 	errorCount++;
 }
 
-void error(const std::string &message, int _linenumber)
+void error(const std::string &message, const InputPos &position)
 {
     printf("%s Error, line %d: %s\n",
 		   filename.c_str(),
-		   _linenumber > 0 ? _linenumber : Error::linenumber,
+		   position.linenumber > 0 ? position.linenumber : Error::position.linenumber,
 		   message.c_str());
 	errorCount++;
 }
 
-void warning(const std::string &message, int _linenumber)
+void warning(const std::string &message, const InputPos &position)
 {
     printf("%s Warning, line %d: %s\n",
 		   filename.c_str(),
-		   _linenumber > 0 ? _linenumber : Error::linenumber,
+		   position.linenumber > 0 ? position.linenumber : Error::position.linenumber,
 		   message.c_str());
 }
 
-void fatalError(const std::string &message, int _linenumber)
+void fatalError(const std::string &message, const InputPos &position)
 {
     printf("%s Internal error, line %d: %s\n",
 		   filename.c_str(),
-		   _linenumber > 0 ? _linenumber : Error::linenumber,
+		   position.linenumber > 0 ? position.linenumber : Error::position.linenumber,
 		   message.c_str());
 	exit(127);
 }

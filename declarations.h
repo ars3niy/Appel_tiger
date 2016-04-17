@@ -6,6 +6,7 @@
 #include "syntaxtree.h"
 #include "idmap.h"
 #include "translate_utils.h"
+#include "frame.h"
 #include <map>
 #include <list>
 

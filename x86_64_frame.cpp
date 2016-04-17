@@ -33,7 +33,10 @@ AbstractVarLocation* X86_64Frame::createParameter(const std::string& name, int s
 
 int X86_64Frame::getFrameSize()
 {
-	return frame_size + (24 - frame_size % 16) % 16;
+	if (calls_others)
+		return frame_size + (24 - frame_size % 16) % 16;
+	else
+		return frame_size;
 }
 
 Expression X86_64VarLocation::createCode(AbstractFrame *calling_frame)

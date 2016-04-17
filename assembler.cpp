@@ -120,9 +120,10 @@ void Assembler::addTemplate(const std::vector<std::string> &commands, IR::Statem
 void Assembler::addTemplate(const std::vector<std::string> &_commands,
 	const std::vector<std::vector<IR::VirtualRegister *> > &extra_inputs,
 	const std::vector<std::vector<IR::VirtualRegister *> > &extra_outputs,
-	const std::vector<bool> is_reg_to_reg_assign, IR::Expression expr)
+	const std::vector<bool> is_reg_to_reg_assign, IR::Expression expr,
+	TemplateAdjuster adjuster_fcn, ExpressionMatchChecker match_fcn)
 {
-	auto templ = std::make_shared<Template>(expr);
+	auto templ = std::make_shared<Template>(expr, adjuster_fcn, match_fcn);
 	for (unsigned i = 0; i < _commands.size(); i++)
 		templ->instructions.push_back(Instruction(_commands.at(i),
 			extra_inputs.at(i), extra_outputs.at(i), is_reg_to_reg_assign.at(i)));
@@ -168,6 +169,8 @@ void Assembler::addTemplate(const std::string &command,
 void Assembler::addTemplate(std::shared_ptr<Template> templ)
 {
 #ifdef DEBUG
+	if (templ->match_fcn != NULL)
+		debug("Template with match function 0x%x", templ->match_fcn);
 	debug("Assembler Template:");
 	PrintCode(debug_output, templ->code);
 	for (Instruction &inst: templ->instructions) {
@@ -406,7 +409,8 @@ std::shared_ptr<Template> Assembler::FindExpressionTemplate(IR::Expression expre
 		assert(cur_templ->code->kind == IR::CODE_EXPRESSION);
 		IR::Expression templ_exp = std::static_pointer_cast<IR::ExpressionCode>(cur_templ->code)->exp;
 		int nodecount = 0;
-		if (MatchExpression(expression, templ_exp, nodecount)) {
+		if (MatchExpression(expression, templ_exp, nodecount) &&
+			((cur_templ->match_fcn == NULL) || (debug("Match fcn: 0x%x", cur_templ->match_fcn), cur_templ->match_fcn(expression)))) {
 			if (nodecount > best_nodecount) {
 				best_nodecount = nodecount;
 				templ = cur_templ;
@@ -455,17 +459,28 @@ struct TemplateInput {
 };
 
 void appendRegisters(std::vector<IR::VirtualRegister *> &to,
-	const std::vector<IR::VirtualRegister *> &from)
+	const std::vector<IR::VirtualRegister *> &from,
+	const std::vector<int> &existing_indices)
 {
-	unsigned start = to.size();
-	to.resize(start + from.size());
+	assert(existing_indices.size() == from.size());
+	unsigned newsize = to.size();
+	to.resize(newsize + from.size());
 	for (unsigned i = 0; i < from.size(); i++)
-		to[start+i] = from[i];
+		if (existing_indices[i] < 0)
+			to[newsize++] = from[i];
+	to.resize(newsize);
 }
 
-void Template::	implement(Instructions &result, const std::list<TemplateChildInfo> &elements,
+void Template::implement(IR::IREnvironment *ir_env, Instructions &result,
+		const std::list<TemplateChildInfo> &elements,
 		IR::VirtualRegister *value_storage, const std::vector<IR::Label *> &extra_dest)
 {
+	Instructions adjusted_instructions;
+	Instructions *template_instructions = &this->instructions;
+ 	if (adjuster_fcn != NULL) {
+ 		if (adjuster_fcn(instructions, ir_env, adjusted_instructions, elements))
+			template_instructions = &adjusted_instructions;
+ 	}
 	std::vector<TemplateInput> input_pool(elements.size());
 	int ind = 0;
 	for (const TemplateChildInfo &element: elements) {
@@ -493,7 +508,7 @@ void Template::	implement(Instructions &result, const std::list<TemplateChildInf
 		}
 		ind++;
 	}
-	for (Instruction &inst: instructions) {
+	for (Instruction &inst: *template_instructions) {
 		for (TemplateInput &i: input_pool) {
 			i.input_index = -1;
 			i.output_index = -1;
@@ -504,42 +519,75 @@ void Template::	implement(Instructions &result, const std::list<TemplateChildInf
 		unsigned i = 0;
 		unsigned len = inst.notation.size();
 		std::vector<IR::VirtualRegister *> inputs, outputs;
-		bool used_value_storage = false;
+		int value_storage_output_index = -1;
+		std::vector<int> xinput_indices, xoutput_indices;
+		xinput_indices.resize(inst.inputs.size(), -1);
+		xoutput_indices.resize(inst.outputs.size(), -1);
 		
 		while (i < len) {
 			unsigned argstart = i;
 			while ((argstart < len) && (s[argstart] != '&'))
 				argstart++;
 			if (argstart+1 < len) {
+				unsigned skip_to = argstart+1;
+				std::string value = "";
 				if (s[argstart+1] == 'o') {
 					// Register where we storer the result goes here.
 					// If there is none, we'll ignore the instruction (we cannot
 					// form it anyway). Don't ditch the entire template though
 					// because it could have other side effects than producing 
 					// a result.
-					if (! used_value_storage) {
-						used_value_storage = true;
+					if (value_storage_output_index < 0) {
+						value_storage_output_index = outputs.size();
 						outputs.push_back(value_storage);
 					}
-					final_notation += inst.notation.substr(i, argstart-i);
-					final_notation += Instruction::Output(0);
-					i = argstart+2;
-				} else if ((s[argstart+1] == 'w') || isdigit(s[argstart+1])) {
+					//final_notation += inst.notation.substr(i, argstart-i);
+					value = Instruction::Output(value_storage_output_index);
+					skip_to = argstart+2;
+				} else if ((s[argstart+1] == 'I') && (argstart+2 < len) &&
+				            isdigit(s[argstart+2])) {
+					int numstart = argstart+2;
+					skip_to = numstart;
+					while ((skip_to < len) && isdigit(s[skip_to]))
+						skip_to++;
+					unsigned xinput_index = atoi(inst.notation.substr(numstart,
+						skip_to-numstart).c_str());
+					assert(xinput_index < inst.inputs.size());
+					if (xinput_indices[xinput_index] < 0) {
+						xinput_indices[xinput_index] = inputs.size();
+						inputs.push_back(inst.inputs[xinput_index]);
+					}
+					value = Instruction::Input(xinput_indices[xinput_index]);
+				} else if ((s[argstart+1] == 'O') && (argstart+2 < len) &&
+				            isdigit(s[argstart+2])) {
+					int numstart = argstart+2;
+					skip_to = numstart;
+					while ((skip_to < len) && isdigit(s[skip_to]))
+						skip_to++;
+					unsigned xoutput_index = atoi(inst.notation.substr(numstart,
+						skip_to-numstart).c_str());
+					assert(xoutput_index < inst.outputs.size());
+					if (xoutput_indices[xoutput_index] < 0) {
+						xoutput_indices[xoutput_index] = outputs.size();
+						outputs.push_back(inst.outputs[xoutput_index]);
+					}
+					value = Instruction::Output(xoutput_indices[xoutput_index]);
+				} else if (((s[argstart+1] == 'w') && (argstart+2 < len) &&
+				            isdigit(s[argstart+2])) || isdigit(s[argstart+1])) {
 					bool is_assigned = false;
 					int numstart = argstart+1;
 					if (s[numstart] == 'w') {
 						is_assigned = true;
 						numstart++;
 					}
-					unsigned argend = numstart;
-					while ((argend < len) && isdigit(s[argend]))
-						argend++;
+					skip_to = numstart;
+					while ((skip_to < len) && isdigit(s[skip_to]))
+						skip_to++;
 					unsigned elem_index = atoi(inst.notation.substr(numstart,
-						argend-numstart).c_str());
+						skip_to-numstart).c_str());
 					if (elem_index >= input_pool.size())
 						Error::fatalError("Template refers to more inputs than it got");
 
-					std::string value;
 					switch (input_pool[elem_index].kind) {
 					case IR::IR_INTEGER: {
 						int v = input_pool[elem_index].ivalue;
@@ -572,22 +620,23 @@ void Template::	implement(Instructions &result, const std::list<TemplateChildInf
 						value = "?wtf";
 					}
 					
-					final_notation += inst.notation.substr(i, argstart-i);
-					final_notation += value;
-					i = argend;
-				}
+				} else
+					Error::fatalError("Malformed template: " + inst.notation);
+				final_notation += inst.notation.substr(i, argstart-i);
+				final_notation += value;
+				i = skip_to;
 			} else {
 				final_notation += inst.notation.substr(i, len-i);
 				i = len;
 			}
 		}
 		
-		if (used_value_storage && (value_storage == NULL))
+		if ((value_storage_output_index >= 0) && (value_storage == NULL))
 			// Skip the instruction because it generates value that we
 			// have nowhere to place
 			continue;
-		appendRegisters(outputs, inst.outputs);
-		appendRegisters(inputs, inst.inputs);
+		appendRegisters(outputs, inst.outputs, xoutput_indices);
+		appendRegisters(inputs, inst.inputs, xinput_indices);
 #ifdef DEBUG
 		std::string suffix;
 		if (inputs.size() > 0) {
@@ -647,7 +696,7 @@ void Assembler::translateExpression(IR::Expression expression,
 			placeCallArguments(immediate_arguments, frame,
 				IR::ToCallExpression(expression)->callee_parentfp, result);
 		}
-		templ->implement(result, children, value_storage);
+		templ->implement(this->IRenvironment, result, children, value_storage);
 		if (expression->kind == IR::IR_FUN_CALL)
 			removeCallArguments(immediate_arguments, result);
 		//translateExpressionTemplate(template_instantiation, frame, value_storage,
@@ -693,7 +742,7 @@ void Assembler::translateStatement(IR::Statement statement,
 			extra_dest.push_back(IR::ToCondJumpStatement(statement)->true_dest);
 		}
 			
-		templ->implement(result, children, NULL, extra_dest);
+		templ->implement(this->IRenvironment, result, children, NULL, extra_dest);
 		//translateStatementTemplate(template_instantiation, children, result);
 		if (statement->kind == IR::IR_LABEL)
 			result.back().label = IR::ToLabelPlacementStatement(statement)->label;
@@ -757,7 +806,7 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 						else
 							Error::fatalError("Misformed instruction");
 						
-						if ((unsigned)arg_index > (*registers).size())
+						if ((unsigned)arg_index >= (*registers).size())
 							Error::fatalError("Misformed instruction");
 						else {
 							IR::VirtualRegister *reg =

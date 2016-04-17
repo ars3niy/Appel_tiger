@@ -252,7 +252,7 @@ void preprint(FILE *out, int indent, const char *prefix = "", int linenumber = -
 void print(FILE *out, Syntax::Tree tree, int indent = 0, const char *prefix = "")
 {
 	if (tree->type != Syntax::EXPRESSIONLIST)
-		preprint(out, indent, prefix, tree->linenumber);
+		preprint(out, indent, prefix, tree->linenumber.linenumber);
 	switch (tree->type) {
 		case Syntax::NIL:
 			fprintf(out, "nil\n");

@@ -78,18 +78,18 @@ void calcright(long long th) {
 }
 
 long long getans(long long mid) {
-	printf("%d\n", mid);
+	//printf("%d\n", mid);
 	calcleft(mid);
 	calcright(mid);
 
 	long long ans = inf;
 
 	for (int i = 0; i < n; i++) {
-		printf("loop\n");
-		printf("left[i] = %d\n", left[i]);
-		printf("right[i] = %d\n", right[i]);
+		//printf("loop\n");
+		//printf("left[i] = %d\n", left[i]);
+		//printf("right[i] = %d\n", right[i]);
 		if (left[i] < -1 || right[i] > n) {
-			printf("continue\n");
+			//printf("continue\n");
 			continue;
 		}
 		long long cur = 0;
@@ -104,10 +104,10 @@ long long getans(long long mid) {
 
 		//cerr << mid << ' ' << i << ' ' << left[i] << ' ' << right[i] << ' ' << cur << endl;
 
-		printf("ans = %ld, cur = %ld\n", ans, cur);
+		//printf("ans = %ld, cur = %ld\n", ans, cur);
 		ans = min(ans, cur);
 	}
-	printf("getans = %ld\n", ans);
+	//printf("getans = %ld\n", ans);
 
 	return ans;
 }
@@ -122,8 +122,8 @@ int main() {
     	cout << hv << endl;
     return 0;
  */   
-    freopen("landscape.in", "r", stdin);
-    freopen("landscape.out", "w", stdout);
+    //freopen("landscape.in", "r", stdin);
+    //freopen("landscape.out", "w", stdout);
 
     cin >> n >> have;
 //    scanf("%d%lld", &n, &have);

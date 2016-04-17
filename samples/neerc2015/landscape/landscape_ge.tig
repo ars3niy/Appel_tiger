@@ -1,5 +1,7 @@
 let
-	var inf := 1400000000*1400000000
+	function big(): int = 1400000000
+	
+	var inf := big()*big()
 	var sinf := 1000 * 1000 * 1000
 	var size := 200 * 1000 + 100
 
@@ -95,14 +97,15 @@ let
 			events[i] := i + th;
 		cur := n + th;
 		/*for (int i = n - 1; i >= 0; i--) {*/
-		for ii := 0 to n-1 do (
-			i := n-1 - ii;
+		i := n-1;
+		while i >= 0 do (
 			sfrom := min(i, i - (th - h[i]));
 			if (sfrom >= 0) then
 				events[sfrom] := min(events[sfrom], i);
 
 			cur := min(cur, events[i]);
-			right[i] := cur
+			right[i] := cur;
+			i := i-1
 		)
 	end
 
@@ -135,7 +138,6 @@ let
 				ans := min(ans, cur)
 			)
 		);
-
 		ans
 	end
 
