@@ -18,12 +18,11 @@ std::map<std::string, FILE*> open_files;
 DebugPrinter::DebugPrinter(const char* filename)
 {
 #ifdef DEBUG
-	name = filename;
 	if (open_files.find(std::string(filename)) == open_files.end()) {
-		f = fopen(filename, "w");
-		open_files[std::string(filename)] = f;
+		debug_output = fopen(filename, "w");
+		open_files[std::string(filename)] = debug_output;
 	} else
-		f = open_files[std::string(filename)];
+		debug_output = open_files[std::string(filename)];
 #endif
 }
 
@@ -36,9 +35,9 @@ void DebugPrinter::debug(const char *msg, ...)
 #ifdef DEBUG
 	va_list ap;
 	va_start(ap, msg);
-	vfprintf(f, msg, ap);
-	fputc('\n', f);
-	fflush(f);
+	vfprintf(debug_output, msg, ap);
+	fputc('\n', debug_output);
+	fflush(debug_output);
 	va_end(ap);
 #endif
 }
@@ -81,19 +80,29 @@ const char *COMPARNAMES[] = {
 void PrintExpression(FILE *out, Expression exp, int indent, const char *prefix = "")
 {
 	preprint(out, indent, prefix);
+	if (! exp) {
+		printf("NULL\n");
+		return;
+	}
 	switch (exp->kind) {
 	case IR_INTEGER:
 		fprintf(out, "%d\n", ToIntegerExpression(exp)->value);
 		break;
 	case IR_LABELADDR:
-		fprintf(out, "Label address %s\n",
-			ToLabelAddressExpression(exp)->label->getName().c_str());
+		if (ToLabelAddressExpression(exp)->label == NULL)
+			fprintf(out, "Label address (NULL)\n");
+		else
+			fprintf(out, "Label address %s\n",
+				ToLabelAddressExpression(exp)->label->getName().c_str());
 		break;
 	case IR_REGISTER:
-		if (ToRegisterExpression(exp)->reg->getName() == "")
-			fprintf(out, "Register %d\n", ToRegisterExpression(exp)->reg->getIndex());
+		if (ToRegisterExpression(exp)->reg == NULL)
+			fprintf(out, "Register (NULL)\n");
 		else
-			fprintf(out, "Register %s\n", ToRegisterExpression(exp)->reg->getName().c_str());
+			if (ToRegisterExpression(exp)->reg->getName() == "")
+				fprintf(out, "Register %d\n", ToRegisterExpression(exp)->reg->getIndex());
+			else
+				fprintf(out, "Register %s\n", ToRegisterExpression(exp)->reg->getName().c_str());
 		break;
 	case IR_BINARYOP: 
 		fprintf(out, "%s\n", BINARYOPNAMES[ToBinaryOpExpression(exp)->operation]);
@@ -125,6 +134,10 @@ void PrintExpression(FILE *out, Expression exp, int indent, const char *prefix =
 void PrintStatement(FILE *out, Statement statm, int indent, const char *prefix)
 {
 	preprint(out, indent, prefix);
+	if (! statm) {
+		printf("NULL\n");
+		return;
+	}
 	switch (statm->kind) {
 	case IR_MOVE:
 		fprintf(out, "Move (assign)\n");
@@ -162,7 +175,10 @@ void PrintStatement(FILE *out, Statement statm, int indent, const char *prefix)
 			 PrintStatement(out, p, indent+4);
 		break;
 	case IR_LABEL:
-		fprintf(out, "Label here: %s\n", ToLabelPlacementStatement(statm)->label->getName().c_str());
+		if (ToLabelPlacementStatement(statm)->label == NULL)
+			fprintf(out, "Label placement\n");
+		else
+			fprintf(out, "Label here: %s\n", ToLabelPlacementStatement(statm)->label->getName().c_str());
 		break;
 	default:
 		fprintf(out, "WTF\n");

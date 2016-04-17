@@ -37,6 +37,26 @@ static int callersave_count = 9;
 static int calleesave_list[] = {RBX, RBP, R12, R13, R14, R15};
 static int calleesave_count = 6;
 
+static const std::string register_names[] = {
+	"%rax",
+	"%rdx",
+	"%rcx",
+	"%rbx",
+	"%rsi",
+	"%rdi",
+	"%r8",
+	"%r9",
+	"%r10",
+	"%r11",
+	"%r12",
+	"%r13",
+	"%r14",
+	"%r15",
+	"%rbp",
+	"%rsp",
+	"fp",
+};
+
 enum {
 	I_YIELD = 1,
 	I_ADD,
@@ -62,127 +82,6 @@ enum {
 X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	: Assembler(ir_env)
 {
-	exp_int = std::make_shared<IR::IntegerExpression>(0);
-	exp_label = std::make_shared<IR::LabelAddressExpression>(nullptr);
-	exp_register = std::make_shared<IR::RegisterExpression>(nullptr);
-	
-	memory_exp.push_back(exp_int);
-	memory_exp.push_back(exp_label);
-	memory_exp.push_back(exp_register);
-	// reg + const, const + reg
-	memory_exp.push_back(std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_register, exp_int));
-	memory_exp.push_back(std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_int, exp_register));
-	// reg - const
-	memory_exp.push_back(std::make_shared<IR::BinaryOpExpression>(IR::OP_MINUS, exp_register, exp_int));
-#if 0
-	// reg + reg
-	memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, exp_register, exp_register));
-	
-	int mul_index[] = {1,2,4,8};
-	for (int i = 0; i < 3; i++) {
-		// reg*X, X*reg
-		exp_mul_index[i] = new IR::BinaryOpExpression(IR::OP_MUL, exp_register, new IR::IntegerExpression(mul_index[i]));
-		exp_mul_index[i+4] = new IR::BinaryOpExpression(IR::OP_MUL, new IR::IntegerExpression(mul_index[i]), exp_register);
-		// reg*X + itself = reg*(X+1), (X+1)*reg
-		exp_mul_index_plus[i] = new IR::BinaryOpExpression(IR::OP_MUL, exp_register, new IR::IntegerExpression(mul_index[i]+1));
-		exp_mul_index_plus[i+4] = new IR::BinaryOpExpression(IR::OP_MUL, new IR::IntegerExpression(mul_index[i]+1), exp_register);
-	}
-	for (int i = 1; i < 8; i++) if (i != 4) {
-		IR::Expression *mul = exp_mul_index[i];
-		IR::Expression *reg = exp_register;
-		IR::Expression *c = exp_int;
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, mul, reg));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, reg, mul));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, mul, c));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, mul, c));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, c, mul));
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_PLUS, mul, reg), c));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, new IR::BinaryOpExpression(IR::OP_PLUS, mul, reg), c));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, mul, new IR::BinaryOpExpression(IR::OP_PLUS, reg, c)));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, mul, new IR::BinaryOpExpression(IR::OP_MINUS, reg, c)));
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_PLUS, mul, c), reg));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_MINUS, mul, c), reg));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, mul, new IR::BinaryOpExpression(IR::OP_PLUS, c, reg)));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, mul, new IR::BinaryOpExpression(IR::OP_MINUS, c, reg)));
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_PLUS, reg, mul), c));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, new IR::BinaryOpExpression(IR::OP_PLUS, reg, mul), c));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, reg, new IR::BinaryOpExpression(IR::OP_PLUS, mul, c)));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, new IR::BinaryOpExpression(IR::OP_PLUS, reg, mul), c));
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_PLUS, reg, c), mul));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_MINUS, reg, c), mul));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, reg, new IR::BinaryOpExpression(IR::OP_PLUS, c, mul)));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, reg, new IR::BinaryOpExpression(IR::OP_MINUS, c, mul)));
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_PLUS, c, mul), reg));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, c, new IR::BinaryOpExpression(IR::OP_PLUS, mul, reg)));
-		
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, new IR::BinaryOpExpression(IR::OP_PLUS, c, reg), mul));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, c, new IR::BinaryOpExpression(IR::OP_PLUS, reg, mul)));
-	}
-	for (int i = 0; i < 8; i++) {
-		memory_exp.push_back(exp_mul_index_plus[i]);
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, exp_mul_index_plus[i], exp_int));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_MINUS, exp_mul_index_plus[i], exp_int));
-		memory_exp.push_back(new IR::BinaryOpExpression(IR::OP_PLUS, exp_int, exp_mul_index_plus[i]));
-	}
-#endif
-	
-	addTemplate(I_YIELD, exp_int);
-	addTemplate(I_YIELD, exp_label);
-	addTemplate(I_LABEL, std::make_shared<IR::LabelPlacementStatement>(nullptr));
-	addTemplate(I_YIELD, exp_register);
-	for (IR::Expression exp: memory_exp)
-		addTemplate(I_YIELD, std::make_shared<IR::MemoryExpression>(exp));
-	
-	make_arithmetic(I_ADD, IR::OP_PLUS);
-	make_arithmetic(I_SUB, IR::OP_MINUS);
-	// imul
-	make_arithmetic(I_MUL, IR::OP_MUL);
-	// don't forget cqo!! and idivq
-	make_arithmetic(I_DIV, IR::OP_DIV);
-	
-	make_comparison(I_CMPJE, IR::OP_EQUAL);
-	make_comparison(I_CMPJNE, IR::OP_NONEQUAL);
-	make_comparison(I_CMPJL, IR::OP_LESS);
-	make_comparison(I_CMPJLE, IR::OP_LESSEQUAL);
-	make_comparison(I_CMPJG, IR::OP_GREATER);
-	make_comparison(I_CMPJGE, IR::OP_GREATEQUAL);
-	make_comparison(I_CMPJUL, IR::OP_ULESS);
-	make_comparison(I_CMPJULE, IR::OP_ULESSEQUAL);
-	make_comparison(I_CMPJUG, IR::OP_UGREATER);
-	make_comparison(I_CMPJUGE, IR::OP_UGREATEQUAL);
-	make_assignment();
-	
-	addTemplate(I_CALL, std::make_shared<IR::CallExpression>(std::make_shared<IR::LabelAddressExpression>(nullptr), nullptr));
-	addTemplate(I_CALL, std::make_shared<IR::CallExpression>(std::make_shared<IR::RegisterExpression>(nullptr), nullptr));
-	addTemplate(I_JMP, std::make_shared<IR::JumpStatement>(std::make_shared<IR::LabelAddressExpression>(nullptr)));
-	addTemplate(I_JMP, std::make_shared<IR::JumpStatement>(std::make_shared<IR::RegisterExpression>(nullptr)));
-	
-	static const char *register_names[] = {
-		"%rax",
-		"%rdx",
-		"%rcx",
-		"%rbx",
-		"%rsi",
-		"%rdi",
-		"%r8",
-		"%r9",
-		"%r10",
-		"%r11",
-		"%r12",
-		"%r13",
-		"%r14",
-		"%r15",
-		"%rbp",
-		"%rsp",
-		"fp",
-	};
-	
 	machine_registers.resize(LAST_REGISTER);
 	
 	for (int r = 0; r < LAST_REGISTER; r++) {
@@ -198,6 +97,267 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 	calleesave_registers.resize(calleesave_count);
 	for (int i = 0; i < calleesave_count; i++)
 		calleesave_registers[i] = machine_registers[calleesave_list[i]];
+
+	exp_int = std::make_shared<IR::IntegerExpression>(0);
+	exp_label = std::make_shared<IR::LabelAddressExpression>(nullptr);
+	exp_register = std::make_shared<IR::RegisterExpression>(nullptr);
+	
+	memory_exp.push_back(Operand("($%)", {0}, std::make_shared<IR::MemoryExpression>(exp_int)));
+	memory_exp.push_back(Operand("($%)", {0}, std::make_shared<IR::MemoryExpression>(exp_label)));
+	memory_exp.push_back(Operand("(%)", {0}, std::make_shared<IR::MemoryExpression>(exp_register)));
+	first_assign_by_lea = memory_exp.size();
+	// reg + const, const + reg
+	memory_exp.push_back(Operand("%(%)", {1,0}, std::make_shared<IR::MemoryExpression>(
+		std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_register, exp_int)))
+	);
+	memory_exp.push_back(Operand("%(%)", {0,1}, std::make_shared<IR::MemoryExpression>(
+		std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_int, exp_register)))
+	);
+	// reg - const
+	memory_exp.push_back(Operand("-%(%)", {1,0}, std::make_shared<IR::MemoryExpression>(
+		std::make_shared<IR::BinaryOpExpression>(IR::OP_MINUS, exp_register, exp_int)))
+	);
+	last_assign_by_lea = memory_exp.size()-1;
+	
+	/*
+	// reg + reg
+	memory_exp.push_back(Operand("(%+%)", {0,1},
+		std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS, exp_register, exp_register)));
+	
+	// reg+reg+const
+	IR::Expression terms[3];
+	for (int p_c = 0; p_c < 3; p_c++) {
+		int p_r1 = (p_c == 0) ? 1 : 0;
+		int p_r2 = 3 - p_c - p_r1;
+		terms[p_r1] = exp_register;
+		terms[p_r2] = exp_register;
+		terms[p_c] = exp_int;
+		const char *names[3];
+		names[p_r1] = "reg";
+		names[p_r2] = "reg";
+		names[p_c] = "C";
+
+		memory_exp.push_back(Operand(
+			"%(%,%)", {p_c, p_r1, p_r2},
+			std::make_shared<IR::MemoryExpression>(
+				std::make_shared<IR::BinaryOpExpression>
+				(IR::OP_PLUS, std::make_shared<IR::BinaryOpExpression>
+					(IR::OP_PLUS, terms[0], terms[1]),
+				terms[2]))
+			));
+		debug("(%s + %s) + %s\n = %d(%d,%d)\n",
+				names[0], names[1], names[2], p_c, p_r1, p_r2);
+		if (p_c == 2) {
+			memory_exp.push_back(Operand(
+				"-%(%,%)", {p_c, p_r1, p_r2},
+				std::make_shared<IR::MemoryExpression>(
+					std::make_shared<IR::BinaryOpExpression>
+					(IR::OP_MINUS, std::make_shared<IR::BinaryOpExpression>
+						(IR::OP_PLUS, terms[0], terms[1]),
+					terms[2]))
+				));
+			debug("(%s + %s) - %s\n = -%d(%d,%d)\n",
+					names[0], names[1], names[2], p_c, p_r1, p_r2);
+		}
+		if (p_c == 1) {
+			memory_exp.push_back(Operand(
+				"-%(%,%)", {p_c, p_r1, p_r2},
+				std::make_shared<IR::MemoryExpression>(
+					std::make_shared<IR::BinaryOpExpression>
+					(IR::OP_PLUS, std::make_shared<IR::BinaryOpExpression>
+						(IR::OP_MINUS, terms[0], terms[1]),
+					terms[2]))
+				));
+			debug("(%s - %s) + %s\n = -%d(%d,%d)\n",
+					names[0], names[1], names[2], p_c, p_r1, p_r2);
+		}
+
+		memory_exp.push_back(Operand(
+			"%(%,%)", {p_c, p_r1, p_r2},
+			std::make_shared<IR::MemoryExpression>(
+				std::make_shared<IR::BinaryOpExpression>
+				(IR::OP_PLUS, terms[0], std::make_shared<IR::BinaryOpExpression>
+					(IR::OP_PLUS, terms[1], terms[2])))
+				));
+		debug("%s + (%s + %s)\n = %d(%d,%d)\n",
+				names[0], names[1], names[2], p_c, p_r1, p_r2);
+		if (p_c == 2) {
+			memory_exp.push_back(Operand(
+				"-%(%,%)", {p_c, p_r1, p_r2},
+				std::make_shared<IR::MemoryExpression>(
+					std::make_shared<IR::BinaryOpExpression>
+					(IR::OP_PLUS, terms[0], std::make_shared<IR::BinaryOpExpression>
+						(IR::OP_MINUS, terms[1], terms[2])))
+				));
+			debug("%s + (%s - %s)\n = -%d(%d,%d)\n",
+				names[0], names[1], names[2], p_c, p_r1, p_r2);
+		}
+		if (p_c == 1) {
+			memory_exp.push_back(Operand(
+				"-%(%,%)", {p_c, p_r1, p_r2},
+				std::make_shared<IR::MemoryExpression>(
+					std::make_shared<IR::BinaryOpExpression>
+					(IR::OP_MINUS, terms[0], std::make_shared<IR::BinaryOpExpression>
+						(IR::OP_MINUS, terms[1], terms[2])))
+				));
+			debug("%s - (%s - %s)\n = -%d(%d,%d)\n",
+				names[0], names[1], names[2], p_c, p_r1, p_r2);
+		}
+	}
+
+	int mul_index[] = {2,4,8};
+	enum {NMUL = 3};
+	IR::Expression exp_mul_index[2*NMUL], exp_mul_index_plus[2*NMUL];
+	for (int i = 0; i < NMUL; i++) {
+		// reg*X, X*reg
+		exp_mul_index[i] = std::make_shared<IR::BinaryOpExpression>
+			(IR::OP_MUL, exp_register, std::make_shared<IR::IntegerExpression>(mul_index[i]));
+		exp_mul_index[i+NMUL] = std::make_shared<IR::BinaryOpExpression>
+			(IR::OP_MUL, std::make_shared<IR::IntegerExpression>(mul_index[i]), exp_register);
+	}
+	
+// 		// reg*X + itself = reg*(X+1), (X+1)*reg
+// 		exp_mul_index_plus[i] = std::make_shared<IR::BinaryOpExpression>
+// 			(IR::OP_MUL, exp_register, std::make_shared<IR::IntegerExpression>(mul_index[i]+1));
+// 		exp_mul_index_plus[i+NMUL] = std::make_shared<IR::BinaryOpExpression>
+// 			(IR::OP_MUL, std::make_shared<IR::IntegerExpression>(mul_index[i]+1), exp_register);
+// 	}
+	
+ 	for (int factor = 0; factor < 2*NMUL; factor++) {
+ 		for (int p_mul = 0; p_mul < 3; p_mul++)
+ 			for (int p_reg = 0; p_reg < 3; p_reg++) if (p_reg != p_mul) {
+ 				int p_c = 3-p_mul-p_reg;
+				terms[p_mul] = exp_mul_index[factor];
+				terms[p_reg] = exp_register;
+				terms[p_c] = exp_int;
+				const char *names[3];
+				char buf[10];
+				if (factor < NMUL)
+					sprintf(buf, "reg*%d", mul_index[factor]);
+				else
+					sprintf(buf, "%d*reg", mul_index[factor-NMUL]);
+				names[p_mul] = buf;
+				names[p_reg] = "reg";
+				names[p_c] = "C";
+				int global_c = p_c + ((p_mul < p_c) ? 1 : 0);
+				int global_reg = p_reg + ((p_mul < p_reg) ? 1 : 0);
+				int global_regm = p_mul + ((factor < NMUL) ? 0 : 1);
+				int global_factor = p_mul + ((factor < NMUL) ? 1 : 0);
+				memory_exp.push_back(Operand(
+					"%(%,%,%)", {global_c, global_reg, global_regm, global_factor},
+					std::make_shared<IR::MemoryExpression>(
+						std::make_shared<IR::BinaryOpExpression>
+						(IR::OP_PLUS, std::make_shared<IR::BinaryOpExpression>
+							(IR::OP_PLUS, terms[0], terms[1]),
+						terms[2]))
+					));
+				debug("(%s + %s) + %s\n = %d(%d,%d,%d)\n",
+					   names[0], names[1], names[2], global_c, global_reg, global_regm, global_factor);
+				if (p_c == 2) {
+					memory_exp.push_back(Operand(
+						"-%(%,%,%)", {global_c, global_reg, global_regm, global_factor},
+						std::make_shared<IR::MemoryExpression>(
+							std::make_shared<IR::BinaryOpExpression>
+							(IR::OP_MINUS, std::make_shared<IR::BinaryOpExpression>
+								(IR::OP_PLUS, terms[0], terms[1]),
+							terms[2]))
+						));
+					debug("(%s + %s) - %s\n = -%d(%d,%d,%d)\n",
+						names[0], names[1], names[2], global_c, global_reg, global_regm, global_factor);
+				}
+				if (p_c == 1) {
+					memory_exp.push_back(Operand(
+						"-%(%,%,%)", {global_c, global_reg, global_regm, global_factor},
+						std::make_shared<IR::MemoryExpression>(
+							std::make_shared<IR::BinaryOpExpression>
+							(IR::OP_PLUS, std::make_shared<IR::BinaryOpExpression>
+								(IR::OP_MINUS, terms[0], terms[1]),
+							terms[2]))
+						));
+					debug("(%s - %s) + %s\n = -%d(%d,%d,%d)\n",
+						names[0], names[1], names[2], global_c, global_reg, global_regm, global_factor);
+				}
+				
+				memory_exp.push_back(Operand(
+					"%(%,%,%)", {global_c, global_reg, global_regm, global_factor},
+					std::make_shared<IR::MemoryExpression>(
+						std::make_shared<IR::BinaryOpExpression>
+						(IR::OP_PLUS, terms[0], std::make_shared<IR::BinaryOpExpression>
+							(IR::OP_PLUS, terms[1], terms[2])))
+					  ));
+				debug("%s + (%s + %s)\n = %d(%d,%d,%d)\n",
+					   names[0], names[1], names[2], global_c, global_reg, global_regm, global_factor);
+				if (p_c == 2) {
+					memory_exp.push_back(Operand(
+						"-%(%,%,%)", {global_c, global_reg, global_regm, global_factor},
+						std::make_shared<IR::MemoryExpression>(
+							std::make_shared<IR::BinaryOpExpression>
+							(IR::OP_PLUS, terms[0], std::make_shared<IR::BinaryOpExpression>
+								(IR::OP_MINUS, terms[1], terms[2])))
+						));
+					debug("%s + (%s - %s)\n = -%d(%d,%d,%d)\n",
+						names[0], names[1], names[2], global_c, global_reg, global_regm, global_factor);
+				}
+				if (p_c == 1) {
+					memory_exp.push_back(Operand(
+						"-%(%,%,%)", {global_c, global_reg, global_regm, global_factor},
+						std::make_shared<IR::MemoryExpression>(
+							std::make_shared<IR::BinaryOpExpression>
+							(IR::OP_MINUS, terms[0], std::make_shared<IR::BinaryOpExpression>
+								(IR::OP_MINUS, terms[1], terms[2])))
+						));
+					debug("%s - (%s - %s)\n = -%d(%d,%d,%d)\n",
+						names[0], names[1], names[2], global_c, global_reg, global_regm, global_factor);
+				}
+ 			}
+ 	}*/
+	
+	addTemplate("movq $" + Template::Input(0) + ", " +
+		Template::Output(), exp_int);
+	addTemplate("movq $" + Template::Input(0) + ", " +
+		Template::Output(), exp_label);
+	addTemplate(Template::Input(0) + ":",
+		std::make_shared<IR::LabelPlacementStatement>(nullptr));
+	addTemplate("movq " + Template::Input(0) + ", " +
+		Template::Output(), exp_register);
+	for (Operand &exp: memory_exp)
+		addTemplate("movq " + exp.implement(0) + ", " +
+			Template::Output(), exp.expression());
+	
+	make_arithmetic("addq", IR::OP_PLUS);
+	make_arithmetic("subq", IR::OP_MINUS);
+	// imul
+	make_arithmetic("imulq", IR::OP_MUL);
+	// don't forget cqo!! and idivq
+	make_arithmetic("idivq", IR::OP_DIV);
+	
+	make_comparison("je", IR::OP_EQUAL);
+	make_comparison("jne", IR::OP_NONEQUAL);
+	make_comparison("jl", IR::OP_LESS);
+	make_comparison("jle", IR::OP_LESSEQUAL);
+	make_comparison("jg", IR::OP_GREATER);
+	make_comparison("jge", IR::OP_GREATEQUAL);
+	make_comparison("jb", IR::OP_ULESS);
+	make_comparison("jbe", IR::OP_ULESSEQUAL);
+	make_comparison("ja", IR::OP_UGREATER);
+	make_comparison("jae", IR::OP_UGREATEQUAL);
+	make_assignment();
+	
+	addTemplate({"call " + Template::Input(0), std::string("movq ") +
+		register_names[RESULT_REG] + ", " + Template::Output()},
+		{{}, {machine_registers[RESULT_REG]}},
+		{callersave_registers, {}}, {false, true},
+		std::make_shared<IR::CallExpression>(exp_register, nullptr));
+	addTemplate({"call " + Template::Input(0), std::string("movq ") +
+		register_names[RESULT_REG] + ", " + Template::Output()},
+		{{}, {machine_registers[RESULT_REG]}},
+		{callersave_registers, {}}, {false, true},
+		std::make_shared<IR::CallExpression>(exp_label, nullptr));
+	
+	addTemplate({"jmp " + Template::Input(0)}, {true}, {false},
+		std::make_shared<IR::JumpStatement>(exp_label));
+	addTemplate({"jmp " + Template::Input(0)}, {true}, {false},
+		std::make_shared<IR::JumpStatement>(exp_register));
 }
 
 // IR::VirtualRegister* X86_64Assembler::getFramePointerRegister()
@@ -205,68 +365,220 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 // 	return machine_registers[FP];
 // }
 // 
-void X86_64Assembler::make_arithmetic(int asm_code, IR::BinaryOp ir_code)
+void X86_64Assembler::make_arithmetic(const char *command, IR::BinaryOp ir_code)
 {
-	// don't forget cqo
-	addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_int));
-	addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_register));
-	for (IR::Expression exp: memory_exp) {
-		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register,
-			std::make_shared<IR::MemoryExpression>(exp)));
-		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int,
-			std::make_shared<IR::MemoryExpression>(exp)));
-		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code,
-			std::make_shared<IR::MemoryExpression>(exp), exp_register));
-		addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code,
-			std::make_shared<IR::MemoryExpression>(exp), exp_int));
+	std::vector<std::string> t_reg_int, t_int_reg, t_reg_reg,
+		t_reg_mem, t_int_mem, t_mem_reg, t_mem_int;
+	std::vector<std::vector<IR::VirtualRegister *> > extra_inputs, extra_outputs;
+	std::vector<bool> is_move_reg_int, is_move_int_reg, is_move_reg_reg;
+	std::vector<bool> is_move_reg_mem, is_move_int_mem, is_move_mem_reg, is_move_mem_int;
+	std::vector<bool> is_move_mem_mem;
+	if ((ir_code == IR::OP_PLUS) || (ir_code == IR::OP_MINUS)) {
+		t_reg_int = {"movq " + Template::Input(0) + ", " + Template::Output(),
+			std::string(command) + " $" + Template::Input(1) + ", " + Template::Output()};
+		t_int_reg = {"movq " + Template::Input(1) + ", " + Template::Output(),
+			std::string(command) + " $" + Template::Input(0) + ", " + Template::Output()};
+		t_reg_reg = {"movq " + Template::Input(0) + ", " + Template::Output(),
+			std::string(command) + " " + Template::Input(1) + ", " + Template::Output()};
+		extra_inputs = {{}, {}};
+		extra_outputs = {{}, {}};
+		is_move_reg_int = {true, false};
+		is_move_int_reg = {true, false};
+		is_move_reg_reg = {true, false};
+		is_move_reg_mem = {true, false};
+		is_move_int_mem = {false, false};
+		is_move_mem_reg = {true, false};
+		is_move_mem_int = {false, false};
+		is_move_mem_mem = {false, false};
+	} else if (ir_code == IR::OP_MUL) {
+		t_reg_int = {"movq $" + Template::Input(1) + ", " + register_names[RAX],
+			std::string(command) + " " + Template::Input(0),
+			"movq " + register_names[RAX] + ", " + Template::Output()};
+		t_int_reg = {"movq $" + Template::Input(0) + ", " + register_names[RAX],
+			std::string(command) + " " + Template::Input(1),
+			"movq " + register_names[RAX] + ", " + Template::Output()};
+		t_reg_reg = {"movq " + Template::Input(0) + ", " + register_names[RAX],
+			std::string(command) + " " + Template::Input(1),
+			"movq " + register_names[RAX] + ", " + Template::Output()};
+		
+		extra_inputs = {{}, {machine_registers[RAX]}, {machine_registers[RAX]}};
+		extra_outputs = {{machine_registers[RAX]},
+			{machine_registers[RAX], machine_registers[RDX]}, {}};
+		is_move_reg_int = {false, false, true};
+		is_move_int_reg = {false, false, true};
+		is_move_reg_reg = {true, false, true};
+		is_move_reg_mem = {true, false, true};
+		is_move_int_mem = {false, false, true};
+		is_move_mem_reg = {true, false, true};
+		is_move_mem_int = {false, false, true};
+		is_move_mem_mem = {false, false, true};
+	} else if (ir_code == IR::OP_DIV) {
+		t_int_reg = {"movq $" + Template::Input(0) + ", " + register_names[RAX],
+			"cqo",
+			std::string(command) + " " + Template::Input(1),
+			"movq " + register_names[RAX] + ", " + Template::Output()};
+		t_reg_reg = {"movq " + Template::Input(0) + ", " + register_names[RAX],
+			"cqo",
+			std::string(command) + " " + Template::Input(1),
+			"movq " + register_names[RAX] + ", " + Template::Output()};
+		extra_inputs = {{}, {machine_registers[RAX]},
+			{{machine_registers[RAX], machine_registers[RDX]}}, {machine_registers[RAX]}};
+		extra_outputs = {{machine_registers[RAX]},
+			{machine_registers[RAX], machine_registers[RDX]},
+			{machine_registers[RAX], machine_registers[RDX]}, {}};
+		is_move_int_reg = {false, false, false, true};
+		is_move_reg_reg = {true, false, false, true};
+		is_move_reg_mem = {true, false, false, true};
+		is_move_int_mem = {false, false, false, true};
+		is_move_mem_reg = {false, false, false, true};
+		is_move_mem_mem = {false, false, false, true};
+	} else
+		Error::fatalError("x86_64 assembler: Strange binary operation");
+
+	if (ir_code != IR::OP_DIV)
+		addTemplate(t_reg_int, extra_inputs, extra_outputs, is_move_reg_int,
+			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_int));
+	addTemplate(t_int_reg, extra_inputs, extra_outputs, is_move_int_reg,
+		std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int, exp_register));
+	addTemplate(t_reg_reg, extra_inputs, extra_outputs, is_move_reg_reg,
+		std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register, exp_register));
+	Operand second_simple("%", {0}, nullptr);
+	for (const Operand &exp: memory_exp) {
+		if ((ir_code == IR::OP_PLUS) || (ir_code == IR::OP_MINUS)) {
+			t_reg_mem = {"movq " + Template::Input(0) + ", " + Template::Output(),
+				std::string(command) + " " + exp.implement(1) + ", " + Template::Output()};
+			t_int_mem = {"movq " + exp.implement(1) + ", " + Template::Output(),
+				std::string(command) + " $" + Template::Input(0) + ", " + Template::Output()},
+			t_mem_reg = {"movq " + second_simple.implement(exp.elementCount()) + ", " + Template::Output(),
+				std::string(command) + " " + exp.implement(0) + ", " + Template::Output()};
+			t_mem_int = {"movq " + exp.implement(0) + ", " + Template::Output(),
+				std::string(command) + " $" + second_simple.implement(exp.elementCount()) + ", " + Template::Output()};
+		} else if (ir_code == IR::OP_MUL) {
+			t_reg_mem = {"movq " + Template::Input(0) + ", " + register_names[RAX],
+				std::string(command) + " " + exp.implement(1),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+			t_int_mem = {"movq $" + Template::Input(0) + ", " + register_names[RAX],
+				std::string(command) + " " + exp.implement(1),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+			t_mem_reg = {"movq " + second_simple.implement(exp.elementCount()) + ", " + register_names[RAX],
+				std::string(command) + " " + exp.implement(0),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+			t_mem_int = {"movq $" + second_simple.implement(exp.elementCount()) + ", " + register_names[RAX],
+				std::string(command) + " " + exp.implement(0),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+		} else if (ir_code == IR::OP_DIV) {
+			t_reg_mem = {"movq " + Template::Input(0) + ", " + register_names[RAX], "cqo",
+				std::string(command) + " " + exp.implement(1),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+			t_int_mem = {"movq $" + Template::Input(0) + ", " + register_names[RAX], "cqo",
+				std::string(command) + " " + exp.implement(1),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+			t_mem_reg = {"movq " + exp.implement(0) + ", " + register_names[RAX], "cqo",
+				std::string(command) + " " + second_simple.implement(exp.elementCount()),
+				"movq " + register_names[RAX] + ", " + Template::Output()};
+		}
+		addTemplate(t_reg_mem, extra_inputs, extra_outputs, is_move_reg_mem,
+			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_register,
+				exp.expression()));
+		
+		addTemplate(t_int_mem, extra_inputs, extra_outputs, is_move_int_mem, 
+			std::make_shared<IR::BinaryOpExpression>(ir_code, exp_int,
+				exp.expression()));
+		
+ 		addTemplate(t_mem_reg, extra_inputs, extra_outputs, is_move_mem_reg,
+			std::make_shared<IR::BinaryOpExpression>(ir_code,
+				exp.expression(), exp_register));
+		
+		if (ir_code != IR::OP_DIV)
+			addTemplate(t_mem_int, extra_inputs, extra_outputs, is_move_mem_int,
+				std::make_shared<IR::BinaryOpExpression>(ir_code,
+					exp.expression(), exp_int));
 	}
-	for (IR::Expression exp1: memory_exp)
-		for (IR::Expression exp2: memory_exp)
-			addTemplate(asm_code, std::make_shared<IR::BinaryOpExpression>(ir_code,
-				std::make_shared<IR::MemoryExpression>(exp1),
-				std::make_shared<IR::MemoryExpression>(exp2)));
+	std::vector<std::string> t_mem_mem;
+	for (const Operand &exp1: memory_exp)
+		for (const Operand &exp2: memory_exp) {
+			if ((ir_code == IR::OP_PLUS) || (ir_code == IR::OP_MINUS)) {
+				t_mem_mem = {"movq " + exp1.implement(0) + ", " + Template::Output(),
+					std::string(command) + " " + exp2.implement(exp1.elementCount()) + ", " + Template::Output()};
+			} else if (ir_code == IR::OP_MUL) {
+				t_mem_mem = {"movq " + exp1.implement(0) + ", " + register_names[RAX],
+					std::string(command) + " " + exp2.implement(exp1.elementCount()),
+					"movq " + register_names[RAX] + ", " + Template::Output()};
+			} else if (ir_code == IR::OP_DIV) {
+				t_mem_mem = {"movq " + exp1.implement(0) + ", " + register_names[RAX], "cqo",
+					std::string(command) + " " + exp2.implement(exp1.elementCount()),
+					"movq " + register_names[RAX] + ", " + Template::Output()};
+			}
+			addTemplate(t_mem_mem, extra_inputs, extra_outputs, is_move_mem_mem,
+				std::make_shared<IR::BinaryOpExpression>(ir_code, exp1.expression(),
+					exp2.expression()));
+		}
 }
 
-void X86_64Assembler::make_comparison(int asm_code, IR::ComparisonOp ir_code)
+void X86_64Assembler::make_comparison(const char *jxx_cmd, IR::ComparisonOp ir_code)
 {
-	addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_register, exp_int, nullptr, nullptr));
-	addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_register, exp_register, nullptr, nullptr));
-	for (IR::Expression exp: memory_exp) {
-		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_register,
-			std::make_shared<IR::MemoryExpression>(exp), nullptr, nullptr));
-		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code, exp_int,
-			std::make_shared<IR::MemoryExpression>(exp), nullptr, nullptr));
-		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code,
-			std::make_shared<IR::MemoryExpression>(exp), exp_register, nullptr, nullptr));
-		addTemplate(asm_code, std::make_shared<IR::CondJumpStatement>(ir_code,
-			std::make_shared<IR::MemoryExpression>(exp), exp_int, nullptr, nullptr));
+	std::string jump = std::string(jxx_cmd) + " " + Template::Input(2);
+	std::vector<bool> extra_dests = {false, true};
+	std::vector<bool> jumps_to_next = {true, true};
+	addTemplate({"cmp $" + Template::Input(1) + ", " + Template::Input(0), jump},
+		extra_dests, jumps_to_next,
+		std::make_shared<IR::CondJumpStatement>(ir_code, exp_register, exp_int, nullptr, nullptr));
+	addTemplate({"cmp " + Template::Input(1) + ", " + Template::Input(0), jump},
+		extra_dests, jumps_to_next,
+		std::make_shared<IR::CondJumpStatement>(ir_code, exp_register, exp_register, nullptr, nullptr));
+	Operand second_simple("%", {0}, nullptr);
+	for (const Operand &exp: memory_exp) {
+		jump = std::string(jxx_cmd) + " " + second_simple.implement(exp.elementCount()+1);
+		addTemplate({"cmp " + exp.implement(1) + ", " + Template::Input(0), jump},
+			extra_dests, jumps_to_next,
+			std::make_shared<IR::CondJumpStatement>(ir_code, exp_register,
+				exp.expression(), nullptr, nullptr));
+		addTemplate({"cmp " + exp.implement(1) + ", $" + Template::Input(0), jump},
+			extra_dests, jumps_to_next,
+			std::make_shared<IR::CondJumpStatement>(ir_code, exp_int,
+				exp.expression(), nullptr, nullptr));
+		addTemplate({"cmp " + second_simple.implement(exp.elementCount()) + ", " +
+				exp.implement(0), jump},
+			extra_dests, jumps_to_next,
+			std::make_shared<IR::CondJumpStatement>(ir_code,
+				exp.expression(), exp_register, nullptr, nullptr));
+		addTemplate({"cmp $" + second_simple.implement(exp.elementCount()) + ", " +
+				exp.implement(0), jump},
+			extra_dests, jumps_to_next,
+			std::make_shared<IR::CondJumpStatement>(ir_code,
+				exp.expression(), exp_int, nullptr, nullptr));
 	}
 }
 
 void X86_64Assembler::make_assignment()
 {
-	int asm_code = I_MOV;
-	addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp_int));
-	addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp_label));
-	addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp_register));
-	for (IR::Expression exp: memory_exp) {
-		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register,
-			std::make_shared<IR::MemoryExpression>(exp)));
-		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(exp_register, exp));
-		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(
-			std::make_shared<IR::MemoryExpression>(exp), exp_register));
-		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(
-			std::make_shared<IR::MemoryExpression>(exp), exp_int));
-		addTemplate(asm_code, std::make_shared<IR::MoveStatement>(
-			std::make_shared<IR::MemoryExpression>(exp), exp_label));
+	addTemplate("movq $" + Template::Input(1) + ", " + Template::InputAssigned(0),
+		std::make_shared<IR::MoveStatement>(exp_register, exp_int));
+	addTemplate("movq $" + Template::Input(1) + ", " + Template::InputAssigned(0),
+		std::make_shared<IR::MoveStatement>(exp_register, exp_label));
+	addTemplate("movq " + Template::Input(1) + ", " + Template::InputAssigned(0), true,
+		std::make_shared<IR::MoveStatement>(exp_register, exp_register));
+	Operand second_simple("%", {0}, nullptr);
+	int ind = 0;
+	for (const Operand &exp: memory_exp) {
+		addTemplate("movq " + exp.implement(1) + ", " + Template::Input(0),
+			std::make_shared<IR::MoveStatement>(exp_register,
+				exp.expression()));
+		if ((ind >= first_assign_by_lea) && (ind <= last_assign_by_lea))
+			addTemplate("leaq " + exp.implement(1) + ", " + Template::Input(0),
+				std::make_shared<IR::MoveStatement>(exp_register,
+					IR::ToMemoryExpression(exp.expression())->address));
+		addTemplate("movq " + second_simple.implement(exp.elementCount()) + ", " + exp.implement(0),
+			std::make_shared<IR::MoveStatement>(
+				exp.expression(), exp_register));
+		addTemplate("movq $" + second_simple.implement(exp.elementCount()) + ", " + exp.implement(0),
+			std::make_shared<IR::MoveStatement>(
+				exp.expression(), exp_int));
+		addTemplate("movq $" + second_simple.implement(exp.elementCount()) + ", " + exp.implement(0),
+			std::make_shared<IR::MoveStatement>(
+				exp.expression(), exp_label));
+		ind++;
 	}
-}
-
-static std::string IntToStr(int x)
-{
-	char buf[30];
-	sprintf(buf, "%d", x);
-	return std::string(buf);
 }
 
 void X86_64Assembler::makeOperand(IR::Expression expression,
@@ -370,6 +682,7 @@ void X86_64Assembler::addInstruction(Instructions &result,
 			  (*newinst).notation.c_str());
 }
 
+#if 0
 void X86_64Assembler::addInstruction(Instructions &result,
 	const std::string &prefix, IR::Expression operand0,
 	const std::string &suffix, IR::Expression operand1)
@@ -383,9 +696,16 @@ void X86_64Assembler::addInstruction(Instructions &result,
 		inputs, {}, false));
 }
 
+#endif
+
 void X86_64Assembler::placeCallArguments(const std::list<IR::Expression>& arguments,
-	Instructions &result)
+	IR::AbstractFrame *frame,
+	const IR::Expression parentfp_param, Instructions &result)
 {
+	if (parentfp_param) {
+		translateExpression(parentfp_param, frame, 
+			machine_registers[R10], result);
+	}
 	int arg_count = 0;
 	auto arg = arguments.begin();
 	for (; arg != arguments.end(); arg++) {
@@ -420,6 +740,8 @@ void X86_64Assembler::removeCallArguments(const std::list< IR::Expression>& argu
  		result.push_back(Instruction(std::string("add ") +
 			IntToStr(stack_arg_count*8) + std::string(", %rsp")));
 }
+
+#if 0
 
 void X86_64Assembler::translateExpressionTemplate(IR::Expression templ,
 	IR::AbstractFrame *frame, IR::VirtualRegister *value_storage,
@@ -617,6 +939,7 @@ void X86_64Assembler::translateStatementTemplate(IR::Statement templ,
 			Error::fatalError("X86_64Assembler::translateStatementTemplate unexpected statement kind");
 	}
 }
+#endif
 
 void X86_64Assembler::translateBlob(const IR::Blob& blob, Instructions& result)
 {
@@ -782,7 +1105,7 @@ void X86_64Assembler::implementFramePointer(IR::AbstractFrame* frame, Instructio
 		for (IR::VirtualRegister *output: inst.outputs)
 			if (output->getIndex() == frame->getFramePointer()->getIndex())
 				Error::fatalError("Cannot write to frame pointer");
-		for (int i = 0; i < inst.inputs.size(); i++)
+		for (unsigned i = 0; i < inst.inputs.size(); i++)
 			if (inst.inputs[i]->getIndex() == frame->getFramePointer()->getIndex()) {
 				inst.inputs[i] = machine_registers[RSP];
 				addOffset(inst.notation, i,
@@ -811,7 +1134,7 @@ void X86_64Assembler::replaceRegisterUsage(Instructions &code,
 	std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
 	std::shared_ptr<IR::MemoryExpression> replacement)
 {
-	for (int i = 0; i < (*inst).inputs.size(); i++)
+	for (unsigned i = 0; i < (*inst).inputs.size(); i++)
 		if ((*inst).inputs[i]->getIndex() == reg->getIndex()) {
 			bool need_splitting = true;
 			const std::string &original = (*inst).notation;
@@ -825,7 +1148,9 @@ void X86_64Assembler::replaceRegisterUsage(Instructions &code,
 			if (! need_splitting) {
 				std::string storage_notation;
 				(*inst).inputs.clear();
+				
 				makeOperand(replacement, (*inst).inputs, storage_notation);
+				
 				int pos = findRegister(original, true, 0);
 				std::string new_command = original.substr(0, pos) +
 					storage_notation + original.substr(pos+3,
@@ -835,8 +1160,10 @@ void X86_64Assembler::replaceRegisterUsage(Instructions &code,
 				(*inst).is_reg_to_reg_assign = false;
 			} else {
 				IR::VirtualRegister *temp = IRenvironment->addRegister();
+				
 				addInstruction(code, "movq ", replacement, ", " + Instruction::Output(0), temp,
 					NULL, NULL, &inst);
+				
 				(*inst).inputs[i] = temp;
 			}
 			return;
@@ -847,7 +1174,7 @@ void X86_64Assembler::replaceRegisterAssignment(Instructions &code,
 	std::list<Instruction>::iterator inst, IR::VirtualRegister *reg,
 	std::shared_ptr<IR::MemoryExpression> replacement)
 {
-	for (int i = 0; i < (*inst).outputs.size(); i++)
+	for (unsigned i = 0; i < (*inst).outputs.size(); i++)
 		if ((*inst).outputs[i]->getIndex() == reg->getIndex()) {
 			bool need_splitting;
 			const std::string &original = (*inst).notation;
@@ -862,9 +1189,11 @@ void X86_64Assembler::replaceRegisterAssignment(Instructions &code,
 			}
 			if (! need_splitting) {
 				std::string storage_notation;
+				
 				makeOperand(replacement, (*inst).inputs, storage_notation);
+				
 				int pos = findRegister(original, false, 0);
-				assert(pos == original.size()-3);
+				assert(pos == (int)original.size()-3);
 				std::string new_command = original.substr(0, pos) +
 					storage_notation;
 				debug("spilling %s -> %s", original.c_str(), new_command.c_str());
@@ -880,7 +1209,9 @@ void X86_64Assembler::replaceRegisterAssignment(Instructions &code,
 				registers.push_back(temp);
 				std::string operand0 = Instruction::Input(0);
 				std::string operand1;
+				
 				makeOperand(replacement, registers, operand1);
+				
 				std::string new_command = "movq " + operand0 + ", " + operand1;
 				code.insert(inst, Instruction(new_command, registers, {}, false));
 				debug("spilling %s -> append %s", original.c_str(),

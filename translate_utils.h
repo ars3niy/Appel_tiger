@@ -18,6 +18,7 @@ public:
 	AbstractFrame *owner_frame;
 	
 	AbstractVarLocation(AbstractFrame *_frame) : owner_frame(_frame) {}
+	virtual ~AbstractVarLocation() {}
 	virtual IR::Expression createCode(AbstractFrame *currentFrame) = 0;
 	virtual bool isRegister() = 0;
 	virtual void prespillRegister(AbstractVarLocation *location) = 0;
@@ -43,12 +44,12 @@ public:
 		AbstractVarLocation *where_store;
 	};
 protected:
-	AbstractFrame *parent;
-	int id;
+	AbstractFrameManager *framemanager;
 	std::string name;
+	int id;
+	AbstractFrame *parent;
 	AbstractVarLocation *parent_fp_parameter;
 	AbstractVarLocation *parent_fp_memory_storage;
-	AbstractFrameManager *framemanager;
 	std::list<AbstractVarLocation *>variables;
 	std::list<AbstractVarLocation *>parameters;
 	

@@ -54,7 +54,6 @@ FlowGraph::FlowGraph(const Asm::Instructions &code,
 	FlowGraphNode *prev = NULL;
 	std::list<NodeLink> links;
 	
-	int i = 0;
 	for (const Asm::Instruction &inst: code) {
 		nodes.push_back(FlowGraphNode(nodecount, &inst, ignored_register));
 		FlowGraphNode *current = &nodes.back();

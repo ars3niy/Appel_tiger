@@ -298,12 +298,13 @@ public:
 	 * Used to share information about the varible between multiple passes
 	 * of the syntax tree
 	 */
-	ObjectId id;
+	ObjectId id = -1;
 	
 	ParameterDeclaration(int _id, Tree _name, Tree _type) :
-		Node(PARAMETERDECLARATION), id(_id),
+		Node(PARAMETERDECLARATION),
 		name(std::static_pointer_cast<Identifier>(_name)),
-		type(std::static_pointer_cast<Identifier>(_type))
+		type(std::static_pointer_cast<Identifier>(_type)),
+		id(_id)
 	{
 		assert(_name->type == IDENTIFIER);
 		assert(_type->type == IDENTIFIER);
@@ -320,12 +321,13 @@ public:
 	 * Used to share information about the varible between multiple passes
 	 * of the syntax tree
 	 */
-	ObjectId id;
+	ObjectId id = -1;
 	
 	VariableDeclaration(int _id, Tree _name, Tree _value, Tree _type = NULL) :
-		Node(VARDECLARATION), id(_id),
+		Node(VARDECLARATION),
 		name(std::static_pointer_cast<Identifier>(_name)),
-		value(_value), type(std::static_pointer_cast<Identifier>(_type))
+		type(std::static_pointer_cast<Identifier>(_type)), value(_value),
+		id(_id)
 	{
 		assert(_name->type == IDENTIFIER);
 		assert((_type == NULL) || (_type->type == IDENTIFIER));
@@ -346,10 +348,11 @@ public:
 	ObjectId id;
 	
 	Function(int _id, Tree _name, Tree _type, Tree _parameters, Tree _body) :
-		id(_id), Node(FUNCTION), name(std::static_pointer_cast<Identifier>(_name)),
+		Node(FUNCTION), name(std::static_pointer_cast<Identifier>(_name)),
 		type(std::static_pointer_cast<Identifier>(_type)),
 		parameters(std::static_pointer_cast<ExpressionList>(_parameters)),
-		body(_body)
+		body(_body),
+		id(_id)
 	{
 		assert(_name->type == IDENTIFIER);
 		assert((_type == NULL) || (_type->type == IDENTIFIER));

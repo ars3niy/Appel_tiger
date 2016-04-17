@@ -78,7 +78,8 @@ public:
 		Syntax::Tree _raw, IR::Code _body,
 		IR::AbstractFrame *_frame, IR::Label *_label,
 		bool _needs_parent_fp) :
-		name(_name), Declaration(DECL_FUNCTION), return_type(_return_type), 
+		Declaration(DECL_FUNCTION), 
+		name(_name), return_type(_return_type), 
 		raw_body(_raw), body(_body), frame(_frame), label(_label),
 		needs_parent_fp(_needs_parent_fp)
 	{}

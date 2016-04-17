@@ -3,7 +3,7 @@
 
 void* IdMap::lookup(ObjectId id)
 {
-	if (values.size() <= id)
+	if ((ObjectId)values.size() <= id)
 		return NULL;
 	else
 		return values[id];
@@ -11,7 +11,7 @@ void* IdMap::lookup(ObjectId id)
 
 void IdMap::add(ObjectId id, void* value)
 {
-	if (values.size() <= id) {
+	if ((ObjectId)values.size() <= id) {
 		int newsize = 2*values.size();
 		if (newsize <= id)
 			newsize = id;

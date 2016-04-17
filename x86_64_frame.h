@@ -20,6 +20,7 @@ public:
 		AbstractVarLocation(frame), is_register(true), offset(0),
 		reg(_register)
 	{}
+	virtual ~X86_64VarLocation() {}
 	virtual IR::Expression createCode(AbstractFrame *frame);
 	virtual bool isRegister() {return reg != NULL;}
 	VirtualRegister *getRegister() {return reg;}
@@ -32,11 +33,11 @@ public:
 
 class X86_64Frame: public AbstractFrame {
 private:
-	int frame_size;
 	IREnvironment *ir_env;
+	VirtualRegister *framepointer;
+	int frame_size;
 	int param_count;
 	int param_stack_size;
-	VirtualRegister *framepointer;
 public:
 	X86_64Frame(AbstractFrameManager *_framemanager, const std::string &name,
 		int _id, X86_64Frame *_parent, IREnvironment *_ir_env,
@@ -62,24 +63,19 @@ public:
 
 class X86_64FrameManager: public AbstractFrameManager {
 private:
-	X86_64Frame *root_frame;
+	X86_64Frame root_frame;
 	int framecount;
 public:
-	X86_64FrameManager(IREnvironment *env) : AbstractFrameManager(env)
+	X86_64FrameManager(IREnvironment *env) : AbstractFrameManager(env),
+		root_frame(this, ".root", 0, NULL, IR_env,
+			IR_env->addRegister("fp"))
 	{
-		root_frame = new X86_64Frame(this, ".root", 0, NULL, IR_env,
-			IR_env->addRegister("fp"));
 		framecount = 1;
-	}
-	
-	~X86_64FrameManager()
-	{
-		delete root_frame;
 	}
 	
 	virtual AbstractFrame *rootFrame()
 	{
-		return root_frame;
+		return &root_frame;
 	}
 	
 	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name)

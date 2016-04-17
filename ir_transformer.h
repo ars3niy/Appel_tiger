@@ -49,8 +49,9 @@ private:
 	void arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 		BlockOrdering &new_order);
 public:
-	IRTransformer(IREnvironment *_ir_env) : ir_env(_ir_env),
-		DebugPrinter("canonicalize.log") {}
+	IRTransformer(IREnvironment *_ir_env) :
+		DebugPrinter("canonicalize.log"),
+		ir_env(_ir_env){}
 
 	/**
 	 * Either parentExpression or parentStatement (or both) must be null

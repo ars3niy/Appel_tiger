@@ -55,7 +55,7 @@ Expression X86_64VarLocation::createCode(AbstractFrame *calling_frame)
 		Error::fatalError("Variable has been used outside its function without syntax error??");
 	
 	Expression result = nullptr;
-	X86_64Frame *var_owner = (X86_64Frame *)owner_frame;
+	//X86_64Frame *var_owner = (X86_64Frame *)owner_frame;
 	Expression *put_access_to_owner_frame = &result;
 	
 	for (std::list<X86_64Frame *>::iterator frame = frame_stack.begin();

@@ -40,6 +40,7 @@ void FlipComparison(CondJumpStatement *jump)
 		case OP_UGREATEQUAL:
 			jump->comparison = OP_ULESS;
 			break;
+		default: ;
 	}
 }
 
@@ -136,6 +137,7 @@ Expression IREnvironment::codeToExpression(Code code)
 				std::make_shared<RegisterExpression>(value));
 		}
 	}
+	return nullptr;
 }
 
 Statement IREnvironment::codeToStatement(Code code)
@@ -157,6 +159,7 @@ Statement IREnvironment::codeToStatement(Code code)
 			return seq;
 		}
 	}
+	return nullptr;
 }
 
 Statement IREnvironment::codeToCondJump(Code code,
@@ -199,6 +202,7 @@ Statement IREnvironment::codeToCondJump(Code code,
 			replace_false = std::static_pointer_cast<CondJumpPatchesCode>(code)->replace_false;
 			return result;
 	}
+	return nullptr;
 }
 
 }

@@ -7,9 +7,8 @@
 std::string IntToStr(int x);
 
 class DebugPrinter {
-private:
-	FILE *f;
-	std::string name;
+protected:
+	FILE *debug_output;
 public:
 	DebugPrinter(const char *filename);
 	~DebugPrinter();

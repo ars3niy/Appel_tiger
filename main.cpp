@@ -31,7 +31,7 @@ void MergeVirtualRegisterMaps(IR::RegisterMap &merge_to,
 {
 	if (merge_to.size() < merge_from.size())
 		merge_to.resize(merge_from.size(), NULL);
-	for (int i = 0; i < merge_from.size(); i++)
+	for (unsigned i = 0; i < merge_from.size(); i++)
 		if (merge_from[i] != NULL) {
 			if (merge_to[i] != NULL)
 				assert(merge_from[i]->getIndex() == merge_to[i]->getIndex());
@@ -93,7 +93,7 @@ void TranslateProgram(bool assemble)
 	Semantic::Translator translator(&IR_env, &framemanager);
 
 	IR::AbstractFrame *body_frame;
-	Semantic::Type *type;
+	//Semantic::Type *type;
 	IR::Statement program_body;
 	timeval t1;
 	gettimeofday(&t1, NULL);
@@ -151,6 +151,7 @@ void TranslateProgram(bool assemble)
 	assembler.translateProgram(program_body, body_frame, code.back());
 	gettimeofday(&t2, NULL);
 	printf("Translate to assembler: %d\n", dt(t1, t2));
+	printf("Template finding: %d\n", assembler.findingTime());
 #ifdef DEBUG
 	//Optimize::PrintLivenessInfo(f, code.back(), body_frame);
 	fclose(f);

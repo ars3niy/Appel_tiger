@@ -98,7 +98,7 @@ void IRTransformer::canonicalizeCallExp(Expression &exp,
 {
 	std::shared_ptr<CallExpression> call_exp = ToCallExpression(exp);
 	std::shared_ptr<StatementSequence> pre_statements = std::make_shared<StatementSequence>();
-	Expression *op_expression_at = &exp;
+	//Expression *op_expression_at = &exp;
 	std::vector<bool> arg_saved;
 	arg_saved.resize(call_exp->arguments.size(), false);
 	
@@ -497,7 +497,7 @@ void IRTransformer::arrangeJumps(std::shared_ptr<StatementSequence> sequence)
 	splitToBlocks(sequence, blocks);
 	arrangeBlocksForPrettyJumps(blocks, order);
 	sequence->statements.clear();
-	Label *finish_label = blocks.finish_label;
+	//Label *finish_label = blocks.finish_label;
 	
 	for (StatementBlock *block: order) {
 		assert(! block->statements.empty());

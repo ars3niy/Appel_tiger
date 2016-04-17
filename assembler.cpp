@@ -2,8 +2,16 @@
 #include "errormsg.h"
 #include "error.h"
 #include <stdarg.h>
+#include <sys/time.h>
 
 namespace Asm {
+
+std::string IntToStr(int x)
+{
+	char buf[30];
+	sprintf(buf, "%d", x);
+	return std::string(buf);
+}
 
 Instruction::Instruction(const std::string &_notation,
 	bool _reg_to_reg_assign)
@@ -35,8 +43,9 @@ Instruction::Instruction(const std::string &_notation,
 }
 
 Assembler::Assembler(IR::IREnvironment *ir_env)
-	: IRenvironment(ir_env), DebugPrinter("assembler.log")
+	: DebugPrinter("assembler.log"), IRenvironment(ir_env)
 {
+	finding_time = 0;
 	expr_templates.resize((int)IR::IR_EXPR_MAX);
 	for (int i = 0; i < IR::IR_EXPR_MAX; i++) {
 		if (i == (int)IR::IR_BINARYOP)
@@ -54,7 +63,20 @@ Assembler::Assembler(IR::IREnvironment *ir_env)
 	}
 }
 
-std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Expression expr)
+std::list<std::shared_ptr<Template> > *Assembler::getTemplatesList(IR::Code code)
+{
+	switch (code->kind) {
+		case IR::CODE_EXPRESSION:
+			return getTemplatesList(std::static_pointer_cast<IR::ExpressionCode>(code)->exp);
+		case IR::CODE_STATEMENT:
+			return getTemplatesList(std::static_pointer_cast<IR::StatementCode>(code)->statm);
+		default:
+			Error::fatalError("Wrong template code kind");
+			return NULL;
+	}
+}
+
+std::list<std::shared_ptr<Template> > *Assembler::getTemplatesList(IR::Expression expr)
 {
 	if (expr->kind == IR::IR_BINARYOP) {
 		std::shared_ptr<IR::BinaryOpExpression> binop = IR::ToBinaryOpExpression(expr);
@@ -64,15 +86,15 @@ std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Expression expr)
 		return & ((TemplateList *)expr_templates[(int)expr->kind])->list;
 }
 
-std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Statement statm)
+std::list<std::shared_ptr<Template> > *Assembler::getTemplatesList(IR::Statement statm)
 {
 	if ((statm->kind == IR::IR_COND_JUMP) /*|| (statm->kind = IR::IR_MOVE)*/) {
-		int op, kind1, kind2;
+		int op;//, kind1, kind2;
 // 		if (statm->kind == IR::IR_COND_JUMP) {
 			std::shared_ptr<IR::CondJumpStatement> cj = IR::ToCondJumpStatement(statm);
 			op = (int)cj->comparison;
-			kind1 = (int)cj->left->kind;
-			kind2 = (int)cj->right->kind;
+			//kind1 = (int)cj->left->kind;
+			//kind2 = (int)cj->right->kind;
 // 		} else {
 // 			IR::MoveStatement *m = IR::ToMoveStatement(statm);
 // 			op = 0;
@@ -85,30 +107,130 @@ std::list<InstructionTemplate> *Assembler::getTemplatesList(IR::Statement statm)
 		return & ((TemplateList *)statm_templates[(int)statm->kind])->list;
 }
 
-void Assembler::addTemplate(int code, IR::Expression expr)
+void Assembler::addTemplate(const std::vector<std::string> &commands, IR::Expression expr)
 {
-	std::list<InstructionTemplate> *list = getTemplatesList(expr);
-	list->push_back(InstructionTemplate(code, expr));
+	addTemplate(std::make_shared<Template>(commands, expr));
 }
 
-void Assembler::addTemplate(int code, IR::Statement statm)
+void Assembler::addTemplate(const std::vector<std::string> &commands, IR::Statement statm)
 {
-	std::list<InstructionTemplate> *list = getTemplatesList(statm);
-	list->push_back(InstructionTemplate(code, statm));
+	addTemplate(std::make_shared<Template>(commands, statm));
+}
+
+void Assembler::addTemplate(const std::vector<std::string> &_commands,
+	const std::vector<std::vector<IR::VirtualRegister *> > &extra_inputs,
+	const std::vector<std::vector<IR::VirtualRegister *> > &extra_outputs,
+	const std::vector<bool> is_reg_to_reg_assign, IR::Expression expr)
+{
+	auto templ = std::make_shared<Template>(expr);
+	for (unsigned i = 0; i < _commands.size(); i++)
+		templ->instructions.push_back(Instruction(_commands.at(i),
+			extra_inputs.at(i), extra_outputs.at(i), is_reg_to_reg_assign.at(i)));
+	addTemplate(templ);
+}
+
+void Assembler::addTemplate(const std::vector<std::string> &_commands,
+	const std::vector<bool> &is_jump_to_extra_dest, 
+	const std::vector<bool> &jumps_to_next, IR::Statement statm)
+{
+	auto templ = std::make_shared<Template>(statm);
+	std::vector<IR::Label *> no_extra_dest = {};
+	std::vector<IR::Label *> has_extra_dest = {NULL};
+	for (unsigned i = 0; i < _commands.size(); i++)
+		templ->instructions.push_back(Instruction(_commands.at(i), {}, {}, false,
+			is_jump_to_extra_dest.at(i) ? has_extra_dest : no_extra_dest,
+			jumps_to_next.at(i)));
+	addTemplate(templ);
+}
+
+void Assembler::addTemplate(const std::string &command, IR::Expression expr)
+{
+	addTemplate(std::make_shared<Template>(command, false, expr));
+}
+
+void Assembler::addTemplate(const std::string &command, IR::Statement statm)
+{
+	addTemplate(std::make_shared<Template>(command, false, statm));
+}
+
+void Assembler::addTemplate(const std::string &command, 
+	bool is_reg_to_reg_assign, IR::Expression expr)
+{
+	addTemplate(std::make_shared<Template>(command, is_reg_to_reg_assign, expr));
+}
+
+void Assembler::addTemplate(const std::string &command, 
+	bool is_reg_to_reg_assign, IR::Statement statm)
+{
+	addTemplate(std::make_shared<Template>(command, is_reg_to_reg_assign, statm));
+}
+
+void Assembler::addTemplate(std::shared_ptr<Template> templ)
+{
+#ifdef DEBUG
+	debug("Assembler Template:");
+	PrintCode(debug_output, templ->code);
+	for (Instruction &inst: templ->instructions) {
+		std::string s = "    " + inst.notation;
+		if (! inst.inputs.empty()) {
+			s += " <-";
+			for (IR::VirtualRegister *reg: inst.inputs)
+				s += " " + reg->getName();
+		}
+		if (! inst.outputs.empty()) {
+			s += " ->";
+			for (IR::VirtualRegister *reg: inst.outputs)
+				s += " " + reg->getName();
+		}
+		if (inst.is_reg_to_reg_assign)
+			s += " register assignment";
+		if (! inst.extra_destinations.empty())
+			s += " jumps";
+		if (! inst.jumps_to_next)
+			s += " no fall-through";
+		debug("%s", s.c_str());
+	}
+#endif
+	std::list<std::shared_ptr<Template> > *list = getTemplatesList(templ->code);
+	debug("Adding template, already have %d\n", list->size());
+	list->push_back(templ);
+}
+
+std::string Assembler::Operand::implement(int first_index) const
+{
+	std::string result;
+	unsigned i = 0;
+	unsigned ind = 0;
+	while (i < format_string.size()) {
+		unsigned i2 = i;
+		while ((i2 < format_string.size()) && (format_string[i2] != '%'))
+			i2++;
+		result += format_string.substr(i, i2-i);
+		if (i2 < format_string.size()) {
+			assert (ind < elements.size());
+			char buf[16];
+			snprintf(buf, sizeof(buf), "%d", first_index + elements[ind]);
+			result += "&";
+			result += buf;
+			ind++;
+			i2++;
+		}
+		i = i2;
+	}
+	assert (ind == elements.size());
+	return result;
 }
 
 bool Assembler::MatchMoveDestination(IR::Expression expression, IR::Expression templ,
-	int &nodecount, std::list<TemplateChildInfo> *children,
-	IR::Expression *template_instantiation)
+	int &nodecount, std::list<TemplateChildInfo> *children)
 {
 	if (templ->kind != expression->kind)
 		return false;
-	return MatchExpression(expression, templ, nodecount, children, template_instantiation);
+	return MatchExpression(expression, templ, nodecount, children);
 }
 
 bool Assembler::MatchExpression(IR::Expression expression, IR::Expression templ,
-	int &nodecount, std::list<TemplateChildInfo> *children,
-	IR::Expression *template_instantiation)
+	int &nodecount, std::list<TemplateChildInfo> *children)
 {
 	if ((templ->kind == IR::IR_REGISTER) && (expression->kind != IR::IR_REGISTER)) {
 		// Matched register template against non-register expression
@@ -116,11 +238,8 @@ bool Assembler::MatchExpression(IR::Expression expression, IR::Expression templ,
 		// "glued" to the template
 		if (children != NULL) {
 			children->push_back(TemplateChildInfo(NULL, expression));
-			if (template_instantiation != NULL) {
-				IR::VirtualRegister *value_storage = IRenvironment->addRegister();
-				children->back().value_storage = value_storage;
-				*template_instantiation = std::make_shared<IR::RegisterExpression>(value_storage);
-			}
+			IR::VirtualRegister *value_storage = IRenvironment->addRegister();
+			children->back().value_storage = value_storage;
 		}
 		return true;
 	}
@@ -133,44 +252,35 @@ bool Assembler::MatchExpression(IR::Expression expression, IR::Expression templ,
 	
 	switch (templ->kind) {
 		case IR::IR_INTEGER:
-			if (template_instantiation != NULL)
-				*template_instantiation = std::make_shared<IR::IntegerExpression>(
-					IR::ToIntegerExpression(expression)->value);
+			if (children != NULL)
+				children->push_back(TemplateChildInfo(NULL, expression));
 			return (IR::ToIntegerExpression(templ)->value == 0) ||
 				(IR::ToIntegerExpression(templ)->value ==
 				IR::ToIntegerExpression(expression)->value);
 		case IR::IR_LABELADDR:
-			if (template_instantiation != NULL)
-				*template_instantiation = std::make_shared<IR::LabelAddressExpression>(
-					IR::ToLabelAddressExpression(expression)->label);
+			if (children != NULL)
+				children->push_back(TemplateChildInfo(NULL, expression));
 			return true;
 		case IR::IR_REGISTER:
-			if (template_instantiation != NULL)
-				*template_instantiation = std::make_shared<IR::RegisterExpression>(
-					IR::ToRegisterExpression(expression)->reg);
+			if (children != NULL)
+				children->push_back(TemplateChildInfo(NULL, expression));
 			return true;
 		case IR::IR_FUN_CALL: {
 			std::shared_ptr<IR::CallExpression> call_expr = IR::ToCallExpression(expression);
 			std::shared_ptr<IR::CallExpression> call_inst = nullptr;
-			IR::Expression *func_inst = NULL;
-			if (template_instantiation != NULL) {
-				call_inst = std::make_shared<IR::CallExpression>(nullptr, call_expr->callee_parentfp);
-				func_inst = &call_inst->function;
-				*template_instantiation = call_inst;
-			}
-			if (children != NULL) {
-				for (IR::Expression arg: call_expr->arguments) {
-					children->push_back(TemplateChildInfo(NULL, arg));
-					if (call_inst != NULL) {
-						IR::VirtualRegister *arg_reg = IRenvironment->addRegister();
-						children->back().value_storage = arg_reg;
-						call_inst->addArgument(std::make_shared<IR::RegisterExpression>(arg_reg));
-					}
-				}
-			}
+// 			if (children != NULL) {
+// 				for (IR::Expression arg: call_expr->arguments) {
+// 					children->push_back(TemplateChildInfo(NULL, arg));
+// 					if (call_inst != NULL) {
+// 						IR::VirtualRegister *arg_reg = IRenvironment->addRegister();
+// 						children->back().value_storage = arg_reg;
+// 						call_inst->addArgument(std::make_shared<IR::RegisterExpression>(arg_reg));
+// 					}
+// 				}
+// 			}
 			return MatchExpression(
 				call_expr->function, IR::ToCallExpression(templ)->function,
-				nodecount, children, func_inst);
+				nodecount, children);
 		}
 		case IR::IR_BINARYOP: {
 			std::shared_ptr<IR::BinaryOpExpression> binop_expr =
@@ -180,41 +290,25 @@ bool Assembler::MatchExpression(IR::Expression expression, IR::Expression templ,
 			
 			if (binop_expr->operation != binop_templ->operation)
 				return false;
-			IR::Expression *left_inst = NULL, *right_inst = NULL;
-			if (template_instantiation != NULL) {
-				std::shared_ptr<IR::BinaryOpExpression> binop_inst =
-					std::make_shared<IR::BinaryOpExpression>(
-						binop_expr->operation, nullptr, nullptr);
-				*template_instantiation = binop_inst;
-				left_inst = &binop_inst->left;
-				right_inst = &binop_inst->right;
-			}
 			return MatchExpression(binop_expr->left, binop_templ->left,
-					nodecount, children, left_inst) && 
+					nodecount, children) && 
 				MatchExpression(binop_expr->right, binop_templ->right,
-					nodecount, children, right_inst);
+					nodecount, children);
 		}
 		case IR::IR_MEMORY: {
-			IR::Expression *addr_inst = NULL;
-			if (template_instantiation != NULL) {
-				std::shared_ptr<IR::MemoryExpression> mem_inst =
-					std::make_shared<IR::MemoryExpression>(nullptr);
-				*template_instantiation = mem_inst;
-				addr_inst = &mem_inst->address;
-			}
 			return MatchExpression(
 				IR::ToMemoryExpression(expression)->address,
 				IR::ToMemoryExpression(templ)->address,
-				nodecount, children, addr_inst);
+				nodecount, children);
 		}
 		default:
 			Error::fatalError("Strange expression template kind");
 	}
+	return false;
 }
 
 bool Assembler::MatchStatement(IR::Statement statement, IR::Statement templ,
-	int &nodecount, std::list<TemplateChildInfo> *children,
-	IR::Statement *template_instantiation)
+	int &nodecount, std::list<TemplateChildInfo> *children)
 {
 	// getTemplatesList takes care of this
 	assert(statement->kind == templ->kind);
@@ -223,38 +317,43 @@ bool Assembler::MatchStatement(IR::Statement statement, IR::Statement templ,
 	
 	switch (statement->kind) {
 		case IR::IR_LABEL:
-			if (template_instantiation != NULL)
-				*template_instantiation = std::make_shared<IR::LabelPlacementStatement>(
-					IR::ToLabelPlacementStatement(statement)->label);
+// 			if (template_instantiation != NULL)
+// 				*template_instantiation = std::make_shared<IR::LabelPlacementStatement>(
+// 					IR::ToLabelPlacementStatement(statement)->label);
+			if (children != NULL)
+				children->push_back(TemplateChildInfo(NULL,
+					std::make_shared<IR::LabelAddressExpression>(
+						IR::ToLabelPlacementStatement(statement)->label)
+				));
 			return true;
 		case IR::IR_MOVE: {
 			std::shared_ptr<IR::MoveStatement> move_statm = IR::ToMoveStatement(statement);
 			std::shared_ptr<IR::MoveStatement> move_templ = IR::ToMoveStatement(templ);
-			IR::Expression *to_inst = NULL, *from_inst = NULL;
-			if (template_instantiation != NULL) {
-				std::shared_ptr<IR::MoveStatement>move_inst =
-					std::make_shared<IR::MoveStatement>(nullptr, nullptr);
-				*template_instantiation = move_inst;
-				to_inst = &move_inst->to;
-				from_inst = &move_inst->from;
-			}
+// 			IR::Expression *to_inst = NULL, *from_inst = NULL;
+// 			if (template_instantiation != NULL) {
+// 				std::shared_ptr<IR::MoveStatement>move_inst =
+// 					std::make_shared<IR::MoveStatement>(nullptr, nullptr);
+// 				*template_instantiation = move_inst;
+// 				to_inst = &move_inst->to;
+// 				from_inst = &move_inst->from;
+// 			}
 			return MatchMoveDestination(move_statm->to, move_templ->to, 
-					nodecount, children, to_inst) &&
+					nodecount, children) &&
 				MatchExpression(move_statm->from, move_templ->from, 
-					nodecount, children, from_inst);
+					nodecount, children);
 		}
 		case IR::IR_JUMP: {
-			IR::Expression *dest_inst = NULL;
-			if (template_instantiation != NULL) {
-				std::shared_ptr<IR::JumpStatement> jump_inst =
-					std::make_shared<IR::JumpStatement>(nullptr);
-				*template_instantiation = jump_inst;
-				dest_inst = &jump_inst->dest;
-			}
+// 			IR::Expression *dest_inst = NULL;
+// 			if (template_instantiation != NULL) {
+// 				std::shared_ptr<IR::JumpStatement> jump_inst =
+// 					std::make_shared<IR::JumpStatement>(nullptr);
+// 				*template_instantiation = jump_inst;
+// 				dest_inst = &jump_inst->dest;
+// 			}
 			return MatchExpression(
 				IR::ToJumpStatement(statement)->dest,
 				IR::ToJumpStatement(templ)->dest,
-				nodecount, children, dest_inst);
+				nodecount, children);
 		}
 		case IR::IR_COND_JUMP: {
 			std::shared_ptr<IR::CondJumpStatement> cj_statm = IR::ToCondJumpStatement(statement);
@@ -263,64 +362,255 @@ bool Assembler::MatchStatement(IR::Statement statement, IR::Statement templ,
 			// getTemplatesList takes care of this
 			assert(cj_statm->comparison == cj_templ->comparison);
 
-			IR::Expression *left_inst = NULL, *right_inst = NULL;
-			if (template_instantiation != NULL) {
-				std::shared_ptr<IR::CondJumpStatement> cj_inst =
-					std::make_shared<IR::CondJumpStatement>(
-						cj_statm->comparison, nullptr, nullptr, cj_statm->true_dest,
-						cj_statm->false_dest);
-				*template_instantiation = cj_inst;
-				left_inst = &cj_inst->left;
-				right_inst = &cj_inst->right;
-			}
-			return MatchExpression(cj_statm->left, cj_templ->left, 
-					nodecount, children, left_inst) &&
+// 			IR::Expression *left_inst = NULL, *right_inst = NULL;
+// 			if (template_instantiation != NULL) {
+// 				std::shared_ptr<IR::CondJumpStatement> cj_inst =
+// 					std::make_shared<IR::CondJumpStatement>(
+// 						cj_statm->comparison, nullptr, nullptr, cj_statm->true_dest,
+// 						cj_statm->false_dest);
+// 				*template_instantiation = cj_inst;
+// 				left_inst = &cj_inst->left;
+// 				right_inst = &cj_inst->right;
+// 			}
+			bool result = MatchExpression(cj_statm->left, cj_templ->left, 
+					nodecount, children) &&
 				MatchExpression(cj_statm->right, cj_templ->right, 
-					nodecount, children, right_inst);
+					nodecount, children);
+			if (children != NULL) {
+				children->push_back(TemplateChildInfo(NULL,
+					std::make_shared<IR::LabelAddressExpression>(cj_statm->true_dest)));
+				children->push_back(TemplateChildInfo(NULL,
+					std::make_shared<IR::LabelAddressExpression>(cj_statm->false_dest)));
+			}
+			return result;
 		}
 		default:
 			Error::fatalError("Strange statement template kind");
 	}
+	return false;
 }
 
-void Assembler::FindExpressionTemplate(IR::Expression expression,
-	InstructionTemplate* &templ)
+static int dt(timeval t1, timeval t2)
 {
-	std::list<InstructionTemplate> *templates = getTemplatesList(expression);
+	return 1000000*(t2.tv_sec-t1.tv_sec) + (t2.tv_usec-t1.tv_usec);
+}
+
+std::shared_ptr<Template> Assembler::FindExpressionTemplate(IR::Expression expression)
+{
+	std::list<std::shared_ptr<Template> > *templates = getTemplatesList(expression);
 	int best_nodecount = -1;
-	templ = NULL;
-	for (InstructionTemplate &cur_templ: *templates) {
-		assert(cur_templ.code->kind == IR::CODE_EXPRESSION);
-		IR::Expression templ_exp = std::static_pointer_cast<IR::ExpressionCode>(cur_templ.code)->exp;
+	std::shared_ptr<Template> templ = nullptr;
+	struct timeval t1;
+	gettimeofday(&t1, NULL);
+	for (auto cur_templ: *templates) {
+		assert(cur_templ->code->kind == IR::CODE_EXPRESSION);
+		IR::Expression templ_exp = std::static_pointer_cast<IR::ExpressionCode>(cur_templ->code)->exp;
 		int nodecount = 0;
 		if (MatchExpression(expression, templ_exp, nodecount)) {
 			if (nodecount > best_nodecount) {
 				best_nodecount = nodecount;
-				templ = &cur_templ;
+				templ = cur_templ;
 			}
 		}
 	}
+	struct timeval t2;
+	gettimeofday(&t2, NULL);
+	finding_time += dt(t1, t2);
+	return templ;
 }
 
-void Assembler::FindStatementTemplate(IR::Statement statement,
-	InstructionTemplate* &templ)
+std::shared_ptr<Template> Assembler::FindStatementTemplate(IR::Statement statement)
 {
-	std::list<InstructionTemplate> *templates = getTemplatesList(statement);
+	std::list<std::shared_ptr<Template> > *templates = getTemplatesList(statement);
 	int best_nodecount = -1;
-	templ = NULL;
+	std::shared_ptr<Template> templ = nullptr;
 
-	for (InstructionTemplate &cur_templ: *templates) {
-		assert(cur_templ.code->kind == IR::CODE_STATEMENT);
-		IR::Statement templ_statm = std::static_pointer_cast<IR::StatementCode>(cur_templ.code)->statm;
+	struct timeval t1;
+	gettimeofday(&t1, NULL);
+	for (auto cur_templ: *templates) {
+		assert(cur_templ->code->kind == IR::CODE_STATEMENT);
+		IR::Statement templ_statm = std::static_pointer_cast<IR::StatementCode>(cur_templ->code)->statm;
 		int nodecount = 0;
 		if (MatchStatement(statement, templ_statm, nodecount)) {
 			if (nodecount > best_nodecount) {
 				best_nodecount = nodecount;
-				templ = &cur_templ;
+				templ = cur_templ;
 			}
 		}
 	}
+	struct timeval t2;
+	gettimeofday(&t2, NULL);
+	finding_time += dt(t1, t2);
+	return templ;
 }
+
+struct TemplateInput {
+	IR::ExpressionKind kind;
+	union {
+		int ivalue;
+		IR::Label *label;
+		IR::VirtualRegister *reg;
+	};
+	int input_index, output_index;
+};
+
+void appendRegisters(std::vector<IR::VirtualRegister *> &to,
+	const std::vector<IR::VirtualRegister *> &from)
+{
+	unsigned start = to.size();
+	to.resize(start + from.size());
+	for (unsigned i = 0; i < from.size(); i++)
+		to[start+i] = from[i];
+}
+
+void Template::	implement(Instructions &result, const std::list<TemplateChildInfo> &elements,
+		IR::VirtualRegister *value_storage, const std::vector<IR::Label *> &extra_dest)
+{
+	std::vector<TemplateInput> input_pool(elements.size());
+	int ind = 0;
+	for (const TemplateChildInfo &element: elements) {
+		if (element.value_storage != NULL) {
+			input_pool[ind].kind = IR::IR_REGISTER;
+			input_pool[ind].reg = element.value_storage;
+		} else {
+			input_pool[ind].kind = element.expression->kind;
+			switch (element.expression->kind) {
+			case IR::IR_INTEGER:
+				input_pool[ind].ivalue =
+					IR::ToIntegerExpression(element.expression)->value;
+				break;
+			case IR::IR_LABELADDR:
+				input_pool[ind].label =
+					IR::ToLabelAddressExpression(element.expression)->label;
+				break;
+			case IR::IR_REGISTER:
+				input_pool[ind].reg =
+					IR::ToRegisterExpression(element.expression)->reg;
+				break;
+			default:
+				Error::fatalError("Wrong leaf at the template");
+			}
+		}
+		ind++;
+	}
+	for (Instruction &inst: instructions) {
+		for (TemplateInput &i: input_pool) {
+			i.input_index = -1;
+			i.output_index = -1;
+		}
+		
+		std::string final_notation = "";
+		const char *s = inst.notation.c_str();
+		unsigned i = 0;
+		unsigned len = inst.notation.size();
+		std::vector<IR::VirtualRegister *> inputs, outputs;
+		bool used_value_storage = false;
+		
+		while (i < len) {
+			unsigned argstart = i;
+			while ((argstart < len) && (s[argstart] != '&'))
+				argstart++;
+			if (argstart+1 < len) {
+				if (s[argstart+1] == 'o') {
+					// Register where we storer the result goes here.
+					// If there is none, we'll ignore the instruction (we cannot
+					// form it anyway). Don't ditch the entire template though
+					// because it could have other side effects than producing 
+					// a result.
+					if (! used_value_storage) {
+						used_value_storage = true;
+						outputs.push_back(value_storage);
+					}
+					final_notation += inst.notation.substr(i, argstart-i);
+					final_notation += Instruction::Output(0);
+					i = argstart+2;
+				} else if ((s[argstart+1] == 'w') || isdigit(s[argstart+1])) {
+					bool is_assigned = false;
+					int numstart = argstart+1;
+					if (s[numstart] == 'w') {
+						is_assigned = true;
+						numstart++;
+					}
+					unsigned argend = numstart;
+					while ((argend < len) && isdigit(s[argend]))
+						argend++;
+					unsigned elem_index = atoi(inst.notation.substr(numstart,
+						argend-numstart).c_str());
+					if (elem_index >= input_pool.size())
+						Error::fatalError("Template refers to more inputs than it got");
+
+					std::string value;
+					switch (input_pool[elem_index].kind) {
+					case IR::IR_INTEGER: {
+						int v = input_pool[elem_index].ivalue;
+						if ((argstart > 0) && (s[argstart-1] == '-')) {
+							argstart--;
+							v = -v;
+						}
+						value = IntToStr(v);
+						break;
+					}
+					case IR::IR_LABELADDR:
+						value = input_pool[elem_index].label->getName();
+						break;
+					case IR::IR_REGISTER:
+						if (! is_assigned) {
+							if (input_pool[elem_index].input_index < 0) {
+								input_pool[elem_index].input_index = inputs.size();
+								inputs.push_back(input_pool[elem_index].reg);
+							}
+							value = Instruction::Input(input_pool[elem_index].input_index);
+						} else {
+							if (input_pool[elem_index].output_index < 0) {
+								input_pool[elem_index].output_index = outputs.size();
+								outputs.push_back(input_pool[elem_index].reg);
+							}
+							value = Instruction::Output(input_pool[elem_index].output_index);
+						}
+						break;
+					default:
+						value = "?wtf";
+					}
+					
+					final_notation += inst.notation.substr(i, argstart-i);
+					final_notation += value;
+					i = argend;
+				}
+			} else {
+				final_notation += inst.notation.substr(i, len-i);
+				i = len;
+			}
+		}
+		
+		if (used_value_storage && (value_storage == NULL))
+			// Skip the instruction because it generates value that we
+			// have nowhere to place
+			continue;
+		appendRegisters(outputs, inst.outputs);
+		appendRegisters(inputs, inst.inputs);
+#ifdef DEBUG
+		std::string suffix;
+		if (inputs.size() > 0) {
+			suffix += " Uses:";
+			for (IR::VirtualRegister *reg: inputs)
+				suffix += " " + reg->getName();
+		}
+		if (outputs.size() > 0) {
+			suffix += " Assigns:";
+			for (IR::VirtualRegister *reg: outputs)
+				suffix += " " + reg->getName();
+		}
+		debug("Implement: %s -> %s", inst.notation.c_str(), (final_notation + suffix).c_str());
+#endif
+		if (! inst.extra_destinations.empty())
+			result.push_back(Instruction(final_notation, inputs, outputs,
+				inst.is_reg_to_reg_assign, extra_dest, inst.jumps_to_next));
+		else
+			result.push_back(Instruction(final_notation, inputs, outputs,
+				inst.is_reg_to_reg_assign, {}, inst.jumps_to_next));
+	}
+}
+
 
 void Assembler::translateExpression(IR::Expression expression,
 	IR::AbstractFrame *frame, IR::VirtualRegister* value_storage, 
@@ -331,23 +621,37 @@ void Assembler::translateExpression(IR::Expression expression,
 		translateStatement(statexp->stat, frame, result);
 		translateExpression(statexp->exp, frame, value_storage, result);
 	} else {
-		InstructionTemplate *templ;
-		FindExpressionTemplate(expression, templ);
-		if (templ == NULL)
+		std::shared_ptr<Template> templ = FindExpressionTemplate(expression);
+		if (! templ)
 			Error::fatalError("Failed to find expression template");
 		
 		std::list<TemplateChildInfo> children;
-		IR::Expression template_instantiation;
 		assert(templ->code->kind == IR::CODE_EXPRESSION);
 		int nodecount = 0;
 		MatchExpression(expression,
 			std::static_pointer_cast<IR::ExpressionCode>(templ->code)->exp,
-			nodecount, &children, &template_instantiation);
+			nodecount, &children);
 		for (TemplateChildInfo &child: children)
-			translateExpression(child.expression, frame, child.value_storage,
-				result);
-		translateExpressionTemplate(template_instantiation, frame, value_storage,
-			children, result);
+			if (child.value_storage != NULL)
+				translateExpression(child.expression, frame, child.value_storage,
+					result);
+		
+		std::list<IR::Expression> immediate_arguments;
+		if (expression->kind == IR::IR_FUN_CALL) {
+			for (IR::Expression arg: IR::ToCallExpression(expression)->arguments) {
+				IR::VirtualRegister *arg_reg = IRenvironment->addRegister();
+				translateExpression(arg, frame, arg_reg, result);
+				immediate_arguments.push_back(
+					std::make_shared<IR::RegisterExpression>(arg_reg));
+			}
+			placeCallArguments(immediate_arguments, frame,
+				IR::ToCallExpression(expression)->callee_parentfp, result);
+		}
+		templ->implement(result, children, value_storage);
+		if (expression->kind == IR::IR_FUN_CALL)
+			removeCallArguments(immediate_arguments, result);
+		//translateExpressionTemplate(template_instantiation, frame, value_storage,
+		//	children, result);
 	}
 }
 
@@ -362,23 +666,35 @@ void Assembler::translateStatement(IR::Statement statement,
 		translateExpression(IR::ToExpressionStatement(statement)->exp, 
 			frame, NULL, result);
 	} else {
-		InstructionTemplate *templ;
-		FindStatementTemplate(statement, templ);
-		if (templ == NULL)
+		std::shared_ptr<Template> templ = FindStatementTemplate(statement);
+		if (! templ)
 			Error::fatalError("Failed to find statement template");
 		
 		std::list<TemplateChildInfo> children;
-		IR::Statement template_instantiation;
 		assert(templ->code->kind == IR::CODE_STATEMENT);
 		int nodecount = 0;
 		MatchStatement(statement,
 			std::static_pointer_cast<IR::StatementCode>(templ->code)->statm,
-			nodecount, &children, &template_instantiation);
-		for (TemplateChildInfo &child: children) {
-			translateExpression(child.expression, frame, child.value_storage,
-				result);
+			nodecount, &children);
+		for (TemplateChildInfo &child: children)
+			if (child.value_storage != NULL)
+				translateExpression(child.expression, frame, child.value_storage,
+					result);
+				
+		std::vector<IR::Label *> extra_dest;
+		if (statement->kind == IR::IR_JUMP) {
+			std::list<IR::Label *> labellist =
+				IR::ToJumpStatement(statement)->possible_results;
+			extra_dest.resize(labellist.size());
+			int i = 0;
+			for (IR::Label *label: labellist)
+				extra_dest[i++] = label;
+		} else if (statement->kind == IR::IR_COND_JUMP) {
+			extra_dest.push_back(IR::ToCondJumpStatement(statement)->true_dest);
 		}
-		translateStatementTemplate(template_instantiation, children, result);
+			
+		templ->implement(result, children, NULL, extra_dest);
+		//translateStatementTemplate(template_instantiation, children, result);
 		if (statement->kind == IR::IR_LABEL)
 			result.back().label = IR::ToLabelPlacementStatement(statement)->label;
 	}
@@ -387,7 +703,7 @@ void Assembler::translateStatement(IR::Statement statement,
 IR::VirtualRegister *MapRegister(const IR::RegisterMap *register_map,
 	IR::VirtualRegister *reg)
 {
-	if ((register_map != NULL) && (register_map->size() > reg->getIndex()) &&
+	if ((register_map != NULL) && (register_map->size() > (unsigned)reg->getIndex()) &&
 		((*register_map)[reg->getIndex()] != NULL))
 		return (*register_map)[reg->getIndex()];
 	else
@@ -422,7 +738,7 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 				len += 4;
 			}
 		
-			int i = 0;
+			unsigned i = 0;
 			while (i < s.size()) {
 				if (s[i] != '&') {
 					fputc(s[i], output);
@@ -432,7 +748,7 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 					i++;
 					if (i+1 < s.size()) {
 						int arg_index = s[i+1] - '0';
-						const std::vector<IR::VirtualRegister *> *registers;
+						const std::vector<IR::VirtualRegister *> *registers = NULL;
 						
 						if (s[i] == 'i')
 							registers = &inst.inputs;
@@ -441,7 +757,7 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 						else
 							Error::fatalError("Misformed instruction");
 						
-						if (arg_index > (*registers).size())
+						if ((unsigned)arg_index > (*registers).size())
 							Error::fatalError("Misformed instruction");
 						else {
 							IR::VirtualRegister *reg =
@@ -462,13 +778,13 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 			if (inst.inputs.size() > 0) {
 				use_reg = true;
 				fprintf(output, "<- ");
-				for (int i = 0; i < inst.inputs.size(); i++)
+				for (unsigned i = 0; i < inst.inputs.size(); i++)
 					fprintf(output, "%s ", inst.inputs[i]->getName().c_str());
 			}
 			if (inst.outputs.size() > 0) {
 				use_reg = true;
 				fprintf(output, "-> ");
-				for (int i = 0; i < inst.outputs.size(); i++)
+				for (unsigned  i = 0; i < inst.outputs.size(); i++)
 					fprintf(output, "%s ", inst.outputs[i]->getName().c_str());
 			}
 			if (! use_reg)

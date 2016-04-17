@@ -284,6 +284,7 @@ bool VariablesAccessInfo::isAccessedByAddress(Syntax::Tree definition)
 		default:
 			Error::fatalError("Variable access checked for non-variable declaration",
 				definition->linenumber);
+			id = -1;
 	}
 	return impl->var_info.lookup(id) != NULL;
 }

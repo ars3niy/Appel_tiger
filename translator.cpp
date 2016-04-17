@@ -16,7 +16,7 @@ private:
 	std::list<Type*> types;
 	LayeredMap typenames;
 	std::list<ForwardReferenceType *> unknown_types;
-	Type *int_type, *looped_int, *string_type, *error_type, *void_type, *nil_type;
+	Type int_type, looped_int, string_type, error_type, void_type, nil_type;
 	IdTracker id_provider;
 	IR::AbstractFrameManager *framemanager;
 	
@@ -26,13 +26,13 @@ public:
 	TypesEnvironment(IR::AbstractFrameManager *_framemanager);
 	~TypesEnvironment();
 	
-	Type *getIntType() {return int_type;}
-	Type *getLoopIntType() {return looped_int;}
-	Type *getStringType() {return string_type;}
-	Type *getErrorType() {return error_type;}
-	Type *getVoidType() {return void_type;}
-	Type *getNilType() {return nil_type;}
-	Type *getPointerType() {return string_type;}
+	Type *getIntType() {return &int_type;}
+	Type *getLoopIntType() {return &looped_int;}
+	Type *getStringType() {return &string_type;}
+	Type *getErrorType() {return &error_type;}
+	Type *getVoidType() {return &void_type;}
+	Type *getNilType() {return &nil_type;}
+	Type *getPointerType() {return &string_type;}
 	Type *getType(Syntax::Tree definition, bool allow_forward_references);
 	
 	void newLayer() {typenames.newLayer();}
@@ -127,36 +127,23 @@ public:
 		bool expect_comparison);
 };
 
-TypesEnvironment::TypesEnvironment(IR::AbstractFrameManager *_framemanager)
+TypesEnvironment::TypesEnvironment(IR::AbstractFrameManager *_framemanager) :
+	int_type(TYPE_INT),
+	looped_int(TYPE_INT),
+	string_type(TYPE_STRING),
+	error_type(TYPE_ERROR),
+	void_type(TYPE_VOID),
+	nil_type(TYPE_NIL)
 {
 	framemanager = _framemanager;
-	int_type = new Type(TYPE_INT);
-	looped_int = new Type(TYPE_INT);
-	looped_int->is_loop_variable = true;
-	string_type = new Type(TYPE_STRING);
-	nil_type = new Type(TYPE_NIL);
-	void_type = new Type(TYPE_VOID);
-	error_type = new Type(TYPE_ERROR);
 	
-	types.push_back(int_type);
-	types.push_back(string_type);
-	types.push_back(nil_type);
-	types.push_back(void_type);
-	types.push_back(error_type);
-	
-	typenames.add("int", int_type);
-	typenames.add("string", string_type);
+	looped_int.is_loop_variable = true;
+	typenames.add("int", &int_type);
+	typenames.add("string", &string_type);
 }
 
 TypesEnvironment::~TypesEnvironment()
 {
-	delete int_type;
-	delete looped_int;
-	delete string_type;
-	delete nil_type;
-	delete void_type;
-	delete error_type;
-	
 	for (Type *t: types)
 		delete t;
 }
@@ -205,7 +192,7 @@ Type *TypesEnvironment::getType(Syntax::Tree definition,
 				if (! allow_forward_references) {
 					Error::error(std::string("Undefined type ") +
 						std::static_pointer_cast<Syntax::Identifier>(definition)->name);
-					return error_type;
+					return &error_type;
 				}
 				type = new ForwardReferenceType(identifier, definition);
 				unknown_types.push_back((ForwardReferenceType *)type);
@@ -217,6 +204,7 @@ Type *TypesEnvironment::getType(Syntax::Tree definition,
 			Error::fatalError("TypesEnvironment::createComplexType got not a type definition",
 				definition->linenumber);
 	}
+	return NULL;
 }
 
 void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iterator begin,
@@ -251,7 +239,7 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 		if (t->meaning == NULL) {
 			Error::error(std::string("Type not defined in this scope: ") + t->name,
 						 t->reference_position->linenumber);
-			t->meaning = error_type;
+			t->meaning = &error_type;
 		}
 	}
 		
@@ -266,7 +254,7 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 					std::string(" being defined as ") + 
 					next->name + " creates a circular reference",
 					current->reference_position->linenumber);
-				current->meaning = error_type;
+				current->meaning = &error_type;
 				break;
 			}
 			current = next;
@@ -417,19 +405,20 @@ bool CheckAssignmentTypes(Type *left, Type *right)
 			return right->basetype == left->basetype;
 		case TYPE_ARRAY:
 			return (right->basetype == left->basetype) &&
-				((ArrayType *)left)->id ==
-				((ArrayType *)right)->id;
+				(((ArrayType *)left)->id ==
+				((ArrayType *)right)->id);
 		case TYPE_RECORD:
 			return 
 				(right->basetype == TYPE_NIL) ||
-				(right->basetype == left->basetype) &&
-				((RecordType *)left)->id ==
-				((RecordType *)right)->id;
+				((right->basetype == left->basetype) &&
+				(((RecordType *)left)->id ==
+				((RecordType *)right)->id));
 		case TYPE_ERROR:
 			return true;
 		default:
 			Error::fatalError(std::string("Not supposed to assign to type ") + TypeToStr(left));
 	}
+	return false;
 }
 
 void TranslatorPrivate::processVariableDeclaration(
@@ -690,11 +679,14 @@ bool CheckComparisonTypes(Type *left, Type *right)
 				(((ArrayType *)left)->id == ((ArrayType *)right)->id);
 		case TYPE_RECORD:
 			return (right->basetype == TYPE_NIL) ||
-				(right->basetype == left->basetype) &&
-				(((RecordType *)left)->id == ((RecordType *)right)->id);
+				((right->basetype == left->basetype) &&
+				(((RecordType *)left)->id == ((RecordType *)right)->id));
 		case TYPE_NIL:
 			return right->basetype == TYPE_RECORD;
+		default:
+			return false;
 	}
+	return false;
 }
 
 Type *TranslatorPrivate::getOpResultType(Type *leftType, Type *rightType,
@@ -747,6 +739,7 @@ Type *TranslatorPrivate::getOpResultType(Type *leftType, Type *rightType,
 			Error::fatalError("I forgot to handle this operation",
 				expression->left->linenumber);
 	}
+	return NULL;
 }
 
 IR::BinaryOp getIRBinaryOp(yytokentype op_token)
@@ -760,6 +753,8 @@ IR::BinaryOp getIRBinaryOp(yytokentype op_token)
 			return IR::OP_MUL;
 		case SYM_SLASH:
 			return IR::OP_DIV;
+		default:
+			return IR::OP_SHAR;
 	}
 }
 
@@ -778,7 +773,10 @@ IR::ComparisonOp getIRComparisonOp(yytokentype op_token)
 			return IR::OP_GREATER;
 		case SYM_GREATEQUAL:
 			return IR::OP_GREATEQUAL;
+		default:
+			return IR::OP_UGREATEQUAL;
 	}
+	return IR::OP_UGREATEQUAL;
 }
 
 void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
