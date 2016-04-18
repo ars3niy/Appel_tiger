@@ -5,7 +5,7 @@ namespace IR {
 void VarLocation::prespillRegister()
 {
 	if (reg != NULL)
-		reg->prespill(owner_frame->createMemoryVariable(
+		reg->prespill(owner_frame->addMemoryVariable(
 			".store." + reg->getName(), size));
 }
 
@@ -95,6 +95,13 @@ Expression VarLocation::createCode(AbstractFrame *calling_frame)
 			calling_frame->getFramePointer());
 	}
 	assert(result != NULL);
+	return result;
+}
+
+VarLocation *AbstractFrame::addMemoryVariable(const std::string &name, int size)
+{
+	VarLocation *result = createMemoryVariable(name, size);
+	variables.push_back(result);
 	return result;
 }
 
@@ -224,6 +231,19 @@ AbstractFrame::~AbstractFrame()
 	for (VarLocation *var: parameters)
 		delete var;
 	delete parent_fp_parameter;
+}
+
+AbstractFrame *AbstractFrameManager::newFrame(AbstractFrame *parent, const std::string &name)
+{
+	AbstractFrame *result = createFrame(parent, name);
+	frames.push_back(result);
+	return result;
+}
+
+AbstractFrameManager::~AbstractFrameManager()
+{
+	for (AbstractFrame *frame: frames)
+		delete frame;
 }
 
 }

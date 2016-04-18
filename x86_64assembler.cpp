@@ -1286,7 +1286,7 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 		}
 	} else {
 		IR::VarLocation *stored_location =
-			frame->createMemoryVariable(".store." + reg->getName(), 8);
+			frame->addMemoryVariable(".store." + reg->getName(), 8);
 		IR::Expression storage_exp = IR::ToMemoryExpression(
 			stored_location->createCode(stored_location->getOwnerFrame()));
 		

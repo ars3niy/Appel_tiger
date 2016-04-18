@@ -206,6 +206,7 @@ public:
 	TemplateListKind kind;
 	
 	TemplateStorage(TemplateListKind _kind) : kind(_kind) {}
+	virtual ~TemplateStorage() {}
 };
 
 class TemplateList: public TemplateStorage {
@@ -321,6 +322,7 @@ protected:
 		Instructions &result);
 public:
 	Assembler(IR::IREnvironment *ir_env);
+	~Assembler();
 	int findingTime() {return finding_time;}
 	
 	void translateProgram(IR::Statement program, IR::AbstractFrame *frame,

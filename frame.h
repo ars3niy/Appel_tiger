@@ -58,7 +58,7 @@ public:
 		name(_reg->getName()),
 		predefined(_predefined),
 		read_only(false) {}
-
+	
 	/**
 	 * If true, it means that the variable is assigned only once before
 	 * it is ever used. This happens to the register where the parent frame
@@ -79,10 +79,9 @@ protected:
 	virtual VarLocation *createParameter(const std::string &name,
 		int size) = 0;
 	virtual VarLocation *createParentFpParameter(const std::string &name) = 0;
-public:
 	virtual VarLocation *createMemoryVariable(const std::string &name,
 		int size) = 0;
-protected:
+		
 	AbstractFrameManager *framemanager;
 	std::string name;
 	int id;
@@ -96,7 +95,9 @@ private:
 public:
 	AbstractFrame(AbstractFrameManager *_framemanager,
 		const std::string &_name, int _id, AbstractFrame *_parent);
+	virtual ~AbstractFrame();
 	
+	VarLocation *addMemoryVariable(const std::string &name, int size);
 	VarLocation *addVariable(const std::string &name, int size);
 	VarLocation *addParameter(const std::string &name, int size);
 	const std::list<VarLocation *> &getParameters() {return parameters;}
@@ -115,8 +116,6 @@ public:
 	void prespillRegisters(Statement statm, const std::map<int, VarLocation*> &spills);
 	
 	void addFunctionCall() {calls_others = true;}
-	
-	virtual ~AbstractFrame();
 };
 
 class DummyFrame: public AbstractFrame {
@@ -151,9 +150,11 @@ class AbstractFrameManager {
 private:
 	IREnvironment *IR_env;
 	ParentFpHandler *parent_fp_handler;
+	std::list<AbstractFrame *>frames;
+protected:
+	virtual AbstractFrame *createFrame(AbstractFrame *parent, const std::string &name) = 0;
 public:
 	virtual AbstractFrame *rootFrame() = 0;
-	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name) = 0;
 	virtual int getIntSize() = 0;
 	virtual int getPointerSize() = 0;
 	virtual void updateRecordSize(int &size, int field_size) = 0;
@@ -165,7 +166,10 @@ public:
 	
 	AbstractFrameManager(IREnvironment *env) :
 		IR_env(env), parent_fp_handler(NULL) {}
+	~AbstractFrameManager();
 	IREnvironment *getIREnvironment() {return IR_env;}
+	
+	AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name);
 	
 	void setFrameParentFpNotificationHandler(ParentFpHandler *handler)
 	{

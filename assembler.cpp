@@ -63,6 +63,14 @@ Assembler::Assembler(IR::IREnvironment *ir_env)
 	}
 }
 
+Assembler::~Assembler()
+{
+	for (TemplateStorage *storage: expr_templates)
+		delete storage;
+	for (TemplateStorage *storage: statm_templates)
+		delete storage;
+}
+
 std::list<std::shared_ptr<Template> > *Assembler::getTemplatesList(IR::Code code)
 {
 	switch (code->kind) {

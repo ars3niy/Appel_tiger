@@ -3,7 +3,7 @@
 #include <vector>
 #include <stdio.h>
 #include <stdarg.h>
-#include <sys/time.h>
+#include "timer.h"
 
 namespace Optimize {
 
@@ -894,53 +894,33 @@ void PartialRegAllocator::assignColors()
 		colors[coalesced] = colors[getRemaingFromCoalescedGroup(coalesced)];
 }
 
-static int dt(timeval t1, timeval t2)
-{
-	return 1000000*(t2.tv_sec-t1.tv_sec) + (t2.tv_usec-t1.tv_usec);
-}
-
 void PartialRegAllocator::tryColoring()
 {
-	timeval t1;
-	gettimeofday(&t1, NULL);
+	::Timer t;
 	buildGraph();
 	classifyNodes();
-	timeval t2;
-	gettimeofday(&t2, NULL);
-	timer->buildtime += dt(t1, t2);
+	timer->buildtime += t.howMuchMorePassed();
 	
 	do {
 		if (! status.getNodes(S_REMOVABLE).empty()) {
-			timeval t1;
-			gettimeofday(&t1, NULL);
+			t.howMuchMorePassed();
 			remove_one_removable();
-			timeval t2;
-			gettimeofday(&t2, NULL);
-			timer->removetime += dt(t1, t2);
+			timer->removetime += t.howMuchMorePassed();
 		} else if (! status.getMoves(M_COALESCABLE).empty()) {
-			timeval t1;
-			gettimeofday(&t1, NULL);
+			t.howMuchMorePassed();
 			coalesce_one();
-			timeval t2;
-			gettimeofday(&t2, NULL);
-			timer->coalescetime += dt(t1, t2);
+			timer->coalescetime += t.howMuchMorePassed();
 		} else if (! status.getNodes(S_FREEZEABLE).empty()) {
 			debug("================ Freezing phase");
 			printStatus();
-			timeval t1;
-			gettimeofday(&t1, NULL);
+			t.howMuchMorePassed();
 			freezeOne();
-			timeval t2;
-			gettimeofday(&t2, NULL);
-			timer->freezetime += dt(t1, t2);
+			timer->freezetime += t.howMuchMorePassed();
 			debug("================ Freezing done");
 		} else if (! status.getNodes(S_SPILLABLE).empty()) {
-			timeval t1;
-			gettimeofday(&t1, NULL);
+			t.howMuchMorePassed();
 			prespillOne();
-			timeval t2;
-			gettimeofday(&t2, NULL);
-			timer->prespilltime += dt(t1, t2);
+			timer->prespilltime += t.howMuchMorePassed();
 		}
 	} while (
 		! status.getNodes(S_REMOVABLE).empty() ||
@@ -1013,25 +993,18 @@ void AssignRegisters(Asm::Instructions& code,
 	const Intlist *spilled = NULL;
 	
 	do {
-		timeval t0;
-		gettimeofday(&t0, NULL);
+		::Timer t;
 		delete graph;
 		delete liveness;
 		delete allocator;
-		timeval t1;
-		gettimeofday(&t1, NULL);
-		timer.destruct += dt(t0, t1);
+		timer.destruct += t.howMuchMorePassed();
 		graph = new FlowGraph(code, frame->getFramePointer());
-		timeval t2;
-		gettimeofday(&t2, NULL);
-		timer.flowtime += dt(t1, t2);
+		timer.flowtime += t.howMuchMorePassed();
 		liveness = new LivenessInfo(*graph);
-		gettimeofday(&t1, NULL);
-		timer.livenesstime += dt(t2, t1);
+		timer.livenesstime += t.howMuchMorePassed();
 		allocator = new PartialRegAllocator(liveness, machine_registers.size(),
 			frame->getName(), &timer);
-		gettimeofday(&t2, NULL);
-		timer.selfinittime += dt(t1, t2);
+		timer.selfinittime += t.howMuchMorePassed();
 		allocator->debug("%d colors", machine_registers.size());
 		for (unsigned i = 0; i < machine_registers.size(); i++)
 			allocator->debug("%d: %s", i, machine_registers[i]->getName().c_str());
@@ -1041,11 +1014,9 @@ void AssignRegisters(Asm::Instructions& code,
 				allocator->precolor(index, i);
 			}
 		}
-		gettimeofday(&t1, NULL);
-		timer.inittime += dt(t2, t1);
+		timer.inittime += t.howMuchMorePassed();
 		allocator->tryColoring();
-		gettimeofday(&t2, NULL);
-		timer.assigntime += dt(t1, t2);
+		timer.assigntime += t.howMuchMorePassed();
 		spilled = & allocator->getSpilled();
 		colors = & allocator->getColors();
 		
@@ -1054,11 +1025,10 @@ void AssignRegisters(Asm::Instructions& code,
 			allocator->debug("================================ SPILLING AND RESTARTING");
 		}
 		
-		gettimeofday(&t1, NULL);
+		t.howMuchMorePassed();
 		for (int n: *spilled)
 			assembler.spillRegister(frame, code, liveness->virtuals[n]);
-		gettimeofday(&t2, NULL);
-		timer.spilltime += dt(t1, t2);
+		timer.spilltime += t.howMuchMorePassed();
 	} while (! spilled->empty());
 	
 	id_to_machine_map.resize(liveness->getMaxVirtualRegisterId()+1, NULL);

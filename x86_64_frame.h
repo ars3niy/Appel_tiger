@@ -44,7 +44,7 @@ public:
 		return &root_frame;
 	}
 	
-	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name)
+	virtual AbstractFrame *createFrame(AbstractFrame *parent, const std::string &name)
 	{
 		return new X86_64Frame(this, name, framecount++, (X86_64Frame *)parent);
 	}

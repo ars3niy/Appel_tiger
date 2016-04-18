@@ -87,7 +87,8 @@ private:
 	 * elseaction can be NULL for if (if-then-else)-then without outer else
 	 */
 	bool translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condition,
-		Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
+		Syntax::Tree action, Syntax::Tree elseaction, bool converted_from_logic,
+		IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateIf(Syntax::If *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
@@ -385,6 +386,7 @@ TranslatorPrivate::~TranslatorPrivate()
 {
 	delete undefined_variable;
 	delete type_environment;
+	delete IRtransformer;
 }
 
 void TranslatorPrivate::newLayer()
@@ -984,7 +986,8 @@ void TranslatorPrivate::translateArrayInstantiation(
  * elseaction can be NULL for if-then without else
  */
 bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condition,
-	Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
+	Syntax::Tree action, Syntax::Tree elseaction, bool converted_from_logic,
+	IR::Code &translated,
 	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	Type *conditionType;
@@ -1047,10 +1050,10 @@ bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condit
 	IR::Code action_code, elseaction_code = nullptr;
 	Type *action_type, *elseaction_type = NULL;
 	translateExpression(action, action_code, action_type, last_loop_exit,
-		currentFrame, false);
+		currentFrame, converted_from_logic);
 	if (elseaction)
 		translateExpression(elseaction, elseaction_code, elseaction_type, last_loop_exit,
-			currentFrame, false);
+			currentFrame, converted_from_logic);
 	if (! elseaction)
 		type = type_environment->getVoidType();
 	else {
@@ -1119,7 +1122,7 @@ void TranslatorPrivate::translateIf(
 	type = type_environment->getVoidType();
 	if (expression->condition->type == Syntax::IFELSE) {
 		if (translateIf_IfElse_Then_MaybeElse((Syntax::IfElse *)expression->condition.get(),
-				expression->action, nullptr, translated, type,
+				expression->action, nullptr, false, translated, type,
 				last_loop_exit, currentFrame))
 			return;
 	}
@@ -1157,7 +1160,8 @@ void TranslatorPrivate::translateIfElse(
 {
 	if (expression->condition->type == Syntax::IFELSE) {
 		if (translateIf_IfElse_Then_MaybeElse((Syntax::IfElse *)expression->condition.get(),
-				expression->action, expression->elseaction, translated, type,
+				expression->action, expression->elseaction,
+				expression->converted_from_logic, translated, type,
 				last_loop_exit, currentFrame))
 			return;
 	}

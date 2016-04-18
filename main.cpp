@@ -15,15 +15,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <sys/time.h>
+#include "timer.h"
 
 extern "C" {
 extern FILE *yyin;
-}
-
-static int dt(timeval t1, timeval t2)
-{
-	return 1000000*(t2.tv_sec-t1.tv_sec) + (t2.tv_usec-t1.tv_usec);
 }
 
 void MergeVirtualRegisterMaps(IR::RegisterMap &merge_to,
@@ -95,13 +90,10 @@ void TranslateProgram(bool assemble)
 	IR::AbstractFrame *body_frame;
 	//Semantic::Type *type;
 	IR::Statement program_body;
-	timeval t1;
-	gettimeofday(&t1, NULL);
+	Timer timer;
 	translator.translateProgram(parsed_progrom, program_body, body_frame);
 	parsed_progrom = nullptr;
-	timeval t2;
-	gettimeofday(&t2, NULL);
-	printf("Translate to IR: %d\n", dt(t1, t2));
+	timer.print("Translate to IR");
 	
 	if (Error::getErrorCount() != 0)
 		return;
@@ -116,8 +108,7 @@ void TranslateProgram(bool assemble)
 	
 	translator.canonicalizeFunctions();
 	translator.canonicalizeProgram(program_body);
-	gettimeofday(&t1, NULL);
-	printf("Canonicalize: %d\n", dt(t2, t1));
+	timer.print("Canonicalize");
 	
 #ifdef DEBUG
 	f = fopen("canonical", "w");
@@ -149,9 +140,8 @@ void TranslateProgram(bool assemble)
 		}
 	code.push_back(Asm::Instructions());
 	assembler.translateProgram(program_body, body_frame, code.back());
-	gettimeofday(&t2, NULL);
-	printf("Translate to assembler: %d\n", dt(t1, t2));
-	printf("Template finding: %d\n", assembler.findingTime());
+	timer.print("Translate to assembler");
+	timer.print("Template finding", assembler.findingTime());
 #ifdef DEBUG
 	//Optimize::PrintLivenessInfo(f, code.back(), body_frame);
 	fclose(f);
@@ -181,13 +171,10 @@ void TranslateProgram(bool assemble)
 		
 		MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
 		
-		timeval t1;
-		gettimeofday(&t1, NULL);
+		Timer frametimer;
 		assembler.implementFunctionFrameSize(chunk.funclabel,
 			chunk.frame, *chunk.code);
-		timeval t2;
-		gettimeofday(&t2, NULL);
-		frametime += dt(t1, t2);
+		frametime += frametimer.howMuchMorePassed();
 	}
 	
 	IR::RegisterMap vreg_map;
@@ -198,22 +185,21 @@ void TranslateProgram(bool assemble)
 		vreg_map,
 		alloctime);
 	MergeVirtualRegisterMaps(virtual_register_map, vreg_map);
-	gettimeofday(&t1, NULL);
+	timer.howMuchMorePassed();
 	assembler.implementProgramFrameSize(body_frame, code.back());
-	gettimeofday(&t2, NULL);
-	frametime += dt(t1, t2);
-	printf("Allocator destroy: %d\n", alloctime.destruct);
-	printf("Allocator init flow: %d\n", alloctime.flowtime);
-	printf("Allocator init liveness: %d\n", alloctime.livenesstime);
-	printf("Allocator init allocator: %d\n", alloctime.selfinittime);
-	printf("Allocator build: %d\n", alloctime.buildtime);
-	printf("Allocator remove: %d\n", alloctime.removetime);
-	printf("Allocator coalesce: %d\n", alloctime.coalescetime);
-	printf("Allocator freeze: %d\n", alloctime.freezetime);
-	printf("Allocator prespill: %d\n", alloctime.prespilltime);
-	printf("Allocator assign total: %d\n", alloctime.assigntime);
-	printf("Allocator spill: %d\n", alloctime.spilltime);
-	printf("Inserting frame size: %d\n", frametime);
+	frametime += timer.howMuchMorePassed();
+	timer.print("Allocator destroy", alloctime.destruct);
+	timer.print("Allocator init flow", alloctime.flowtime);
+	timer.print("Allocator init liveness", alloctime.livenesstime);
+	timer.print("Allocator init allocator", alloctime.selfinittime);
+	timer.print("Allocator build", alloctime.buildtime);
+	timer.print("Allocator remove", alloctime.removetime);
+	timer.print("Allocator coalesce", alloctime.coalescetime);
+	timer.print("Allocator freeze", alloctime.freezetime);
+	timer.print("Allocator prespill", alloctime.prespilltime);
+	timer.print("Allocator assign total", alloctime.assigntime);
+	timer.print("Allocator spill", alloctime.spilltime);
+	timer.print("Inserting frame size", frametime);
 	
 	std::string basename = StripExtension(inputname);
 	std::string asm_name = basename + ".s";
@@ -275,12 +261,13 @@ int main(int argc, char **argv)
 		       "  -c           Compile but do not link\n"
 		       "  -S           Translate to assemble but do not compile or link\n"
 			   "  -C COMMAND   Specify C compiler (default: cc)\n"
-			   "  -o FILENAME  Specify executable file name (default: first input without extension)\n";
+			   "  -o FILENAME  Specify executable file name (default: first input without extension)\n"
+			   "  -t           Poor man's profiler\n";
 	int opt;
 	std::string c_compiler = "cc";
 	std::string out_name = "";
 	
-	while ((opt = getopt(argc, argv, "cSC:o:")) >= 0) {
+	while ((opt = getopt(argc, argv, "cSC:o:t")) >= 0) {
 		switch (opt) {
 			case 'c':
 				mode = MODE_COMPILE;
@@ -293,6 +280,9 @@ int main(int argc, char **argv)
 				break;
 			case 'o':
 				out_name = optarg;
+				break;
+			case 't':
+				print_timing = true;
 				break;
 			default:
 				fputs(USAGE, stdout);
@@ -328,13 +318,10 @@ int main(int argc, char **argv)
 					Error::global_error("Cannot open " + inputname + ": " +
 						strerror(errno));
 				else {
+					Timer timer;
 					yyparse();
-					timeval t1;
-					gettimeofday(&t1, NULL);
 					fclose(yyin);
-					timeval t2;
-					gettimeofday(&t2, NULL);
-					printf("Parse: %d\n", dt(t1, t2));
+					timer.print("Parse");
 					TranslateProgram(mode != MODE_TRANSLATE);
 					objfiles_translated.push_back(obj_name);
 					objfiles_input.push_back(obj_name);
