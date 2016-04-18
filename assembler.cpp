@@ -749,16 +749,6 @@ void Assembler::translateStatement(IR::Statement statement,
 	}
 }
 
-IR::VirtualRegister *MapRegister(const IR::RegisterMap *register_map,
-	IR::VirtualRegister *reg)
-{
-	if ((register_map != NULL) && (register_map->size() > (unsigned)reg->getIndex()) &&
-		((*register_map)[reg->getIndex()] != NULL))
-		return (*register_map)[reg->getIndex()];
-	else
-		return reg;
-}
-
 void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 	const IR::RegisterMap *register_map)
 {
@@ -774,13 +764,6 @@ void Assembler::outputCode(FILE* output, const std::list<Instructions>& code,
 			line++;
 			const std::string &s = inst.notation;
 			
-			if (inst.is_reg_to_reg_assign) {
-				assert(inst.inputs.size() == 1);
-				assert(inst.outputs.size() == 1);
-				if (MapRegister(register_map, inst.inputs[0])->getIndex() ==
-						MapRegister(register_map, inst.outputs[0])->getIndex())
-					continue;
-			}
 			int len = 0;
 			if ((s.size() > 0) && (s[s.size()-1] != ':')) {
 				fputs("    ", output);

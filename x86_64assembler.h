@@ -69,6 +69,8 @@ public:
 		{return available_registers;}
 	virtual void spillRegister(IR::AbstractFrame *frame, Instructions &code,
 		IR::VirtualRegister *reg);
+	virtual bool canReverseCondJump(const Instruction &jump) const;
+	virtual void reverseCondJump(Instruction &jump, IR::Label *new_destination) const;
 
 	X86_64Assembler(IR::IREnvironment *ir_env);
 };

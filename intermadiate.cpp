@@ -72,6 +72,17 @@ Label *LabelFactory::addLabel(const std::string &name)
 	return &(labels.back());
 }
 
+
+VirtualRegister *MapRegister(const RegisterMap *register_map,
+	VirtualRegister *reg)
+{
+	if ((register_map != NULL) && (register_map->size() > (unsigned)reg->getIndex()) &&
+		((*register_map)[reg->getIndex()] != NULL))
+		return (*register_map)[reg->getIndex()];
+	else
+		return reg;
+}
+
 VirtualRegister *RegisterFactory::addRegister()
 {
 	debug("Adding new unnamed register #%d", registers.size());

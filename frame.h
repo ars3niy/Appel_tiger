@@ -9,60 +9,101 @@ namespace IR {
 class AbstractFrame;
 class AbstractFrameManager;
 
-class AbstractVarLocation {
-public:
-	AbstractFrame *owner_frame;
-	
-	AbstractVarLocation(AbstractFrame *_frame) : owner_frame(_frame) {}
-	virtual ~AbstractVarLocation() {}
-	virtual IR::Expression createCode(AbstractFrame *currentFrame) = 0;
-	virtual bool isRegister() = 0;
-	virtual void prespillRegister(AbstractVarLocation *location) = 0;
-};
-
-class DummyVarLocation: public AbstractVarLocation {
-public:
-	DummyVarLocation(AbstractFrame *frame) : AbstractVarLocation(frame) {}
-	virtual IR::Expression createCode(AbstractFrame *currentFrame) {return nullptr;}
-	virtual bool isRegister() {return true;}
-	virtual void prespillRegister(AbstractVarLocation *) {}
-};
-
-class AbstractFrame {
+class VarLocation {
 private:
-	virtual AbstractVarLocation *createVariable(const std::string &name,
-		int size, bool cant_be_register) = 0;
-	virtual AbstractVarLocation *createParameter(const std::string &name,
-		int size) = 0;
+	AbstractFrame *owner_frame;
+	/**
+	 * null if this variable is in the memory from the beginning
+	 * 
+	 * If the register is prespilled, the variable will be inconsistently used
+	 * sometimes as a register, sometimes a memory location. The resolution is:
+	 * if the register is read only, keep the duality and just copy from the
+	 * register to memory in the beginning of the function. It can still get
+	 * spilled later by the register allocator, in which case that assignment to
+	 * memory becomes assignment of a memory location to itself. The redundant
+	 * assignment can be removed by a speciall read-only prespilled-spilling
+	 * logic of the assembler.
+	 * If the register is not read-only, it will be actually spilled for sure
+	 * and only ever used as a memory location. 
+	 */
+	VirtualRegister *reg;
+	int offset;
+	int size;
+	std::string name;
+	/**
+	 * True for function parameters including the parent frame pointer parameter,
+	 * meaning that the variable holds a meaningful value before our code does
+	 * anything
+	 */
+	bool predefined;
+	/**
+	 * If true, it means that the variable is assigned only once before
+	 * it is ever used. This happens to the register where the parent frame
+	 * pointer parameter is moved to from its original register, which exists
+	 * is the parameter was passed in a register.
+	 */
+	bool read_only;
 public:
-	struct ParameterMovement {
-		AbstractVarLocation *parameter;
-		AbstractVarLocation *where_store;
-	};
+	VarLocation(AbstractFrame *_frame, int _size, int _offset,
+			const std::string &_name, bool _predefined) :
+		owner_frame(_frame),
+		reg(NULL),
+		offset(_offset),
+		size(_size),
+		name(_name),
+		predefined(_predefined),
+		read_only(false) {}
+		
+	VarLocation(AbstractFrame *_frame, int _size, IR::VirtualRegister *_reg,
+			bool _predefined) :
+		owner_frame(_frame),
+		reg(_reg),
+		offset(-1),
+		size(_size),
+		name(_reg->getName()),
+		predefined(_predefined),
+		read_only(false) {}
+
+	bool isPredefined() {return predefined;}
+	bool isRegister() {return reg != NULL;}
+	IR::Expression createCode(AbstractFrame *currentFrame);
+	void prespillRegister(VarLocation *location);
+	AbstractFrame *getOwnerFrame() {return owner_frame;}
+};
+
+class AbstractFrame: public DebugPrinter {
+protected:
+	virtual VarLocation *createParameter(const std::string &name,
+		int size) = 0;
+	virtual VarLocation *createParentFpParameter(const std::string &name) = 0;
+public:
+	virtual VarLocation *createMemoryVariable(const std::string &name,
+		int size) = 0;
 protected:
 	AbstractFrameManager *framemanager;
 	std::string name;
 	int id;
 	AbstractFrame *parent;
-	AbstractVarLocation *parent_fp_parameter;
-	AbstractVarLocation *parent_fp_memory_storage;
-	std::list<AbstractVarLocation *>variables;
-	std::list<AbstractVarLocation *>parameters;
-	std::list<ParameterMovement> parameter_store_prologue;
 	bool calls_others;
+private:
+	std::list<VarLocation *>variables;
+	std::list<VarLocation *>parameters;
+	VarLocation *parent_fp_parameter;
+	VarLocation *framepointer;
 public:
 	AbstractFrame(AbstractFrameManager *_framemanager,
 		const std::string &_name, int _id, AbstractFrame *_parent) :
+		DebugPrinter("translator.log"),
 		framemanager(_framemanager), name(_name), id(_id), parent(_parent),
 		parent_fp_parameter(NULL), parent_fp_memory_storage(NULL),
 		calls_others(false)
 	{}
 	
-	AbstractVarLocation *addVariable(const std::string &name,
+	VarLocation *addVariable(const std::string &name,
 		int size, bool cant_be_register);
-	AbstractVarLocation *addParameter(const std::string &name,
+	VarLocation *addParameter(const std::string &name,
 		int size, bool cant_be_register);
-	const std::list<AbstractVarLocation *> &getParameters()
+	const std::list<VarLocation *> &getParameters()
 		{return parameters;}
 	const std::list<ParameterMovement> &getMovementPrologue()
 		{return parameter_store_prologue;}
@@ -72,12 +113,12 @@ public:
 	int getId() {return id;}
 	AbstractFrame *getParent() {return parent;}
 	
-	AbstractVarLocation *getParentFpForUs()
+	VarLocation *getParentFpForUs()
 	{
 		return parent_fp_parameter;
 	}
 	
-	AbstractVarLocation *getParentFpForChildren()
+	VarLocation *getParentFpForChildren()
 	{
 		return parent_fp_memory_storage;
 	}
@@ -89,12 +130,12 @@ public:
 
 class DummyFrame: public AbstractFrame {
 private:
-	virtual AbstractVarLocation *createVariable(const std::string &name,
+	virtual VarLocation *createVariable(const std::string &name,
 		int size, bool cant_be_register)
 	{
-		return new DummyVarLocation(this);
+		return new VarLocation(this, size, 0, name, false);
 	}
-	virtual AbstractVarLocation *createParameter(const std::string &name,
+	virtual VarLocation *createParameter(const std::string &name,
 		int size)
 	{
 		return new DummyVarLocation(this);

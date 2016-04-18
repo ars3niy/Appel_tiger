@@ -83,17 +83,16 @@ private:
 	void translateArrayInstantiation(Syntax::ArrayInstantiation *expression,
 		IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 		IR::AbstractFrame *currentFrame);
-	bool translateIf_IfElse_Then(Syntax::IfElse *condition,
-		Syntax::Tree action, IR::Code &translated,
-		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
-	bool translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
+	/**
+	 * elseaction can be NULL for if (if-then-else)-then without outer else
+	 */
+	bool translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condition,
 		Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateIf(Syntax::If *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateIfElse(Syntax::IfElse *expression, IR::Code &translated,
-		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
-		bool expect_comparison_in_actions);
+		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateWhile(Syntax::While *expression, IR::Code &translated,
 		Type *&type, IR::AbstractFrame *currentFrame);
 	void translateFor(std::shared_ptr<Syntax::For> expression, IR::Code &translated,
@@ -783,20 +782,6 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 	IR::Code &translated, Type *&type, IR::Label *last_loop_exit,
 	IR::AbstractFrame *currentFrame)
 {
-	if (expression->operation == SYM_AND) {
-		Syntax::IfElse replacement(expression->left,
-			expression->right, std::make_shared<Syntax::IntValue>(0));
-		translateIfElse(&replacement, translated, type, last_loop_exit,
-			currentFrame, true);
-		return;
-	} else if (expression->operation == SYM_OR) {
-		Syntax::IfElse replacement(expression->left,
-			std::make_shared<Syntax::IntValue>(1), expression->right);
-		translateIfElse(&replacement, translated, type, last_loop_exit,
-			currentFrame, true);
-		return;
-	}
-	
 	IR::Code left, right;
 	Type *leftType, *rightType;
 	translateExpression(expression->left, left, leftType, last_loop_exit, currentFrame, true);
@@ -981,12 +966,136 @@ void TranslatorPrivate::translateArrayInstantiation(
 		translated = ErrorPlaceholderCode();
 }
 
-bool TranslatorPrivate::translateIf_IfElse_Then(Syntax::IfElse *condition,
-	Syntax::Tree action, IR::Code &translated,
-	IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
+/**
+ * elseaction can be NULL for if-then without else
+ */
+bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condition,
+	Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
+	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
-	Error::warning("Suboptimal implementation of nested if's", condition->linenumber);
-	return false;
+	Type *conditionType;
+	IR::Code condition_code;
+	translateExpression(condition->condition, condition_code, conditionType, last_loop_exit,
+		currentFrame, true);
+	if (! IsInt(conditionType)) {
+		if (condition->converted_from_logic)
+			Error::error("Logical operand not integer", condition->condition->linenumber);
+		else
+			Error::error("If condition not integer", condition->condition->linenumber);
+		return true;
+	}
+	Type *subcondition_type;
+	IR::Code subcondition1_code;
+	translateExpression(condition->action, subcondition1_code, subcondition_type,
+		last_loop_exit, currentFrame, true);
+	if (! IsInt(subcondition_type)) {
+		if (condition->converted_from_logic)
+			Error::error("Logical operand not integer", condition->action->linenumber);
+		else
+			Error::error("If condition not integer", condition->action->linenumber);
+		return true;
+	}
+	IR::Code subcondition2_code;
+	translateExpression(condition->elseaction, subcondition2_code, subcondition_type,
+		last_loop_exit, currentFrame, true);
+	if (! IsInt(subcondition_type)) {
+		if (condition->converted_from_logic)
+			Error::error("Logical operand not integer", condition->elseaction->linenumber);
+		else
+			Error::error("If condition not integer", condition->elseaction->linenumber);
+		return true;
+	}
+	
+	std::shared_ptr<IR::StatementSequence> sequence =
+		std::make_shared<IR::StatementSequence>();
+	std::list<IR::Label**> replace_true, replace_false;
+	IR::Statement jump_by_outer = IRenvironment->codeToCondJump(
+		condition_code, replace_true, replace_false);
+	IR::Label *outer_true_label = IRenvironment->addLabel();
+	IR::Label *outer_false_label = IRenvironment->addLabel();
+	IR::putLabels(replace_true, replace_false, outer_true_label, outer_false_label);
+
+	sequence->addStatement(jump_by_outer);
+	sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(outer_true_label));
+	//	statement->addStatement(IRenvironment->codeToStatement(action));
+	IR::Statement jump_by_inner = IRenvironment->codeToCondJump(
+		subcondition1_code, replace_true, replace_false);
+	IR::Label *inner_true_label = IRenvironment->addLabel();
+	IR::Label *inner_false_label = IRenvironment->addLabel();
+	IR::putLabels(replace_true, replace_false, inner_true_label, inner_false_label);
+	sequence->addStatement(jump_by_inner);
+	sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(outer_false_label));
+	jump_by_inner = IRenvironment->codeToCondJump(
+		subcondition2_code, replace_true, replace_false);
+	IR::putLabels(replace_true, replace_false, inner_true_label, inner_false_label);
+	sequence->addStatement(jump_by_inner);
+	
+	IR::Code action_code, elseaction_code = nullptr;
+	Type *action_type, *elseaction_type = NULL;
+	translateExpression(action, action_code, action_type, last_loop_exit,
+		currentFrame, false);
+	if (elseaction)
+		translateExpression(elseaction, elseaction_code, elseaction_type, last_loop_exit,
+			currentFrame, false);
+	if (! elseaction)
+		type = type_environment->getVoidType();
+	else {
+		if (((action_type->basetype == TYPE_VOID) && (elseaction_type->basetype == TYPE_VOID)) ||
+				CheckComparisonTypes(action_type, elseaction_type)) {
+			if (conditionType->basetype == TYPE_ERROR)
+				action_type = type_environment->getErrorType();
+			else if (action_type->basetype == TYPE_NIL)
+				type = elseaction_type;
+			else
+				type = action_type;
+		} else {
+			Error::error("Incompatible or improper types for then and else",
+				elseaction->linenumber);
+			type = type_environment->getErrorType();
+		}
+	}
+	if (type->basetype == TYPE_ERROR) {
+		translated = ErrorPlaceholderCode();
+		return true;
+	}
+	
+	sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(inner_true_label));
+	IR::VirtualRegister *value_storage;
+	if (type->basetype != TYPE_VOID) {
+		value_storage = IRenvironment->addRegister();
+		sequence->addStatement(std::make_shared<IR::MoveStatement>(
+			std::make_shared<IR::RegisterExpression>(value_storage),
+			IRenvironment->codeToExpression(action_code)));
+	} else
+		sequence->addStatement(IRenvironment->codeToStatement(action_code));
+
+	IR::Label *finish_label = NULL;
+	if (elseaction) {
+		finish_label = IRenvironment->addLabel();
+		sequence->addStatement(std::make_shared<IR::JumpStatement>(
+			std::make_shared<IR::LabelAddressExpression>(finish_label), finish_label));
+	}
+	sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(inner_false_label));
+	if (elseaction) {
+		if (type->basetype != TYPE_VOID)
+			sequence->addStatement(std::make_shared<IR::MoveStatement>(
+				std::make_shared<IR::RegisterExpression>(value_storage),
+				IRenvironment->codeToExpression(elseaction_code)));
+		else
+			sequence->addStatement(IRenvironment->codeToStatement(elseaction_code));
+		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(finish_label));
+	}
+
+	if (type->basetype == TYPE_VOID) {
+		translated = std::make_shared<IR::StatementCode>(sequence);
+	} else {
+		translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::StatExpSequence>(
+			sequence, std::make_shared<IR::RegisterExpression>(value_storage)));
+	}
+	return true;
+	//if ((actionType->basetype != TYPE_VOID) && (actionType->basetype != TYPE_ERROR))
+	//	Error::error("Body of if-then statement is not valueless", expression->action->linenumber);
+	
 }
 
 void TranslatorPrivate::translateIf(
@@ -995,8 +1104,8 @@ void TranslatorPrivate::translateIf(
 {
 	type = type_environment->getVoidType();
 	if (expression->condition->type == Syntax::IFELSE) {
-		if (translateIf_IfElse_Then((Syntax::IfElse *)expression->condition.get(),
-				expression->action, translated,
+		if (translateIf_IfElse_Then_MaybeElse((Syntax::IfElse *)expression->condition.get(),
+				expression->action, nullptr, translated, type,
 				last_loop_exit, currentFrame))
 			return;
 	}
@@ -1028,21 +1137,12 @@ void TranslatorPrivate::translateIf(
 		translated = ErrorPlaceholderCode();
 }
 
-bool TranslatorPrivate::translateIf_IfElse_ThenElse(Syntax::IfElse *condition,
-	Syntax::Tree action, Syntax::Tree elseaction, IR::Code &translated,
-	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
-{
-	Error::warning("Suboptimal implementation of nested if's", condition->linenumber);
-	return false;
-}
-
 void TranslatorPrivate::translateIfElse(
 	Syntax::IfElse *expression, IR::Code &translated,
-	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
-	bool expect_comparison_in_actions)
+	Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame)
 {
 	if (expression->condition->type == Syntax::IFELSE) {
-		if (translateIf_IfElse_ThenElse((Syntax::IfElse *)expression->condition.get(),
+		if (translateIf_IfElse_Then_MaybeElse((Syntax::IfElse *)expression->condition.get(),
 				expression->action, expression->elseaction, translated, type,
 				last_loop_exit, currentFrame))
 			return;
@@ -1054,9 +1154,9 @@ void TranslatorPrivate::translateIfElse(
 	if (! IsInt(conditionType))
 		Error::error("If condition not integer", expression->condition->linenumber);
 	translateExpression(expression->action, action_code, actionType, last_loop_exit,
-		currentFrame, expect_comparison_in_actions);
+		currentFrame, expression->converted_from_logic);
 	translateExpression(expression->elseaction, elseaction_code, elseType, last_loop_exit,
-		currentFrame, expect_comparison_in_actions);
+		currentFrame, expression->converted_from_logic);
 	if (((actionType->basetype == TYPE_VOID) && (elseType->basetype == TYPE_VOID)) ||
 			CheckComparisonTypes(actionType, elseType)) {
 		if (conditionType->basetype == TYPE_ERROR)
@@ -1522,7 +1622,7 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 			break;
 		case Syntax::IFELSE:
 			translateIfElse(std::static_pointer_cast<Syntax::IfElse>(expression).get(),
-				translated, type, last_loop_exit, currentFrame, false);
+				translated, type, last_loop_exit, currentFrame);
 			break;
 		case Syntax::WHILE:
 			translateWhile(std::static_pointer_cast<Syntax::While>(expression).get(),

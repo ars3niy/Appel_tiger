@@ -5,6 +5,7 @@
 #include "x86_64assembler.h"
 #include "regallocator.h"
 #include "syntaxtree.h"
+#include "optimizer.h"
 
 #include <iostream>
 #include <string>
@@ -217,6 +218,10 @@ void TranslateProgram(bool assemble)
 	
 	std::string basename = StripExtension(inputname);
 	std::string asm_name = basename + ".s";
+	
+	Optimize::Optimizer optimizer(assembler, virtual_register_map);
+	for (Asm::Instructions &chunk: code)
+		optimizer.optimize(chunk);
 
 	FILE *asm_out = fopen(asm_name.c_str(), "w");
 	assembler.outputCode(asm_out, code, &virtual_register_map);

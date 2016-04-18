@@ -54,8 +54,10 @@ let
 	function min(a: int, b: int): int =
 		if a < b then a else b
 
+
 	function max(a: int, b: int): int =
 		if a > b then a else b
+
 
 	function getsum(lb: int, rb: int): int =
 	let
@@ -114,14 +116,18 @@ let
 		var ans := 0
 		var cur := 0
 	in
+		printint(mid); print("\n");
 		calcleft(mid);
 		calcright(mid);
 
 		ans := inf;
 
 		for i := 0 to n-1 do (
+			print("loop\n");
+			print("left[i] = "); printint(left[i]); print("\n");
+			print("right[i] = "); printint(right[i]); print("\n");
 			if (left[i] < -1 | right[i] > n) then
-				/*continue;*/ ()
+				/*continue;*/ (print("continue\n"))
 			else (
 				cur := 0;
 				if (left[i] < i - 1) then
@@ -135,9 +141,11 @@ let
 
 				/*cerr << mid << ' ' << i << ' ' << left[i] << ' ' << right[i] << ' ' << cur << endl; */
 
+				print("ans = "); printint(ans); print(", cur = "); printint(cur); print("\n");
 				ans := min(ans, cur)
 			)
 		);
+		print("getans = "); printint(ans); print("\n");
 		ans
 	end
 
@@ -160,22 +168,24 @@ in
     for i := 0 to n-1 do (
 		h[i] := readint()
 	);
-    psum[0] := 0;
-    for i := 0 to n-1 do
-    	psum[i + 1] := psum[i] + h[i];
+	for repeat := 1 to 1 do (
+		psum[0] := 0;
+		for i := 0 to n-1 do
+			psum[i + 1] := psum[i] + h[i];
 
-    lb := 0;
-    rb := 2 * sinf;
+		lb := 0;
+		rb := 2 * sinf;
 
-    while (lb < rb) do (
-    	mid := (lb + rb + 1) / 2;
+		while (lb < rb) do (
+			mid := (lb + rb + 1) / 2;
 
-    	if (getans(mid) <= have) then (
-    		lb := mid
-    	) else (
-    		rb := mid - 1
-    	)
-    );
+			if (getans(mid) <= have) then (
+				lb := mid
+			) else (
+				rb := mid - 1
+			)
+		);
+		printint(lb); print("\n")
+	)
 
-    printint(lb); print("\n")
 end

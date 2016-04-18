@@ -50,22 +50,22 @@ public:
 	Label *addLabel(const std::string &name);
 };
 
-class AbstractVarLocation;
+class VarLocation;
 
 class VirtualRegister {
 private:
 	int index;
 	std::string name;
-	AbstractVarLocation *prespilled_location;
+	VarLocation *prespilled_location;
 public:
 	VirtualRegister(int _index, const std::string &_name) :
 		index(_index), name(_name), prespilled_location(NULL) {}
 	VirtualRegister(int _index);
 	
-	void prespill(AbstractVarLocation *location) {prespilled_location = location;}
+	void prespill(VarLocation *location) {prespilled_location = location;}
 	
 	bool isPrespilled() {return prespilled_location != NULL;}
-	AbstractVarLocation *getPrespilledLocation() {return prespilled_location;}
+	VarLocation *getPrespilledLocation() {return prespilled_location;}
 	
 	/**
 	 * Sequential number, from 0 to total number of virtual registers - 1
@@ -76,6 +76,9 @@ public:
 };
 
 typedef std::vector<IR::VirtualRegister *> RegisterMap;
+
+IR::VirtualRegister *MapRegister(const IR::RegisterMap *register_map,
+	IR::VirtualRegister *reg);
 
 class RegisterFactory: public DebugPrinter {
 private:

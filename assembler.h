@@ -344,6 +344,8 @@ public:
 	
 	virtual void spillRegister(IR::AbstractFrame *frame, Instructions &code,
 		IR::VirtualRegister *reg) = 0;
+	virtual bool canReverseCondJump(const Instruction &jump) const = 0;
+	virtual void reverseCondJump(Instruction &jump, IR::Label *new_destination) const = 0;
 };
 
 

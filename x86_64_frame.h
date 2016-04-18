@@ -6,25 +6,25 @@
 
 namespace IR {
 
-class X86_64VarLocation: public AbstractVarLocation {
+class X86_64VarLocation: public VarLocation {
 private:
 	bool is_register;
 	int offset;
 	VirtualRegister *reg;
 public:
 	X86_64VarLocation(AbstractFrame *frame, int _offset) :
-		AbstractVarLocation(frame), is_register(false), offset(_offset),
+		VarLocation(frame), is_register(false), offset(_offset),
 		reg(NULL)
 	{}
 	X86_64VarLocation(AbstractFrame *frame, VirtualRegister *_register) :
-		AbstractVarLocation(frame), is_register(true), offset(0),
+		VarLocation(frame), is_register(true), offset(0),
 		reg(_register)
 	{}
 	virtual ~X86_64VarLocation() {}
 	virtual IR::Expression createCode(AbstractFrame *frame);
 	virtual bool isRegister() {return reg != NULL;}
 	VirtualRegister *getRegister() {return reg;}
-	virtual void prespillRegister(AbstractVarLocation *location)
+	virtual void prespillRegister(VarLocation *location)
 	{
 		if (reg != NULL)
 			reg->prespill(location);
@@ -50,10 +50,10 @@ public:
 		param_stack_size(0)
 	{}
 	
-	virtual AbstractVarLocation *createVariable(const std::string &name,
+	virtual VarLocation *createVariable(const std::string &name,
 		int size, bool cant_be_register);
 	
-	virtual AbstractVarLocation *createParameter(const std::string &name,
+	virtual VarLocation *createParameter(const std::string &name,
 		int size);
 	
 	virtual IR::VirtualRegister *getFramePointer() {return framepointer;}

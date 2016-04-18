@@ -1016,10 +1016,10 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 			{calleesave_registers[i]}, {prologue_regs[i]}, true));
 	}
 	
-	const std::list<IR::AbstractVarLocation *>parameters =
+	const std::list<IR::VarLocation *>parameters =
 		frame->getParameters();
 	int param_index = 0;
-	for (IR::AbstractVarLocation *param: parameters) {
+	for (IR::VarLocation *param: parameters) {
 		if (param_index < paramreg_count) {
 			assert(param->isRegister());
 			IR::VirtualRegister *storage_reg =
@@ -1032,7 +1032,7 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 			assert(! param->isRegister());
 		param_index++;
 	}
-	IR::AbstractVarLocation *parent_fp = frame->getParentFpForUs();
+	IR::VarLocation *parent_fp = frame->getParentFpForUs();
 	if (parent_fp != NULL) {
 		assert(parent_fp->isRegister());
 		IR::VirtualRegister *storage_reg =
@@ -1324,6 +1324,32 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 			}
 		}
 	}
+}
+
+bool X86_64Assembler::canReverseCondJump(const Instruction &jump) const
+{
+	if ((jump.extra_destinations.size() == 1) && jump.jumps_to_next)
+		return true;
+	return false;
+}
+
+void X86_64Assembler::reverseCondJump(Instruction &jump, IR::Label *new_destination) const
+{
+	static const char *comparisons[] = {
+		"je", "jne", "jl", "jle", "jg", "jge", "jb", "jbe", "ja", "jae", NULL
+	};
+	static const char *reverse[] = {
+		"jne", "je", "jge", "jg", "jle", "jl", "jae", "ja", "jbe", "jb", NULL
+	};
+	unsigned i = jump.notation.find(' ');
+	std::string prefix = jump.notation.substr(0, i);
+	for (int cmp = 0; comparisons[cmp] != NULL; cmp++)
+		if (prefix == comparisons[cmp]) {
+			jump.notation = std::string(reverse[cmp]) + " " +
+				new_destination->getName();
+			return;
+		}
+	Error::fatalError("Supposed to be able to flip when requested");
 }
 
 }

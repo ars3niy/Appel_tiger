@@ -162,9 +162,11 @@ public:
 class IfElse: public Node {
 public:
 	Tree condition, action, elseaction;
+	bool converted_from_logic; // logical and or or
 	
-	IfElse(Tree _condition, Tree _action, Tree _else) :
-		Node(IFELSE), condition(_condition), action(_action), elseaction(_else) {}
+	IfElse(Tree _condition, Tree _action, Tree _else, bool fromlogic) :
+		Node(IFELSE), condition(_condition), action(_action), elseaction(_else),
+		converted_from_logic(fromlogic) {}
 };
 
 class While: public Node {

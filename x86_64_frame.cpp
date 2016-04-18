@@ -5,7 +5,7 @@
 
 namespace IR {
 
-AbstractVarLocation* X86_64Frame::createVariable(const std::string& name, int size, bool cant_be_register)
+VarLocation* X86_64Frame::createVariable(const std::string& name, int size, bool cant_be_register)
 {
 	X86_64VarLocation *result;
 	if (cant_be_register) {
@@ -18,9 +18,9 @@ AbstractVarLocation* X86_64Frame::createVariable(const std::string& name, int si
 	return result;
 }
 
-AbstractVarLocation* X86_64Frame::createParameter(const std::string& name, int size)
+VarLocation* X86_64Frame::createParameter(const std::string& name, int size)
 {
-	AbstractVarLocation *result;
+	VarLocation *result;
 	if (param_count >= 6) {
 		result = new X86_64VarLocation(this, 8+param_stack_size); // 8 for return address on stack
 		assert(size <= 8);

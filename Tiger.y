@@ -94,8 +94,8 @@ expression: lvalue
           | expression SYM_LESSEQUAL expression {$$ = std::make_shared<Syntax::BinaryOp>(SYM_LESSEQUAL, $1, $3);}
           | expression SYM_GREATER expression {$$ = std::make_shared<Syntax::BinaryOp>(SYM_GREATER, $1, $3);}
           | expression SYM_GREATEQUAL expression {$$ = std::make_shared<Syntax::BinaryOp>(SYM_GREATEQUAL, $1, $3);}
-          | expression SYM_AND expression {$$ = std::make_shared<Syntax::BinaryOp>(SYM_AND, $1, $3);}
-          | expression SYM_OR expression {$$ = std::make_shared<Syntax::BinaryOp>(SYM_OR, $1, $3);}
+          | expression SYM_AND expression {$$ = std::make_shared<Syntax::IfElse>($1, $3, std::make_shared<Syntax::IntValue>(0), true);}
+          | expression SYM_OR expression {$$ = std::make_shared<Syntax::IfElse>($1, std::make_shared<Syntax::IntValue>(1), $3, true);}
           | record_value
           | index_expression SYM_OF expression {
               std::shared_ptr<Syntax::ArrayInstantiation> a = std::make_shared<Syntax::ArrayInstantiation>($1, $3);
@@ -104,7 +104,7 @@ expression: lvalue
           }
           | lvalue SYM_ASSIGN expression {$$ = std::make_shared<Syntax::BinaryOp>(SYM_ASSIGN, $1, $3);}
           | SYM_IF expression SYM_THEN expression {$$ = std::make_shared<Syntax::If>($2, $4);}
-          | SYM_IF expression SYM_THEN expression SYM_ELSE expression {$$ = std::make_shared<Syntax::IfElse>($2, $4, $6);}
+          | SYM_IF expression SYM_THEN expression SYM_ELSE expression {$$ = std::make_shared<Syntax::IfElse>($2, $4, $6, false);}
           | SYM_WHILE expression SYM_DO expression {$$ = std::make_shared<Syntax::While>($2, $4);}
           | SYM_FOR SYM_ID SYM_ASSIGN expression SYM_TO expression SYM_DO expression {$$ = std::make_shared<Syntax::For>($2, $4, $6, $8, idProvider.getId());}
           | SYM_BREAK {$$ = std::make_shared<Syntax::Node>(Syntax::BREAK);}

@@ -455,6 +455,11 @@ void IRTransformer::splitToBlocks(std::shared_ptr<StatementSequence> sequence,
 			new_block.start_label = ToLabelPlacementStatement(*statm)->label;
 			new_block.statements.push_back(*statm);
 			statm++;
+			if (statm == sequence->statements.end()) {
+				blocks.finish_label = new_block.start_label;
+				blocks.blocks.pop_back();
+				break;
+			}
 		} else {
 			new_block.start_label = ir_env->addLabel();
 			std::shared_ptr<LabelPlacementStatement> label_statm =
@@ -490,9 +495,13 @@ void IRTransformer::splitToBlocks(std::shared_ptr<StatementSequence> sequence,
 void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 		BlockOrdering &new_order)
 {
+	new_order.clear();
+	for (StatementBlock &block: blocks.blocks)
+		new_order.push_back(&block);
+	return;
+	
 	BlockOrdering remaining_blocks;
 	std::map<int, BlockInfo> blocks_info_by_labelid;
-	new_order.clear();
 	
 	for (StatementBlock &block: blocks.blocks) {
 		auto position_in_remaining_list =

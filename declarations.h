@@ -31,11 +31,11 @@ public:
 	std::string name;
 	Type *type;
 	IR::Code value;
-	IR::AbstractVarLocation *implementation;
+	IR::VarLocation *implementation;
 	bool isAccessedByAddress;
 	
 	Variable(const std::string &_name, Type *_type,
-		IR::Code _value, IR::AbstractVarLocation *impl) :
+		IR::Code _value, IR::VarLocation *impl) :
 		Declaration(DECL_VARIABLE), name(_name), type(_type), value(_value),
 		implementation(impl), isAccessedByAddress(false) {}
 };
@@ -47,7 +47,7 @@ public:
 	Function *function;
 	
 	FunctionArgument(Function *owner, const std::string &_name, Type *_type,
-		IR::AbstractVarLocation *impl) :
+		IR::VarLocation *impl) :
 		Variable(_name, _type, NULL, impl), function(owner)
 	{
 		kind = DECL_ARGUMENT;
@@ -57,7 +57,7 @@ public:
 class LoopVariable: public Variable {
 public:
 	LoopVariable(const std::string &_name, Type *_type,
-		IR::AbstractVarLocation *impl
+		IR::VarLocation *impl
 	) : Variable(_name, _type, NULL, impl)
 	{
 		kind = DECL_LOOP_VARIABLE;
@@ -85,7 +85,7 @@ public:
 		needs_parent_fp(_needs_parent_fp)
 	{}
 	FunctionArgument *addArgument(const std::string &name, Type *type,
-		IR::AbstractVarLocation *impl)
+		IR::VarLocation *impl)
 	{
 		arguments.push_back(FunctionArgument(this, name, type, impl));
 		return &(arguments.back());

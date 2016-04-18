@@ -2,22 +2,22 @@
 
 namespace IR {
 
-AbstractVarLocation* AbstractFrame::addVariable(const std::string &name,
+VarLocation* AbstractFrame::addVariable(const std::string &name,
 	int size, bool cant_be_register)
 {
-	AbstractVarLocation *impl = createVariable(name, size, cant_be_register);
+	VarLocation *impl = createVariable(name, size, cant_be_register);
 	variables.push_back(impl);
 	return impl;
 }
 
-AbstractVarLocation* AbstractFrame::addParameter(const std::string &name,
+VarLocation* AbstractFrame::addParameter(const std::string &name,
 	int size, bool cant_be_register)
 {
-	AbstractVarLocation *impl = createParameter(name, size);
+	VarLocation *impl = createParameter(name, size);
 	parameters.push_back(impl);
 	
 	if (impl->isRegister() && cant_be_register) {
-		AbstractVarLocation *storage = addVariable(name + "::.store." + name,
+		VarLocation *storage = addVariable(name + "::.store." + name,
 			size, true);
 		parameter_store_prologue.push_back(ParameterMovement());
 		parameter_store_prologue.back().parameter = impl;
@@ -43,7 +43,7 @@ void AbstractFrame::addParentFpParamVariable(bool cant_be_register)
 
 AbstractFrame::~AbstractFrame()
 {
-	for (AbstractVarLocation *var: variables)
+	for (VarLocation *var: variables)
 		delete var;
 }
 
