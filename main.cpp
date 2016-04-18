@@ -1,4 +1,3 @@
-#include "translate_utils.h"
 #include "translator.h"
 #include "errormsg.h"
 #include "x86_64_frame.h"

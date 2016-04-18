@@ -6,57 +6,24 @@
 
 namespace IR {
 
-class X86_64VarLocation: public VarLocation {
-private:
-	bool is_register;
-	int offset;
-	VirtualRegister *reg;
-public:
-	X86_64VarLocation(AbstractFrame *frame, int _offset) :
-		VarLocation(frame), is_register(false), offset(_offset),
-		reg(NULL)
-	{}
-	X86_64VarLocation(AbstractFrame *frame, VirtualRegister *_register) :
-		VarLocation(frame), is_register(true), offset(0),
-		reg(_register)
-	{}
-	virtual ~X86_64VarLocation() {}
-	virtual IR::Expression createCode(AbstractFrame *frame);
-	virtual bool isRegister() {return reg != NULL;}
-	VirtualRegister *getRegister() {return reg;}
-	virtual void prespillRegister(VarLocation *location)
-	{
-		if (reg != NULL)
-			reg->prespill(location);
-	}
-};
-
 class X86_64Frame: public AbstractFrame {
 private:
-	IREnvironment *ir_env;
-	VirtualRegister *framepointer;
 	int frame_size;
 	int param_count;
 	int param_stack_size;
 public:
-	X86_64Frame(AbstractFrameManager *_framemanager, const std::string &name,
-		int _id, X86_64Frame *_parent, IREnvironment *_ir_env,
-		VirtualRegister *_framepointer) :
-		AbstractFrame(_framemanager, name, _id, _parent),
-		ir_env(_ir_env),
-		framepointer(_framepointer),
-		frame_size(0),
-		param_count(0),
-		param_stack_size(0)
-	{}
+ 	X86_64Frame(AbstractFrameManager *_framemanager,
+		const std::string &_name, int _id, AbstractFrame *_parent) :
+		AbstractFrame(_framemanager, _name, _id, _parent),
+		frame_size(0), param_count(0), param_stack_size(0) {}
 	
-	virtual VarLocation *createVariable(const std::string &name,
-		int size, bool cant_be_register);
+	virtual VarLocation *createMemoryVariable(const std::string &name,
+		int size);
 	
 	virtual VarLocation *createParameter(const std::string &name,
 		int size);
 	
-	virtual IR::VirtualRegister *getFramePointer() {return framepointer;}
+	virtual VarLocation *createParentFpParameter(const std::string &name);
 	
 	int getFrameSize();
 };
@@ -67,8 +34,7 @@ private:
 	int framecount;
 public:
 	X86_64FrameManager(IREnvironment *env) : AbstractFrameManager(env),
-		root_frame(this, ".root", 0, NULL, IR_env,
-			IR_env->addRegister("fp"))
+		root_frame(this, ".root", 0, NULL)
 	{
 		framecount = 1;
 	}
@@ -80,11 +46,10 @@ public:
 	
 	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name)
 	{
-		return new X86_64Frame(this, name, framecount++, (X86_64Frame *)parent,
-			IR_env, IR_env->addRegister("fp"));
+		return new X86_64Frame(this, name, framecount++, (X86_64Frame *)parent);
 	}
 	
-	virtual int getVarSize(Semantic::Type *type)
+	virtual int getIntSize()
 	{
 		return 8;
 	}
@@ -94,9 +59,14 @@ public:
 		return 8;
 	}
 	
-	virtual void updateRecordSize(int &size, Semantic::Type *newFieldType)
+	virtual void updateRecordSize(int &size, int field_size)
 	{
-		size += getVarSize(newFieldType);
+		size += field_size;
+	}
+	
+	virtual void placeInt(int value, uint8_t *dest)
+	{
+		placeIntSameArch(value, dest);
 	}
 	
 };

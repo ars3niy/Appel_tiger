@@ -2,14 +2,14 @@
 #define _FRAME_H
 
 #include "intermediate.h"
-#include "types.h"
+#include <map>
 
 namespace IR {
 
 class AbstractFrame;
 class AbstractFrameManager;
 
-class VarLocation {
+class VarLocation: public DebugPrinter {
 private:
 	AbstractFrame *owner_frame;
 	/**
@@ -36,16 +36,10 @@ private:
 	 * anything
 	 */
 	bool predefined;
-	/**
-	 * If true, it means that the variable is assigned only once before
-	 * it is ever used. This happens to the register where the parent frame
-	 * pointer parameter is moved to from its original register, which exists
-	 * is the parameter was passed in a register.
-	 */
-	bool read_only;
 public:
 	VarLocation(AbstractFrame *_frame, int _size, int _offset,
 			const std::string &_name, bool _predefined) :
+		DebugPrinter("translator.log"),
 		owner_frame(_frame),
 		reg(NULL),
 		offset(_offset),
@@ -56,6 +50,7 @@ public:
 		
 	VarLocation(AbstractFrame *_frame, int _size, IR::VirtualRegister *_reg,
 			bool _predefined) :
+		DebugPrinter("translator.log"),
 		owner_frame(_frame),
 		reg(_reg),
 		offset(-1),
@@ -64,10 +59,18 @@ public:
 		predefined(_predefined),
 		read_only(false) {}
 
+	/**
+	 * If true, it means that the variable is assigned only once before
+	 * it is ever used. This happens to the register where the parent frame
+	 * pointer parameter is moved to from its original register, which exists
+	 * is the parameter was passed in a register.
+	 */
+	bool read_only;
 	bool isPredefined() {return predefined;}
 	bool isRegister() {return reg != NULL;}
+	VirtualRegister *getRegister() {return reg;}
 	IR::Expression createCode(AbstractFrame *currentFrame);
-	void prespillRegister(VarLocation *location);
+	void prespillRegister();
 	AbstractFrame *getOwnerFrame() {return owner_frame;}
 };
 
@@ -89,56 +92,48 @@ private:
 	std::list<VarLocation *>variables;
 	std::list<VarLocation *>parameters;
 	VarLocation *parent_fp_parameter;
-	VarLocation *framepointer;
+	VirtualRegister *framepointer;
 public:
 	AbstractFrame(AbstractFrameManager *_framemanager,
-		const std::string &_name, int _id, AbstractFrame *_parent) :
-		DebugPrinter("translator.log"),
-		framemanager(_framemanager), name(_name), id(_id), parent(_parent),
-		parent_fp_parameter(NULL), parent_fp_memory_storage(NULL),
-		calls_others(false)
-	{}
+		const std::string &_name, int _id, AbstractFrame *_parent);
 	
-	VarLocation *addVariable(const std::string &name,
-		int size, bool cant_be_register);
-	VarLocation *addParameter(const std::string &name,
-		int size, bool cant_be_register);
-	const std::list<VarLocation *> &getParameters()
-		{return parameters;}
-	const std::list<ParameterMovement> &getMovementPrologue()
-		{return parameter_store_prologue;}
-	void addParentFpParamVariable(bool cant_be_register);
-	virtual IR::VirtualRegister *getFramePointer() = 0;
+	VarLocation *addVariable(const std::string &name, int size);
+	VarLocation *addParameter(const std::string &name, int size);
+	const std::list<VarLocation *> &getParameters() {return parameters;}
+	const std::list<VarLocation *> &getVariables() {return variables;}
+	
+	void addParentFpParameter();
+	VirtualRegister *getFramePointer() {return framepointer;}
 	const std::string &getName() {return name;}
 	int getId() {return id;}
 	AbstractFrame *getParent() {return parent;}
 	
-	VarLocation *getParentFpForUs()
-	{
-		return parent_fp_parameter;
-	}
+	VarLocation *getParentFpForUs() {return parent_fp_parameter;}
+	VarLocation *getParentFpForChildren();
 	
-	VarLocation *getParentFpForChildren()
-	{
-		return parent_fp_memory_storage;
-	}
+	void prespillRegisters(Expression &exp, const std::map<int, VarLocation*> &spills);
+	void prespillRegisters(Statement statm, const std::map<int, VarLocation*> &spills);
 	
 	void addFunctionCall() {calls_others = true;}
 	
-	~AbstractFrame();
+	virtual ~AbstractFrame();
 };
 
 class DummyFrame: public AbstractFrame {
 private:
-	virtual VarLocation *createVariable(const std::string &name,
-		int size, bool cant_be_register)
+	virtual VarLocation *createMemoryVariable(const std::string &name,
+		int size)
 	{
 		return new VarLocation(this, size, 0, name, false);
 	}
 	virtual VarLocation *createParameter(const std::string &name,
 		int size)
 	{
-		return new DummyVarLocation(this);
+		return new VarLocation(this, size, 0, name, false);
+	}
+	virtual VarLocation *createParentFpParameter(const std::string &name)
+	{
+		return createParameter(name, 4);
 	}
 public:
 	DummyFrame(AbstractFrameManager *_framemanager, const std::string &name,
@@ -147,16 +142,41 @@ public:
 	virtual IR::VirtualRegister *getFramePointer() {return NULL;}
 };
 
-class AbstractFrameManager {
-protected:
-	IREnvironment *IR_env;
+class ParentFpHandler {
 public:
-	AbstractFrameManager(IREnvironment *env) : IR_env(env) {}
+	virtual void notifyFrameWithParentFp(AbstractFrame *frame) = 0;
+};
+
+class AbstractFrameManager {
+private:
+	IREnvironment *IR_env;
+	ParentFpHandler *parent_fp_handler;
+public:
 	virtual AbstractFrame *rootFrame() = 0;
 	virtual AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name) = 0;
-	virtual int getVarSize(Semantic::Type *type) = 0;
+	virtual int getIntSize() = 0;
 	virtual int getPointerSize() = 0;
-	virtual void updateRecordSize(int &size, Semantic::Type *newFieldType) = 0;
+	virtual void updateRecordSize(int &size, int field_size) = 0;
+	/**
+	 * Abstract because of possible endianness variability
+	 */
+	virtual void placeInt(int value, uint8_t *dest) = 0;
+	void placeIntSameArch(int value, uint8_t *dest) {*((int *)dest) = value;}
+	
+	AbstractFrameManager(IREnvironment *env) :
+		IR_env(env), parent_fp_handler(NULL) {}
+	IREnvironment *getIREnvironment() {return IR_env;}
+	
+	void setFrameParentFpNotificationHandler(ParentFpHandler *handler)
+	{
+		parent_fp_handler = handler;
+	}
+	
+	void notifyFrameWithParentFp(AbstractFrame *frame)
+	{
+		if (parent_fp_handler != NULL)
+			parent_fp_handler->notifyFrameWithParentFp(frame);
+	}
 };
 
 class DummyFrameManager: public AbstractFrameManager {
@@ -173,17 +193,17 @@ public:
 		return new DummyFrame(this, name, 0, (DummyFrame *)parent);
 	}
 	
-	virtual int getVarSize(Semantic::Type *type)
+	virtual int getIntSize()
 	{
 		return 0;
 	}
 	
-	virtual int getPointerSize(Semantic::Type *type)
+	virtual int getPointerSize()
 	{
 		return 0;
 	}
 	
-	virtual void updateRecordSize(int &size, Semantic::Type *newFieldType)
+	virtual void updateRecordSize(int &size, int field_size)
 	{
 	}
 };

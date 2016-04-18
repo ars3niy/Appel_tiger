@@ -4,7 +4,6 @@
 #include "syntaxtree.h"
 #include "layeredmap.h"
 #include "declarations.h"
-#include "translate_utils.h"
 
 #include <string>
 #include <map>

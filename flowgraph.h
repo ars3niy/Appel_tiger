@@ -33,7 +33,7 @@ public:
 	//FlowGraphNode *__prev;
 	
 	FlowGraphNode(int _index, const Asm::Instruction *_instruction,
-		IR::VirtualRegister *ignored_register);
+		const IR::VirtualRegister *ignored_register);
 	
 	/*void addprev(FlowGraphNode *node)
 	{
@@ -103,7 +103,7 @@ public:
 	 * handled by the register allocator
 	 */
 	FlowGraph(const Asm::Instructions &code,
-		IR::VirtualRegister *ignored_register);
+		const IR::VirtualRegister *ignored_register);
 	int nodeCount() const {return nodecount;}
 	const NodeList &getNodes() const {return nodes;}
 };

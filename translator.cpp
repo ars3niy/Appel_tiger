@@ -2,7 +2,6 @@
 #include "errormsg.h"
 #include "intermediate.h"
 #include "ir_transformer.h"
-#include "translate_utils.h"
 #include "debugprint.h"
 #include <list>
 #include <set>
@@ -34,6 +33,8 @@ public:
 	Type *getNilType() {return &nil_type;}
 	Type *getPointerType() {return &string_type;}
 	Type *getType(Syntax::Tree definition, bool allow_forward_references);
+
+	int getTypeSize(Type *type);
 	
 	void newLayer() {typenames.newLayer();}
 	void removeLastLayer() {typenames.removeLastLayer();}
@@ -41,16 +42,15 @@ public:
 		std::list<Syntax::Tree>::iterator end);
 };
 
-class TranslatorPrivate: public DebugPrinter {
+class TranslatorPrivate: public DebugPrinter, public IR::ParentFpHandler {
 private:
 	LayeredMap func_and_var_names;
 	TypesEnvironment *type_environment;
 	Variable *undefined_variable;
 	typedef std::map<std::string, IR::Blob *> BlobsMap;
 	BlobsMap blobs_by_string;
-	
 	Function *getmem_func, *getmem_fill_func, *strcmp_func;
-	
+
 	void newLayer();
 	void removeLastLayer();
 	void processDeclarations(Syntax::ExpressionList *declarations,
@@ -61,8 +61,8 @@ private:
 		IR::AbstractFrame *currentFrame, std::list<Variable *> &new_vars);
 	void processFunctionDeclarationBatch(std::list<Syntax::Tree>::iterator begin,
 		std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame);
-	void prependPrologue(IR::Code &translated,
-		IR::AbstractFrame *func_frame);
+// 	void prependPrologue(IR::Code &translated,
+// 		IR::AbstractFrame *func_frame);
 	
 	void translateIntValue(int value, IR::Code &translated);
 	void translateStringValue(Syntax::StringValue *expression, IR::Code &translated);
@@ -102,6 +102,18 @@ private:
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateRecordField(Syntax::RecordField *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
+
+	class CallRecord {
+	public:
+		std::shared_ptr<IR::CallExpression> call;
+		IR::AbstractFrame *calling_frame;
+		
+		CallRecord(std::shared_ptr<IR::CallExpression> _call, IR::AbstractFrame *frame) :
+			call(_call), calling_frame(frame) {}
+	};
+	std::list<IR::AbstractFrame *> frames_with_added_parentfps;
+	std::map<int, std::list<CallRecord> > calls_to_frames;
+		
 	void makeCallCode(Function *function, std::list<IR::Code >arguments,
 		IR::Code &result, IR::AbstractFrame *currentFrame);
 	void translateFunctionCall(Syntax::FunctionCall *expression, IR::Code &translated,
@@ -113,17 +125,19 @@ public:
 	IR::IRTransformer *IRtransformer;
 	std::list<Variable> variables;
 	IR::AbstractFrameManager *framemanager;
-	VariablesAccessInfo variables_extra_info;
 	std::list<Function> functions;
 	
 	TranslatorPrivate(IR::IREnvironment *ir_inv,
 		IR::AbstractFrameManager *_framemanager);
-	~TranslatorPrivate();
+	virtual ~TranslatorPrivate();
 	
 	void translateExpression(Syntax::Tree expression,
 		IR::Code &translated, Type *&type,
 		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
 		bool expect_comparison);
+	virtual void notifyFrameWithParentFp(IR::AbstractFrame *frame);
+	void prespillRegisters(IR::Code code, IR::AbstractFrame *frame);
+	void addParentFpToCalls();
 };
 
 TypesEnvironment::TypesEnvironment(IR::AbstractFrameManager *_framemanager) :
@@ -145,6 +159,17 @@ TypesEnvironment::~TypesEnvironment()
 {
 	for (Type *t: types)
 		delete t;
+}
+
+int TypesEnvironment::getTypeSize(Type *type)
+{
+	if (type->basetype == TYPE_NAMEREFERENCE)
+		return getTypeSize(type->resolve());
+
+	if (type->basetype== TYPE_INT)
+		return framemanager->getIntSize();
+	else
+		return framemanager->getPointerSize();
 }
 
 Type *TypesEnvironment::createArrayType(Syntax::ArrayTypeDefinition *definition,
@@ -266,7 +291,8 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 		record->data_size = 0;
 		for (RecordField &field: record->field_list) {
 			field.offset = record->data_size;
-			framemanager->updateRecordSize(record->data_size, field.type->resolve());
+			framemanager->updateRecordSize(record->data_size, 
+				getTypeSize(field.type));
 		}
 	}
 	
@@ -280,75 +306,76 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	framemanager = _framemanager;
 	type_environment = new TypesEnvironment(_framemanager);
 	IRtransformer = new IR::IRTransformer(ir_inv);
+	framemanager->setFrameParentFpNotificationHandler(this);
 	
 	undefined_variable = new Variable("undefined", type_environment->getErrorType(),
 		NULL, NULL);
 	functions.push_back(Function("print", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__print"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__print")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("print", &(functions.back()));
 
 	functions.push_back(Function("flush", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__flush"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__flush")));
 	func_and_var_names.add("flush", &(functions.back()));
 
 	functions.push_back(Function("getchar", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getchar"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getchar")));
 	func_and_var_names.add("getchar", &(functions.back()));
 
 	functions.push_back(Function("ord", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__ord"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__ord")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("ord", &(functions.back()));
 
 	functions.push_back(Function("chr", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__chr"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__chr")));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("chr", &(functions.back()));
 
 	functions.push_back(Function("size", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__size"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__size")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("size", &(functions.back()));
 
 	functions.push_back(Function("substring", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__substring"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__substring")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	functions.back().addArgument("first", type_environment->getIntType(), NULL);
 	functions.back().addArgument("n", type_environment->getIntType(), NULL);
 	func_and_var_names.add("substring", &(functions.back()));
 
 	functions.push_back(Function("concat", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__concat"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__concat")));
 	functions.back().addArgument("s1", type_environment->getStringType(), NULL);
 	functions.back().addArgument("s2", type_environment->getStringType(), NULL);
 	func_and_var_names.add("concat", &(functions.back()));
 
 	functions.push_back(Function("not", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__not"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__not")));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("not", &(functions.back()));
 
 	functions.push_back(Function("exit", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("exit"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("exit")));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("exit", &(functions.back()));
 
 	functions.push_back(Function("getmem", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem")));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
 	//func_and_var_names.add("getmem", &(functions.back()));
 	getmem_func = &(functions.back());
 
 	functions.push_back(Function("getmem_fill", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem_fill"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem_fill")));
 	functions.back().addArgument("elemcount", type_environment->getIntType(), NULL);
 	functions.back().addArgument("value", type_environment->getIntType(), NULL);
 	//func_and_var_names.add("getmem_fill", &(functions.back()));
 	getmem_fill_func = &(functions.back());
 
 	functions.push_back(Function("strcmp", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__strcmp"), false));
+		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__strcmp")));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
 	strcmp_func = &(functions.back());
 
@@ -456,40 +483,39 @@ void TranslatorPrivate::processVariableDeclaration(
 	variables.push_back(Variable(declaration->name->name, vartype,
 		translatedValue,
 		currentFrame->addVariable(declaration->name->name,
-			framemanager->getVarSize(vartype),
-			variables_extra_info.isAccessedByAddress(declaration))));
+			type_environment->getTypeSize(vartype))));
 	func_and_var_names.add(declaration->name->name, &(variables.back()));
 	new_vars.push_back(&(variables.back()));
 }
 
-void TranslatorPrivate::prependPrologue(IR::Code& translated,
-	IR::AbstractFrame* func_frame)
-{
-	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
-	
-	for (const IR::AbstractFrame::ParameterMovement &move:
-			func_frame->getMovementPrologue()) {
-		ToStatementSequence(sequence)->addStatement(std::make_shared<IR::MoveStatement>(
-			move.where_store->createCode(func_frame),
-			move.parameter->createCode(func_frame)
-		));
-	}
-	
-	switch (translated->kind) {
-		case IR::CODE_EXPRESSION:
-			std::static_pointer_cast<IR::ExpressionCode>(translated)->exp =
-				std::make_shared<IR::StatExpSequence>(sequence,
-					std::static_pointer_cast<IR::ExpressionCode>(translated)->exp);
-			break;
-		case IR::CODE_STATEMENT:
-		case IR::CODE_JUMP_WITH_PATCHES:
-			ToStatementSequence(sequence)->addStatement(
-				std::static_pointer_cast<IR::StatementCode>(translated)->statm);
-			std::static_pointer_cast<IR::StatementCode>(translated)->statm = sequence;
-			break;
-	}
-	
-}
+// void TranslatorPrivate::prependPrologue(IR::Code& translated,
+// 	IR::AbstractFrame* func_frame)
+// {
+// 	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
+// 	
+// 	for (const IR::AbstractFrame::ParameterMovement &move:
+// 			func_frame->getMovementPrologue()) {
+// 		ToStatementSequence(sequence)->addStatement(std::make_shared<IR::MoveStatement>(
+// 			move.where_store->createCode(func_frame),
+// 			move.parameter->createCode(func_frame)
+// 		));
+// 	}
+// 	
+// 	switch (translated->kind) {
+// 		case IR::CODE_EXPRESSION:
+// 			std::static_pointer_cast<IR::ExpressionCode>(translated)->exp =
+// 				std::make_shared<IR::StatExpSequence>(sequence,
+// 					std::static_pointer_cast<IR::ExpressionCode>(translated)->exp);
+// 			break;
+// 		case IR::CODE_STATEMENT:
+// 		case IR::CODE_JUMP_WITH_PATCHES:
+// 			ToStatementSequence(sequence)->addStatement(
+// 				std::static_pointer_cast<IR::StatementCode>(translated)->statm);
+// 			std::static_pointer_cast<IR::StatementCode>(translated)->statm = sequence;
+// 			break;
+// 	}
+// 	
+// }
 
 
 void TranslatorPrivate::processFunctionDeclarationBatch(
@@ -519,20 +545,10 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		functions.push_back(Function(declaration->name->name, return_type,
 			declaration->body, NULL,
 			framemanager->newFrame(currentFrame, function_label->getName()),
-			function_label, variables_extra_info.functionNeedsParentFp(declaration)));
+			function_label));
 		Function *function = &(functions.back());
 		debug("New frame %s, id %d", function->frame->getName().c_str(),
 				function->frame->getId());
-		if (variables_extra_info.functionNeedsParentFp(declaration))
-			function->frame->addParentFpParamVariable(
-				variables_extra_info.isFunctionParentFpAccessedByChildren(declaration));
-		debug("Function %s at line %d needs parent FP: %s",
-			function->name.c_str(), declaration->name->linenumber,
-			variables_extra_info.functionNeedsParentFp(declaration) ? "yes" : "no");
-		debug("Function %s at line %d exports parent FP to children: %s",
-			function->name.c_str(), declaration->name->linenumber,
-			variables_extra_info.isFunctionParentFpAccessedByChildren(declaration)
-				? "yes" : "no");
 		func_and_var_names.add(declaration->name->name, function);
 		recent_functions.push_back(function);
 		
@@ -544,8 +560,7 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			function->addArgument(param_decl->name->name, param_type,
 				function->frame->addParameter(
 					param_decl->name->name,
-					framemanager->getVarSize(param_type),
-					variables_extra_info.isAccessedByAddress(param_decl)
+					type_environment->getTypeSize(param_type)
 				)
 			);
 		}
@@ -561,7 +576,6 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		translateExpression(fcn->raw_body, fcn->body, actual_return_type,
 			NULL, fcn->frame, true);
 		func_and_var_names.removeLastLayer();
-		prependPrologue(fcn->body, fcn->frame);
 		if ((fcn->return_type->basetype != TYPE_VOID) &&
 				! CheckAssignmentTypes(fcn->return_type, actual_return_type))
 			Error::error("Type of function body doesn't match specified return type",
@@ -626,7 +640,7 @@ void TranslatorPrivate::translateStringValue(Syntax::StringValue *expression,
 		blob = (*existing_blob).second;
 	else {
 		blob = IRenvironment->addBlob();
-		int intsize = framemanager->getVarSize(type_environment->getIntType());
+		int intsize = framemanager->getIntSize();
 		blob->data.resize(expression->value.size() + intsize);
 		*((int *)blob->data.data()) = expression->value.size();
 		memmove(blob->data.data() + intsize, expression->value.c_str(), 
@@ -911,7 +925,7 @@ void TranslatorPrivate::translateArrayIndexing(
 		type = ((ArrayType *)arrayType)->elemtype->resolve();
 		std::shared_ptr<IR::BinaryOpExpression> offset = std::make_shared<IR::BinaryOpExpression>(
 			IR::OP_MUL, IRenvironment->codeToExpression(index),
-			std::make_shared<IR::IntegerExpression>(framemanager->getVarSize(type)));
+			std::make_shared<IR::IntegerExpression>(type_environment->getTypeSize(type)));
 		std::shared_ptr<IR::BinaryOpExpression> target_address = std::make_shared<IR::BinaryOpExpression>(
 			IR::OP_PLUS, IRenvironment->codeToExpression(array), offset);
 		translated = std::make_shared<IR::ExpressionCode>(
@@ -1276,8 +1290,7 @@ void TranslatorPrivate::translateFor(
 		expression->variable->name,
 		type_environment->getLoopIntType(), NULL, currentFrame->addVariable(
 			expression->variable->name,
-			framemanager->getVarSize(from_type),
-			variables_extra_info.isAccessedByAddress(expression)
+			type_environment->getTypeSize(from_type)
 		)));
 	Variable *loopvar = &(variables.back());
 	func_and_var_names.add(expression->variable->name, loopvar);
@@ -1388,32 +1401,25 @@ void TranslatorPrivate::translateRecordField(
 	}
 }
 
+void TranslatorPrivate::notifyFrameWithParentFp(IR::AbstractFrame *frame) 
+{
+	frames_with_added_parentfps.push_back(frame);
+}
+
 void TranslatorPrivate::makeCallCode(Function *function,
 	std::list<IR::Code> arguments, IR::Code &result,
 	IR::AbstractFrame *currentFrame)
 {
-	IR::Expression callee_parentfp = nullptr;
-	if (function->needs_parent_fp) {
-		IR::AbstractFrame *callee_frame = function->frame;
-		if (callee_frame->getParent()->getId() == currentFrame->getId())
-			callee_parentfp = std::make_shared<IR::RegisterExpression>(currentFrame->getFramePointer());
-		else if (callee_frame->getParent()->getId() ==
-				currentFrame->getParent()->getId()) {
-			if (currentFrame->getParentFpForUs() != NULL)
-				callee_parentfp =
-					currentFrame->getParentFpForUs()->createCode(currentFrame);
-		} else {
-			IR::AbstractFrame *parent_sibling_with_callee = currentFrame;
-			while (parent_sibling_with_callee->getParent()->getId() !=
-					callee_frame->getParent()->getId())
-				parent_sibling_with_callee = parent_sibling_with_callee->getParent();
-			callee_parentfp = parent_sibling_with_callee->getParentFpForChildren()->
-				createCode(currentFrame);
-		}
-	}
 	std::shared_ptr<IR::CallExpression> call = std::make_shared<IR::CallExpression>(
-		std::make_shared<IR::LabelAddressExpression>(function->label),
-		callee_parentfp);
+		std::make_shared<IR::LabelAddressExpression>(function->label), nullptr);
+	auto call_list = calls_to_frames.find(function->frame->getId());
+	if (call_list == calls_to_frames.end()) {
+		auto ret = calls_to_frames.insert(std::make_pair(
+			function->frame->getId(), std::list<CallRecord>()));
+		assert(ret.second);
+		call_list = ret.first;
+	}
+	call_list->second.push_back(CallRecord(call, currentFrame));
 	for (IR::Code arg: arguments)
 		 call->addArgument(IRenvironment->codeToExpression(arg));
 	result = std::make_shared<IR::ExpressionCode>(call);
@@ -1660,6 +1666,106 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 	}
 }
 
+void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *frame)
+{
+	std::list<IR::VarLocation *> to_spill;
+	for (IR::VarLocation *param: frame->getParameters())
+		if (param->isRegister() &&
+				param->getRegister()->isPrespilled())
+			to_spill.push_back(param);
+	for (IR::VarLocation *local: frame->getVariables())
+		if (local->isRegister() &&
+				local->getRegister()->isPrespilled())
+			to_spill.push_back(local);
+	IR::VarLocation *parentfp = frame->getParentFpForUs();
+	if ((parentfp != NULL) && parentfp->isRegister() &&
+			parentfp->getRegister()->isPrespilled())
+		to_spill.push_back(parentfp);
+
+	std::shared_ptr<IR::StatementSequence> sequence =
+		std::make_shared<IR::StatementSequence>();
+	std::map<int, IR::VarLocation *> spilled_locations;
+	
+	for (IR::VarLocation *var: to_spill) {
+		assert (var->isRegister());
+		IR::VirtualRegister *reg = var->getRegister();
+		assert (reg->isPrespilled());
+		if (! var->read_only)
+			spilled_locations.insert(std::make_pair(
+				reg->getIndex(), reg->getPrespilledLocation()));
+		if (var->isPredefined())
+			sequence->addStatement(std::make_shared<IR::MoveStatement>(
+				reg->getPrespilledLocation()->createCode(frame),
+				std::make_shared<IR::RegisterExpression>(reg)));
+	}
+	
+	if (code->kind == IR::CODE_EXPRESSION) {
+		std::shared_ptr<IR::ExpressionCode> exp_code =
+			std::static_pointer_cast<IR::ExpressionCode>(code);
+		if (! spilled_locations.empty())
+			frame->prespillRegisters(exp_code->exp,	spilled_locations);
+		if (! sequence->statements.empty())
+			exp_code->exp = std::make_shared<IR::StatExpSequence>(
+				sequence, exp_code->exp);
+	} else {
+		std::shared_ptr<IR::StatementCode> statm_code =
+			std::static_pointer_cast<IR::StatementCode>(code);
+		if (! spilled_locations.empty())
+			frame->prespillRegisters(statm_code->statm, spilled_locations);
+		
+		if (! sequence->statements.empty()) {
+			sequence->addStatement(statm_code->statm);
+			statm_code->statm = sequence;
+		}
+	}
+}
+
+void TranslatorPrivate::addParentFpToCalls()
+{
+	for (auto frame_iter = frames_with_added_parentfps.begin();
+			frame_iter != frames_with_added_parentfps.end();
+			++frame_iter) {
+		IR::AbstractFrame *callee_frame = *frame_iter;
+		debug("Frame %s needs parent FP parameter, adding to all calls",
+			callee_frame->getName().c_str());
+		
+		auto call_list = calls_to_frames.find(callee_frame->getId());
+		if (call_list == calls_to_frames.end())
+			continue;
+
+		for (const CallRecord &call: call_list->second) {
+			IR::AbstractFrame *calling_frame = call.calling_frame;
+			if (callee_frame->getParentFpForUs() != NULL) {
+				IR::Expression callee_parentfp;
+				if (callee_frame->getParent()->getId() == calling_frame->getId())
+					callee_parentfp = std::make_shared<IR::RegisterExpression>(
+						calling_frame->getFramePointer());
+				else if (callee_frame->getParent()->getId() ==
+						calling_frame->getParent()->getId()) {
+					if (calling_frame->getParentFpForUs() == NULL) {
+						debug("Frame %s needs parent FP because it calls sibling %s who needs parent FP",
+							calling_frame->getName().c_str(),
+							callee_frame->getName().c_str());
+						calling_frame->addParentFpParameter();
+					}
+					callee_parentfp = 
+						calling_frame->getParentFpForUs()->createCode(calling_frame);
+				} else {
+					IR::AbstractFrame *parent_sibling_with_callee = calling_frame;
+					while (parent_sibling_with_callee->getParent()->getId() !=
+							callee_frame->getParent()->getId())
+						parent_sibling_with_callee =
+							parent_sibling_with_callee->getParent();
+					
+					callee_parentfp = parent_sibling_with_callee->
+						getParentFpForChildren()->createCode(calling_frame);
+				}
+				call.call->callee_parentfp = callee_parentfp;
+			}
+		}
+	}
+}
+
 Translator::Translator(IR::IREnvironment *ir_inv,
 	IR::AbstractFrameManager * _framemanager)
 {
@@ -1676,9 +1782,13 @@ void Translator::translateProgram(Syntax::Tree expression,
 {
 	Type *type;
 	IR::Code code;
-	impl->variables_extra_info.processExpression(expression, INVALID_OBJECT_ID);
 	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
 	impl->translateExpression(expression, code, type, NULL, frame, false);
+	impl->addParentFpToCalls();
+	for (Semantic::Function &fcn: impl->functions)
+		if (fcn.body)
+			impl->prespillRegisters(fcn.body, fcn.frame);
+	impl->prespillRegisters(code, frame);
 	result = impl->IRenvironment->codeToStatement(code);
 
 	for (Semantic::Function &func: impl->functions)

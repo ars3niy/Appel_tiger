@@ -3,8 +3,8 @@
 
 #include "assembler.h"
 #include "flowgraph.h"
-#include "translate_utils.h"
 #include <stdint.h>
+#include <string.h>
 
 namespace Optimize {
 

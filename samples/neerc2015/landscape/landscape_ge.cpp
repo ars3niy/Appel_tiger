@@ -84,18 +84,18 @@ void calcright(Global &g, long long th) {
 }
 
 long long getans(Global &g, long long mid) {
- 	printf("%d\n", mid);
+ 	//printf("%d\n", mid);
 	calcleft(g, mid);
 	calcright(g, mid);
 
 	long long ans = g.inf;
 
 	for (Int i = 0; i < g.n; i++) {
- 		printf("loop\n");
- 		printf("left[i] = %d\n", g.left[i]);
- 		printf("right[i] = %d\n", g.right[i]);
+ 		//printf("loop\n");
+ 		//printf("left[i] = %d\n", g.left[i]);
+ 		//printf("right[i] = %d\n", g.right[i]);
 		if (g.left[i] < -1 || g.right[i] > g.n) {
- 			printf("continue\n");
+ 			//printf("continue\n");
 			continue;
 		}
 		long long cur = 0;
@@ -110,10 +110,10 @@ long long getans(Global &g, long long mid) {
 
 		//cerr << mid << ' ' << i << ' ' << left[i] << ' ' << right[i] << ' ' << cur << endl;
 
- 		printf("ans = %ld, cur = %ld\n", ans, cur);
+ 		//printf("ans = %ld, cur = %ld\n", ans, cur);
 		ans = min(ans, cur);
 	}
- 	printf("getans = %ld\n", ans);
+ 	//printf("getans = %ld\n", ans);
 
 	return ans;
 }
@@ -140,7 +140,7 @@ int main() {
     for (Int i = 0; i < g.n; i++)
    		cin >> g.h[i];
    // 	scanf("%lld", &h[i]);
-   for (int repeat = 0; repeat < 10; repeat++) {
+   for (int repeat = 0; repeat < 1; repeat++) {
     g.psum[0] = 0ll;
     for (Int i = 0; i < g.n; i++)
     	g.psum[i + 1] = g.psum[i] + g.h[i];

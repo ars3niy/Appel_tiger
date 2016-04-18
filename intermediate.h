@@ -32,7 +32,7 @@ public:
 	/**
 	 * Sequential number, from 0 to total number of labels - 1
 	 */
-	int getIndex() {return index;}
+	int getIndex() const {return index;}
 	
 	const std::string &getName() const {return name;}
 	
@@ -70,9 +70,9 @@ public:
 	/**
 	 * Sequential number, from 0 to total number of virtual registers - 1
 	 */
-	int getIndex() {return index;}
+	int getIndex() const {return index;}
 	
-	const std::string &getName() {return name;}
+	const std::string &getName() const {return name;}
 };
 
 typedef std::vector<IR::VirtualRegister *> RegisterMap;

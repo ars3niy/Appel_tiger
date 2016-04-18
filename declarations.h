@@ -5,7 +5,6 @@
 #include "layeredmap.h"
 #include "syntaxtree.h"
 #include "idmap.h"
-#include "translate_utils.h"
 #include "frame.h"
 #include <map>
 #include <list>
@@ -32,12 +31,11 @@ public:
 	Type *type;
 	IR::Code value;
 	IR::VarLocation *implementation;
-	bool isAccessedByAddress;
 	
 	Variable(const std::string &_name, Type *_type,
 		IR::Code _value, IR::VarLocation *impl) :
 		Declaration(DECL_VARIABLE), name(_name), type(_type), value(_value),
-		implementation(impl), isAccessedByAddress(false) {}
+		implementation(impl) {}
 };
 
 class Function;
@@ -73,16 +71,13 @@ public:
 	IR::Code body;
 	IR::AbstractFrame *frame;
 	IR::Label *label;
-	bool needs_parent_fp;
 
 	Function(const std::string &_name, Type *_return_type,
 		Syntax::Tree _raw, IR::Code _body,
-		IR::AbstractFrame *_frame, IR::Label *_label,
-		bool _needs_parent_fp) :
+		IR::AbstractFrame *_frame, IR::Label *_label) :
 		Declaration(DECL_FUNCTION), 
 		name(_name), return_type(_return_type), 
-		raw_body(_raw), body(_body), frame(_frame), label(_label),
-		needs_parent_fp(_needs_parent_fp)
+		raw_body(_raw), body(_body), frame(_frame), label(_label)
 	{}
 	FunctionArgument *addArgument(const std::string &name, Type *type,
 		IR::VarLocation *impl)

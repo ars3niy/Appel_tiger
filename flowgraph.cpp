@@ -4,7 +4,7 @@
 namespace Optimize {
 
 FlowGraphNode::FlowGraphNode(int _index, const Asm::Instruction* _instruction,
-	IR::VirtualRegister *ignored_register)
+	const IR::VirtualRegister *ignored_register)
 {
 	index = _index;
 	instruction = _instruction;
@@ -47,7 +47,7 @@ struct NodeLink {
 };
 
 FlowGraph::FlowGraph(const Asm::Instructions &code,
-	IR::VirtualRegister *ignored_register)
+	const IR::VirtualRegister *ignored_register)
 {
 	std::map<int, FlowGraphNode *> label_positions;
 	nodecount = 0;

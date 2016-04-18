@@ -1022,8 +1022,7 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 	for (IR::VarLocation *param: parameters) {
 		if (param_index < paramreg_count) {
 			assert(param->isRegister());
-			IR::VirtualRegister *storage_reg =
-				((IR::X86_64VarLocation *) param)->getRegister();
+			IR::VirtualRegister *storage_reg = param->getRegister();
 			result.push_back(Instruction(std::string("movq ") +
 				Instruction::Input(0) + ", " + Instruction::Output(0),
 				{machine_registers[paramreg_list[param_index]]}, 
@@ -1035,8 +1034,7 @@ void X86_64Assembler::functionPrologue(IR::Label *fcn_label,
 	IR::VarLocation *parent_fp = frame->getParentFpForUs();
 	if (parent_fp != NULL) {
 		assert(parent_fp->isRegister());
-		IR::VirtualRegister *storage_reg =
-			((IR::X86_64VarLocation *) parent_fp)->getRegister();
+		IR::VirtualRegister *storage_reg = parent_fp->getRegister();
 		result.push_back(Instruction(std::string("movq ") +
 			Instruction::Input(0) + ", " + Instruction::Output(0),
 			{machine_registers[R10]}, 
@@ -1244,10 +1242,9 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 	IR::VirtualRegister *reg)
 {
 	if (reg->isPrespilled()) {
-		IR::X86_64VarLocation *stored_location =
-			(IR::X86_64VarLocation *)reg->getPrespilledLocation();
+		IR::VarLocation *stored_location = reg->getPrespilledLocation();
 		IR::Expression storage_exp =
-			stored_location->createCode(stored_location->owner_frame);
+			stored_location->createCode(stored_location->getOwnerFrame());
 		
 		bool seen_usage = false, seen_assignment = false;
 		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
@@ -1288,11 +1285,10 @@ void X86_64Assembler::spillRegister(IR::AbstractFrame *frame, Instructions &code
 					IR::ToMemoryExpression(storage_exp));
 		}
 	} else {
-		IR::X86_64VarLocation *stored_location =
-			(IR::X86_64VarLocation *)frame->addVariable(".store." + reg->getName(),
-				8, true);
+		IR::VarLocation *stored_location =
+			frame->createMemoryVariable(".store." + reg->getName(), 8);
 		IR::Expression storage_exp = IR::ToMemoryExpression(
-			stored_location->createCode(stored_location->owner_frame));
+			stored_location->createCode(stored_location->getOwnerFrame()));
 		
 		for (Instructions::iterator inst = code.begin(); inst != code.end(); inst++) {
 			debug("Spilling: %s", (*inst).notation.c_str());

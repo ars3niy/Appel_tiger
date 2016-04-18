@@ -116,18 +116,18 @@ let
 		var ans := 0
 		var cur := 0
 	in
-		printint(mid); print("\n");
+		/*printint(mid); print("\n");*/
 		calcleft(mid);
 		calcright(mid);
 
 		ans := inf;
 
 		for i := 0 to n-1 do (
-			print("loop\n");
+			/*print("loop\n");
 			print("left[i] = "); printint(left[i]); print("\n");
-			print("right[i] = "); printint(right[i]); print("\n");
+			print("right[i] = "); printint(right[i]); print("\n");*/
 			if (left[i] < -1 | right[i] > n) then
-				/*continue;*/ (print("continue\n"))
+				/*continue;*/ (/*print("continue\n")*/)
 			else (
 				cur := 0;
 				if (left[i] < i - 1) then
@@ -141,11 +141,11 @@ let
 
 				/*cerr << mid << ' ' << i << ' ' << left[i] << ' ' << right[i] << ' ' << cur << endl; */
 
-				print("ans = "); printint(ans); print(", cur = "); printint(cur); print("\n");
+				/*print("ans = "); printint(ans); print(", cur = "); printint(cur); print("\n");*/
 				ans := min(ans, cur)
 			)
 		);
-		print("getans = "); printint(ans); print("\n");
+		/*print("getans = "); printint(ans); print("\n");*/
 		ans
 	end
 
