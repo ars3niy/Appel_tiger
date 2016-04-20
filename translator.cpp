@@ -50,7 +50,10 @@ private:
 	typedef std::map<std::string, IR::Blob *> BlobsMap;
 	BlobsMap blobs_by_string;
 	Function *getmem_func, *getmem_fill_func, *strcmp_func;
-
+	
+	Function *addFunction(IR::AbstractFrame *currentFrame, const std::string &name,
+		Type *return_type, Syntax::Tree body, IR::Label *label);
+	
 	void newLayer();
 	void removeLastLayer();
 	void processDeclarations(Syntax::ExpressionList *declarations,
@@ -121,6 +124,36 @@ private:
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
 	void translateRecordInstantiation(Syntax::RecordInstantiation *expression, IR::Code &translated,
 		Type *&type, IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame);
+
+	class RegSpiller: public IR::CodeWalker {
+	public:
+		std::map<int, IR::VarLocation *> spilled_locations;
+		IR::AbstractFrame *frame;
+		RegSpiller(IR::AbstractFrame *_frame) : frame(_frame) {}
+	};
+	static bool prespillRegister(IR::Expression &exp, IR::Expression parent_exp,
+		IR::Statement parent_statm, IR::CodeWalker *arg);
+
+	class InlineExpander: public IR::CodeWalker {
+	public:
+		std::map<int, IR::Function *> func_by_labelid;
+		IR::IREnvironment *IR_env;
+		IR::AbstractFrame *caller_frame = NULL;
+		InlineExpander(IR::IREnvironment *_ir_env) : IR_env(_ir_env) {}
+	};
+	InlineExpander inline_param;
+	static bool maybeInlineExpIgnoreCall(IR::Statement &statm, IR::CodeWalker *arg);
+	static bool maybeInlineCall(IR::Expression &exp, IR::Expression parent_exp,
+		IR::Statement parent_statm, IR::CodeWalker *arg);
+	static void expandInlineCalls(IR::Function *func, IR::CodeWalker *arg);
+
+	class FrameParam: public IR::CodeWalker {
+	public:
+		IR::AbstractFrame *frame;
+		FrameParam(IR::AbstractFrame *_frame) : frame(_frame) {}
+	};
+	static bool implementVarLocation(IR::Expression &exp, IR::Expression parent_exp,
+		IR::Statement parent_statm, IR::CodeWalker *arg);
 public:
 	IR::IREnvironment *IRenvironment;
 	IR::IRTransformer *IRtransformer;
@@ -138,16 +171,12 @@ public:
 		bool expect_comparison);
 	virtual void notifyFrameWithParentFp(IR::AbstractFrame *frame);
 	
-	class RegSpiller: public IR::CodeWalker {
-	public:
-		std::map<int, IR::VarLocation *> spilled_locations;
-		IR::AbstractFrame *frame;
-		RegSpiller(IR::AbstractFrame *_frame) : frame(_frame) {}
-	};
-	static void prespillRegister(IR::Expression &exp, IR::Expression parent_exp,
-		IR::Statement parent_statm, IR::CodeWalker *arg);
-	
 	void prespillRegisters(IR::Code code, IR::AbstractFrame *frame);
+	
+	void expandInlineCalls(IR::Function *func);
+	void expandInlineCalls(IR::Code code, IR::AbstractFrame *frame);
+	
+	void implementVarLocations(IR::Code code, IR::AbstractFrame *frame);
 	void addParentFpToCalls();
 };
 
@@ -311,7 +340,8 @@ void TypesEnvironment::processTypeDeclarationBatch(std::list<Syntax::Tree>::iter
 }
 
 TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
-	IR::AbstractFrameManager * _framemanager): DebugPrinter("translator.log")
+	IR::AbstractFrameManager * _framemanager): DebugPrinter("translator.log"),
+	inline_param(ir_inv)
 {
 	IRenvironment = ir_inv;
 	framemanager = _framemanager;
@@ -321,74 +351,74 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	
 	undefined_variable = new Variable("undefined", type_environment->getErrorType(),
 		NULL, NULL);
-	functions.push_back(Function(-1, "print", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__print")));
-	functions.back().addArgument("s", type_environment->getStringType(), NULL);
-	func_and_var_names.add("print", &(functions.back()));
+	Function *f = addFunction(NULL, "print", type_environment->getVoidType(), NULL, 
+		IRenvironment->addLabel("__print"));
+	f->addArgument("s", type_environment->getStringType(), NULL);
+	func_and_var_names.add("print", f);
 
-	functions.push_back(Function(-1, "flush", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__flush")));
-	func_and_var_names.add("flush", &(functions.back()));
+	f = addFunction(NULL, "flush", type_environment->getVoidType(),
+		NULL, IRenvironment->addLabel("__flush"));
+	func_and_var_names.add("flush", f);
 
-	functions.push_back(Function(-1, "getchar", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getchar")));
-	func_and_var_names.add("getchar", &(functions.back()));
+	f = addFunction(NULL, "getchar", type_environment->getStringType(),
+		NULL, IRenvironment->addLabel("__getchar"));
+	func_and_var_names.add("getchar", f);
 
-	functions.push_back(Function(-1, "ord", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__ord")));
-	functions.back().addArgument("s", type_environment->getStringType(), NULL);
-	func_and_var_names.add("ord", &(functions.back()));
+	f = addFunction(NULL, "ord", type_environment->getIntType(),
+		NULL, IRenvironment->addLabel("__ord"));
+	f->addArgument("s", type_environment->getStringType(), NULL);
+	func_and_var_names.add("ord", f);
 
-	functions.push_back(Function(-1, "chr", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__chr")));
-	functions.back().addArgument("i", type_environment->getIntType(), NULL);
-	func_and_var_names.add("chr", &(functions.back()));
+	f = addFunction(NULL, "chr", type_environment->getStringType(),
+		NULL, IRenvironment->addLabel("__chr"));
+	f->addArgument("i", type_environment->getIntType(), NULL);
+	func_and_var_names.add("chr", f);
 
-	functions.push_back(Function(-1, "size", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__size")));
-	functions.back().addArgument("s", type_environment->getStringType(), NULL);
-	func_and_var_names.add("size", &(functions.back()));
+	f = addFunction(NULL, "size", type_environment->getIntType(),
+		NULL, IRenvironment->addLabel("__size"));
+	f->addArgument("s", type_environment->getStringType(), NULL);
+	func_and_var_names.add("size", f);
 
-	functions.push_back(Function(-1, "substring", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__substring")));
-	functions.back().addArgument("s", type_environment->getStringType(), NULL);
-	functions.back().addArgument("first", type_environment->getIntType(), NULL);
-	functions.back().addArgument("n", type_environment->getIntType(), NULL);
-	func_and_var_names.add("substring", &(functions.back()));
+	f = addFunction(NULL, "substring", type_environment->getStringType(),
+		NULL, IRenvironment->addLabel("__substring"));
+	f->addArgument("s", type_environment->getStringType(), NULL);
+	f->addArgument("first", type_environment->getIntType(), NULL);
+	f->addArgument("n", type_environment->getIntType(), NULL);
+	func_and_var_names.add("substring", f);
 
-	functions.push_back(Function(-1, "concat", type_environment->getStringType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__concat")));
-	functions.back().addArgument("s1", type_environment->getStringType(), NULL);
-	functions.back().addArgument("s2", type_environment->getStringType(), NULL);
-	func_and_var_names.add("concat", &(functions.back()));
+	f = addFunction(NULL, "concat", type_environment->getStringType(),
+		NULL, IRenvironment->addLabel("__concat"));
+	f->addArgument("s1", type_environment->getStringType(), NULL);
+	f->addArgument("s2", type_environment->getStringType(), NULL);
+	func_and_var_names.add("concat", f);
 
-	functions.push_back(Function(-1, "not", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__not")));
-	functions.back().addArgument("i", type_environment->getIntType(), NULL);
-	func_and_var_names.add("not", &(functions.back()));
+	f = addFunction(NULL, "not", type_environment->getIntType(),
+		NULL, IRenvironment->addLabel("__not"));
+	f->addArgument("i", type_environment->getIntType(), NULL);
+	func_and_var_names.add("not", f);
 
-	functions.push_back(Function(-1, "exit", type_environment->getVoidType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("exit")));
-	functions.back().addArgument("i", type_environment->getIntType(), NULL);
-	func_and_var_names.add("exit", &(functions.back()));
+	f = addFunction(NULL, "exit", type_environment->getVoidType(),
+		NULL, IRenvironment->addLabel("exit"));
+	f->addArgument("i", type_environment->getIntType(), NULL);
+	func_and_var_names.add("exit", f);
 
-	functions.push_back(Function(-1, "getmem", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem")));
-	functions.back().addArgument("size", type_environment->getIntType(), NULL);
-	//func_and_var_names.add("getmem", &(functions.back()));
-	getmem_func = &(functions.back());
+	f = addFunction(NULL, "getmem", type_environment->getIntType(),
+		NULL, IRenvironment->addLabel("__getmem"));
+	f->addArgument("size", type_environment->getIntType(), NULL);
+	//func_and_var_names.add("getmem", f);
+	getmem_func = f;
 
-	functions.push_back(Function(-1, "getmem_fill", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem_fill")));
-	functions.back().addArgument("elemcount", type_environment->getIntType(), NULL);
-	functions.back().addArgument("value", type_environment->getIntType(), NULL);
-	//func_and_var_names.add("getmem_fill", &(functions.back()));
-	getmem_fill_func = &(functions.back());
+	f = addFunction(NULL, "getmem_fill", type_environment->getIntType(),
+		NULL, IRenvironment->addLabel("__getmem_fill"));
+	f->addArgument("elemcount", type_environment->getIntType(), NULL);
+	f->addArgument("value", type_environment->getIntType(), NULL);
+	//func_and_var_names.add("getmem_fill", f);
+	getmem_fill_func = f;
 
-	functions.push_back(Function(-1, "strcmp", type_environment->getIntType(),
-		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__strcmp")));
-	functions.back().addArgument("size", type_environment->getIntType(), NULL);
-	strcmp_func = &(functions.back());
+	f = addFunction(NULL, "strcmp", type_environment->getIntType(),
+		NULL, IRenvironment->addLabel("__strcmp"));
+	f->addArgument("size", type_environment->getIntType(), NULL);
+	strcmp_func = f;
 
 }
 
@@ -397,6 +427,21 @@ TranslatorPrivate::~TranslatorPrivate()
 	delete undefined_variable;
 	delete type_environment;
 	delete IRtransformer;
+}
+
+Function *TranslatorPrivate::addFunction(IR::AbstractFrame *currentFrame,
+	 const std::string &name, Type *return_type,
+	Syntax::Tree body, IR::Label *label)
+{
+	functions.push_back(Function(name, return_type, body, NULL,
+		body ? framemanager->newFrame(currentFrame, label->getName()) : NULL,
+		label));
+	Function *function = &(functions.back());
+	if (function->implementation.frame != NULL)
+		debug("New frame %s, id %d", function->implementation.frame->getName().c_str(),
+				function->implementation.frame->getId());
+	inline_param.func_by_labelid[label->getIndex()] = &function->implementation;
+	return function;
 }
 
 void TranslatorPrivate::newLayer()
@@ -524,13 +569,18 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			function_label->appendToName(std::string("_") + declaration->name->name);
 		} else
 			function_label = IRenvironment->addLabel(declaration->name->name.c_str());
-		functions.push_back(Function(declaration->id, declaration->name->name, return_type,
-			declaration->body, NULL,
-			framemanager->newFrame(currentFrame, function_label->getName()),
-			function_label));
-		Function *function = &(functions.back());
-		debug("New frame %s, id %d", function->frame->getName().c_str(),
-				function->frame->getId());
+// 		functions.push_back(Function(declaration->name->name, return_type,
+// 			declaration->body, NULL,
+// 			declaration->body ?
+// 				framemanager->newFrame(currentFrame, function_label->getName()) : NULL,
+// 			function_label));
+// 		Function *function = &(functions.back());
+// 		debug("New frame %s, id %d", function->implementation.frame->getName().c_str(),
+// 				function->implementation.frame->getId());
+// 		inline_param.func_by_labelid[function_label->getIndex()] =
+// 			&function->implementation;
+		Function *function = addFunction(currentFrame, declaration->name->name,
+			return_type, declaration->body, function_label);
 		func_and_var_names.add(declaration->name->name, function);
 		recent_functions.push_back(function);
 		
@@ -540,7 +590,8 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 				std::static_pointer_cast<Syntax::ParameterDeclaration>(param);
 			Type *param_type = type_environment->getType(param_decl->type, false)->resolve();
 			function->addArgument(param_decl->name->name, param_type,
-				function->frame->addParameter(
+				(! function->raw_body) ? NULL :
+				function->implementation.frame->addParameter(
 					param_decl->name->name,
 					type_environment->getTypeSize(param_type)
 				)
@@ -555,8 +606,8 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 		func_and_var_names.newLayer();
 		for (FunctionArgument &param: fcn->arguments)
 			func_and_var_names.add(param.name, &param);
-		translateExpression(fcn->raw_body, fcn->body, actual_return_type,
-			NULL, fcn->frame, true);
+		translateExpression(fcn->raw_body, fcn->implementation.body, actual_return_type,
+			NULL, fcn->implementation.frame, true);
 		func_and_var_names.removeLastLayer();
 		if ((fcn->return_type->basetype != TYPE_VOID) &&
 				! CheckAssignmentTypes(fcn->return_type, actual_return_type))
@@ -656,7 +707,9 @@ void TranslatorPrivate::translateIdentifier(Syntax::Identifier *expression,
 	} else {
 		type = ((Variable *)var_or_function)->type->resolve();
 		translated = std::make_shared<IR::ExpressionCode>(
-			((Variable *)var_or_function)->implementation->createCode(currentFrame)
+			std::make_shared<IR::VarLocationExp>(
+				((Variable *)var_or_function)->implementation
+			)
 		);
 	}
 }
@@ -849,6 +902,8 @@ void TranslatorPrivate::translateBinaryOperation(Syntax::BinaryOp *expression,
 			IR::Expression right_expr = IRenvironment->codeToExpression(right);
 			translated = std::make_shared<IR::StatementCode>(
 				std::make_shared<IR::MoveStatement>(left_expr, right_expr));
+			if (left_expr->kind == IR::IR_VAR_LOCATION)
+				IR::ToVarLocationExp(left_expr)->variable->assign();
 			break;
 		}
 		default:
@@ -1059,8 +1114,8 @@ bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condit
 	sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(inner_true_label));
 	IR::Expression value_storage = nullptr;
 	if (type->basetype != TYPE_VOID) {
-		value_storage = currentFrame->addVariable(type_environment->getTypeSize(type))->
-			createCode(currentFrame);
+		value_storage = std::make_shared<IR::VarLocationExp>(
+			currentFrame->addVariable(type_environment->getTypeSize(type)));
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			value_storage,
 			IRenvironment->codeToExpression(action_code)));
@@ -1170,9 +1225,8 @@ void TranslatorPrivate::translateIfElse(
 			IR::Label *finish_label = IRenvironment->addLabel();
 			IR::Expression value_storage = NULL;
 			if (type->basetype != TYPE_VOID)
-				value_storage = currentFrame->addVariable(
-					type_environment->getTypeSize(type))->
-					createCode(currentFrame);
+				value_storage = std::make_shared<IR::VarLocationExp>(
+					currentFrame->addVariable(type_environment->getTypeSize(type)));
 			std::list<IR::Label**> replace_true, replace_false;
 			IR::Statement condition_jump = IRenvironment->codeToCondJump(
 				condition_code, replace_true, replace_false);
@@ -1286,12 +1340,13 @@ void TranslatorPrivate::translateFor(
 		currentFrame, false);
 	if ((from_type->basetype == TYPE_INT) && (to_type->basetype == TYPE_INT)) {
 		std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
-		IR::Expression upper_bound = currentFrame->addVariable(
-			type_environment->getTypeSize(var_type))->createCode(currentFrame);
+		IR::Expression upper_bound = std::make_shared<IR::VarLocationExp>(
+			currentFrame->addVariable(type_environment->getTypeSize(var_type)));
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			upper_bound,
 			IRenvironment->codeToExpression(to_code)));
-		IR::Expression loopvar_expression = loopvar->implementation->createCode(currentFrame);
+		IR::Expression loopvar_expression = std::make_shared<IR::VarLocationExp>(
+			loopvar->implementation);
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			loopvar_expression,
 			IRenvironment->codeToExpression(from_code)));
@@ -1346,6 +1401,9 @@ void TranslatorPrivate::translateScope(
 				IRenvironment->codeToExpression(var_code),
 				IRenvironment->codeToExpression(newvar->value)
 			));
+			// This way, this assignment won't count in determining whether the
+			// variable is ever assigned anything else
+			assert (! newvar->implementation->isAssigned());
 		}
 	translateSequence(expression->action->expressions, translated, type,
 		NULL, currentFrame, sequence);
@@ -1396,16 +1454,20 @@ void TranslatorPrivate::makeCallCode(Function *function,
 	IR::AbstractFrame *currentFrame)
 {
 	std::shared_ptr<IR::CallExpression> call = std::make_shared<IR::CallExpression>(
-		std::make_shared<IR::LabelAddressExpression>(function->label), nullptr);
-	function->is_called = true;
-	auto call_list = calls_to_frames.find(function->frame->getId());
-	if (call_list == calls_to_frames.end()) {
-		auto ret = calls_to_frames.insert(std::make_pair(
-			function->frame->getId(), std::list<CallRecord>()));
-		assert(ret.second);
-		call_list = ret.first;
+		std::make_shared<IR::LabelAddressExpression>(function->implementation.label), nullptr);
+	function->implementation.is_called = true;
+	
+	if (function->implementation.frame != NULL) {
+		auto call_list = calls_to_frames.find(function->implementation.frame->getId());
+		if (call_list == calls_to_frames.end()) {
+			auto ret = calls_to_frames.insert(std::make_pair(
+				function->implementation.frame->getId(), std::list<CallRecord>()));
+			assert(ret.second);
+			call_list = ret.first;
+		}
+		call_list->second.push_back(CallRecord(call, currentFrame));
 	}
-	call_list->second.push_back(CallRecord(call, currentFrame));
+
 	for (IR::Code arg: arguments)
 		 call->addArgument(IRenvironment->codeToExpression(arg));
 	result = std::make_shared<IR::ExpressionCode>(call);
@@ -1485,8 +1547,8 @@ void TranslatorPrivate::translateRecordInstantiation(
 	}
 	RecordType *record = (RecordType *)type;
 	
-	IR::Expression record_address = currentFrame->addVariable(
-		type_environment->getTypeSize(record))->createCode(currentFrame);
+	IR::Expression record_address = std::make_shared<IR::VarLocationExp>(
+		currentFrame->addVariable(type_environment->getTypeSize(record)));
 	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 	std::list<IR::Code> alloc_argument;
 	alloc_argument.push_back(std::make_shared<IR::ExpressionCode>(
@@ -1653,7 +1715,7 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 	}
 }
 
-void TranslatorPrivate::prespillRegister(IR::Expression &exp, IR::Expression parent_exp,
+bool TranslatorPrivate::prespillRegister(IR::Expression &exp, IR::Expression parent_exp,
 	IR::Statement parent_statm, IR::CodeWalker *arg)
 {
 	// Don't need to spill the register if its value is ignored
@@ -1666,6 +1728,7 @@ void TranslatorPrivate::prespillRegister(IR::Expression &exp, IR::Expression par
 			exp = spill->second->createCode(param->frame);
 		}
 	}
+	return true;
 }
 
 void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *frame)
@@ -1704,7 +1767,6 @@ void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *fram
 	
 	IR::CodeWalkCallbacks callbacks;
 	callbacks.doRegister = prespillRegister;
-	
 	if (! spill_param.spilled_locations.empty())
 		IR::walkCode(code, callbacks, &spill_param);
 	
@@ -1723,6 +1785,259 @@ void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *fram
 			statm_code->statm = sequence;
 		}
 	}
+}
+
+class InlineCheckParam: public IR::CodeWalker {
+public:
+	int opcount = 0;
+	int total_call_args = 0;
+};
+
+enum {NOINLINE_THRESHOLD = 10};
+
+// Binary operation
+bool countExpression(IR::Expression &exp, IR::Expression parent_exp,
+	IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	InlineCheckParam *param = dynamic_cast<InlineCheckParam *>(arg);
+	param->opcount++;
+	return param->opcount < NOINLINE_THRESHOLD;
+}
+
+bool countCall(IR::Expression &exp, IR::Expression parent_exp,
+	IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	InlineCheckParam *param = dynamic_cast<InlineCheckParam *>(arg);
+	param->total_call_args += IR::ToCallExpression(exp)->arguments.size();
+	param->opcount++;
+	return param->opcount < NOINLINE_THRESHOLD;
+}
+
+// Move, jump
+bool countStatement(IR::Statement &statm, IR::CodeWalker *arg)
+{
+	InlineCheckParam *param = dynamic_cast<InlineCheckParam *>(arg);
+	param->opcount++;
+	return param->opcount < NOINLINE_THRESHOLD;
+}
+
+bool countCondJump(IR::Statement &statm, IR::CodeWalker *arg)
+{
+	InlineCheckParam *param = dynamic_cast<InlineCheckParam *>(arg);
+	param->opcount += 2;
+	return param->opcount < NOINLINE_THRESHOLD;
+}
+
+bool ShouldInline(IR::Function *func)
+{
+	// Can absolutely NOT inline functions who have child functions.
+	// Reason: if we pass say a constant as a parameter to inline functions,
+	// all references to the register holding that constant should be replaced
+	// with just the constant. But what if those parameters are accessed by child
+	// functions that won't be inlined? At this point we have no way of knowing
+	// whether that's the case or not, but we do want to eliminate paremeter
+	// registers when possible
+	if (func->frame->hasChildren() || (func->frame->getVariableCount() > 2))
+		return false;
+	IR::CodeWalkCallbacks callbacks;
+	callbacks.doBinOp = countExpression;
+	callbacks.doCall = countCall;
+	callbacks.doMove = countStatement;
+	callbacks.doJump = countStatement;
+	callbacks.doCondJump = countCondJump;
+	InlineCheckParam param;
+	if (! IR::walkCode(func->body, callbacks, &param))
+		return false;
+	if (param.opcount + param.total_call_args -
+			func->frame->getParameters().size() >= NOINLINE_THRESHOLD)
+		return false;
+	return true;
+}
+
+class ParamReplacement: public IR::CodeWalker {
+public:
+	std::map<int, IR::Expression> replacements;
+};
+
+bool ReplaceParameter(IR::Expression &exp,
+	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	ParamReplacement *param = dynamic_cast<ParamReplacement *>(arg);
+	auto replacement = param->replacements.find(IR::ToVarLocationExp(exp)->variable->getId());
+	if (replacement != param->replacements.end())
+		exp = replacement->second;
+	return true;
+}
+
+IR::Code ExpandInlineCall(IR::IREnvironment *IR_env, IR::AbstractFrame *caller_frame,
+	std::shared_ptr<IR::CallExpression> exp, IR::Function *func)
+{
+	IR::Code body = IR_env->CopyCode(func->body);
+	std::shared_ptr<IR::StatementSequence> prestatements =
+		std::make_shared<IR::StatementSequence>();
+	
+	ParamReplacement replacements;
+	auto passed_param = exp->arguments.begin();
+	for (IR::VarLocation *param: func->frame->getParameters()) {
+		bool can_substitute = false;
+		if (! param->isAssigned())
+			switch ((*passed_param)->kind) {
+				case IR::IR_INTEGER:
+				case IR::IR_LABELADDR:
+				case IR::IR_REGISTER:
+				case IR::IR_VAR_LOCATION:
+					can_substitute = true;
+					for (auto other_arg = exp->arguments.begin();
+							other_arg != exp->arguments.end(); other_arg++)
+						if (other_arg != passed_param)
+							if (! IR::canSwapExps(*passed_param, *other_arg)) {
+								can_substitute = false;
+								break;
+							}
+				default: ;
+			}
+		IR::Expression replacement;
+		if (can_substitute)
+			replacement = *passed_param;
+		else {
+			IR::VarLocation *save_param = caller_frame->addVariable(param->getSize());
+			replacement = std::make_shared<IR::VarLocationExp>(save_param);
+			prestatements->addStatement(std::make_shared<IR::MoveStatement>(
+				replacement, *passed_param));
+		}
+		replacements.replacements[param->getId()] = replacement;
+		
+		++passed_param;
+	}
+	
+	IR::CodeWalkCallbacks callbacks;
+	callbacks.doVarLocation = ReplaceParameter;
+	walkCode(body, callbacks, &replacements);
+	
+	if (prestatements->statements.empty())
+		return body;
+	else
+		if (body->kind != IR::CODE_STATEMENT)
+			return std::make_shared<IR::ExpressionCode>(
+				std::make_shared<IR::StatExpSequence>(prestatements,
+					IR_env->codeToExpression(body)));
+		else {
+			prestatements->addStatement(IR_env->codeToStatement(body));
+			return std::make_shared<IR::StatementCode>(prestatements);
+		}
+}
+
+bool TranslatorPrivate::maybeInlineCall(IR::Expression &exp,
+	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	InlineExpander *param = dynamic_cast<InlineExpander *>(arg);
+	auto call_exp = IR::ToCallExpression(exp);
+	if (call_exp->function->kind != IR::IR_LABELADDR)
+		return true;
+	IR::Function *func = param->func_by_labelid.at(IR::ToLabelAddressExpression(
+		call_exp->function)->label->getIndex());
+	if (! func->body)
+		return true;
+	
+	if (func->inlined == IR::Function::PROCESSING) {
+		// Recursion (either simple or mutual)
+		DebugPrinter dbg("translator.log");
+		dbg.debug("Function %s cannot be inlined due to recursive calls",
+			func->frame->getName().c_str());
+		func->inlined = IR::Function::NO;
+		return true;
+	}
+	
+	IR::AbstractFrame *our_frame = param->caller_frame;
+	param->caller_frame = func->frame;
+	expandInlineCalls(func, param);
+	param->caller_frame = our_frame;
+	
+	// If the result is ignored, the whole "exp-ignore-result" statement
+	// can need to be replaced, so its callback will do this job instead
+	if (! parent_statm || (parent_statm->kind != IR::IR_EXP_IGNORE_RESULT)) {
+		if (func->inlined == IR::Function::YES)
+			exp = param->IR_env->codeToExpression(ExpandInlineCall(
+				param->IR_env, param->caller_frame, call_exp, func));
+	}
+	return true;
+}
+
+bool TranslatorPrivate::maybeInlineExpIgnoreCall(IR::Statement &statm,
+	IR::CodeWalker *arg)
+{
+	InlineExpander *param = dynamic_cast<InlineExpander *>(arg);
+	auto exp_statm = IR::ToExpressionStatement(statm);
+	if (exp_statm->exp->kind != IR::IR_FUN_CALL)
+		return true;
+	auto call_exp = IR::ToCallExpression(exp_statm->exp);
+	if (call_exp->function->kind != IR::IR_LABELADDR)
+		return true;
+	IR::Function *func = param->func_by_labelid.at(IR::ToLabelAddressExpression(
+		call_exp->function)->label->getIndex());
+	if (! func->body)
+		return true;
+	if (func->inlined == IR::Function::YES) {
+		IR::Code code = ExpandInlineCall(param->IR_env, param->caller_frame,
+			call_exp, func);
+		if ((code->kind == IR::CODE_EXPRESSION) || (code->kind == IR::CODE_JUMP_WITH_PATCHES))
+			exp_statm->exp = param->IR_env->codeToExpression(code);
+		else
+			statm = param->IR_env->codeToStatement(code);
+	}
+	
+	return true;
+}
+
+void TranslatorPrivate::expandInlineCalls(IR::Function *func, IR::CodeWalker *arg)
+{
+	if ((func->inlined == IR::Function::UNKNOWN) && func->body) {
+		func->inlined = IR::Function::PROCESSING;
+		
+		IR::CodeWalkCallbacks callbacks;
+		callbacks.doCall = maybeInlineCall;
+		callbacks.doExpIgnoreRes = maybeInlineExpIgnoreCall;
+		IR::walkCode(func->body, callbacks, arg);
+		if (func->inlined == IR::Function::PROCESSING) {
+			func->inlined = ShouldInline(func) ? IR::Function::YES : IR::Function::NO;
+			if (func->inlined == IR::Function::YES) {
+				DebugPrinter dbg("translator.log");
+				dbg.debug("Function %s will be inlined on sight",
+					func->frame->getName().c_str());
+			}
+		}
+	}
+}
+
+void TranslatorPrivate::expandInlineCalls(IR::Function *func)
+{
+	inline_param.caller_frame = func->frame;
+	expandInlineCalls(func, &inline_param);
+}
+
+void TranslatorPrivate::expandInlineCalls(IR::Code code, IR::AbstractFrame *frame)
+{
+	IR::CodeWalkCallbacks callbacks;
+	callbacks.doCall = maybeInlineCall;
+	callbacks.doExpIgnoreRes = maybeInlineExpIgnoreCall;
+	inline_param.caller_frame = frame;
+	IR::walkCode(code, callbacks, &inline_param);
+}
+
+bool TranslatorPrivate::implementVarLocation(IR::Expression &exp,
+	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	exp = IR::ToVarLocationExp(exp)->variable->createCode(
+		dynamic_cast<FrameParam *>(arg)->frame);
+	return true;
+}
+
+void TranslatorPrivate::implementVarLocations(IR::Code code, IR::AbstractFrame *frame)
+{
+	IR::CodeWalkCallbacks callbacks;
+	callbacks.doVarLocation = implementVarLocation;
+	FrameParam param(frame);
+	IR::walkCode(code, callbacks, &param);
 }
 
 void TranslatorPrivate::addParentFpToCalls()
@@ -1789,19 +2104,32 @@ void Translator::translateProgram(Syntax::Tree expression,
 	IR::Code code;
 	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
 	impl->translateExpression(expression, code, type, NULL, frame, false);
+	if (Error::getErrorCount() > 0)
+		return;
+	
 	for (Semantic::Function &fcn: impl->functions)
-		if (fcn.body)
-			impl->IRtransformer->expandInlineCalls(fcn.body, fcn.frame);
-	impl->IRtransformer->expandInlineCalls(code, frame);
+		if (fcn.implementation.body)
+			impl->expandInlineCalls(fcn.implementation.body, fcn.implementation.frame);
+	impl->expandInlineCalls(code, frame);
+	
 	for (Semantic::Function &fcn: impl->functions)
-		if (fcn.body && ! fcn.is_exported &&
-				(! fcn.is_called || (fcn.inlined == Function::YES)))
-			fcn.body = nullptr;
-			
+		if (fcn.implementation.body && ! fcn.implementation.is_exported &&
+				! fcn.implementation.is_referenced &&
+					(! fcn.implementation.is_called ||
+					  (fcn.implementation.inlined == IR::Function::YES)))
+			fcn.implementation.body = nullptr;
+
+	for (Semantic::Function &fcn: impl->functions)
+		if (fcn.implementation.body)
+			impl->implementVarLocations(fcn.implementation.body,
+				fcn.implementation.frame);
+	impl->implementVarLocations(code, frame);
+	
 	impl->addParentFpToCalls();
 	for (Semantic::Function &fcn: impl->functions)
-		if (fcn.body)
-			impl->prespillRegisters(fcn.body, fcn.frame);
+		if (fcn.implementation.body)
+			impl->prespillRegisters(fcn.implementation.body,
+				fcn.implementation.frame);
 	impl->prespillRegisters(code, frame);
 	result = impl->IRenvironment->codeToStatement(code);
 
@@ -1812,9 +2140,9 @@ void Translator::translateProgram(Syntax::Tree expression,
 void Translator::printFunctions(FILE *out)
 {
 	for (Function &func: impl->functions)
-		if (func.body != NULL) {
-			fprintf(out, "Function %s\n", func.label->getName().c_str());
-			IR::PrintCode(out, func.body);
+		if (func.implementation.body != NULL) {
+			fprintf(out, "Function %s\n", func.implementation.label->getName().c_str());
+			IR::PrintCode(out, func.implementation.body);
 		}
 }
 
@@ -1828,27 +2156,29 @@ void Translator::canonicalizeProgram(IR::Statement &statement)
 void Translator::canonicalizeFunctions()
 {
 	for (Function &func: impl->functions) {
-		if (func.body == NULL)
+		if (func.implementation.body == NULL)
 			continue;
-		switch (func.body->kind) {
+		switch (func.implementation.body->kind) {
 			case IR::CODE_EXPRESSION: {
-				IR::ExpressionCode *exp_code = std::static_pointer_cast<IR::ExpressionCode>(func.body).get();
+				IR::ExpressionCode *exp_code = std::static_pointer_cast<IR::ExpressionCode>(
+					func.implementation.body).get();
 				impl->IRtransformer->canonicalizeExpression(
 					exp_code->exp, NULL, NULL);
 				impl->IRtransformer->arrangeJumpsInExpression(exp_code->exp);
 				break;
 			}
 			case IR::CODE_STATEMENT: {
-				IR::StatementCode *statm_code = std::static_pointer_cast<IR::StatementCode>(func.body).get();
+				IR::StatementCode *statm_code = std::static_pointer_cast<IR::StatementCode>(
+					func.implementation.body).get();
 				canonicalizeProgram(statm_code->statm);
 				break;
 			}
 			case IR::CODE_JUMP_WITH_PATCHES: {
 				IR::Expression expr = impl->IRenvironment->
-					codeToExpression(func.body);
+					codeToExpression(func.implementation.body);
 				impl->IRtransformer->canonicalizeExpression(expr, NULL, NULL);
 				impl->IRtransformer->arrangeJumpsInExpression(expr);
-				func.body = std::make_shared<IR::ExpressionCode>(expr);
+				func.implementation.body = std::make_shared<IR::ExpressionCode>(expr);
 			}
 		}
 	}

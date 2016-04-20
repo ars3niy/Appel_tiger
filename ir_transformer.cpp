@@ -4,10 +4,6 @@
 
 namespace IR {
 
-void IRTransformer::expandInlineCalls(IR::Code code, AbstractFrame *frame)
-{
-}
-
 bool isNop(Statement statm)
 {
 	return (statm->kind == IR_EXP_IGNORE_RESULT) &&
@@ -21,8 +17,24 @@ bool canSwapExpAndStatement(Expression exp, Statement statm)
 
 bool canSwapExps(Expression exp1, Expression exp2)
 {
-	return (exp1->kind == IR_INTEGER) || (exp2->kind == IR_LABELADDR) ||
-		(exp2->kind == IR_INTEGER) || (exp2->kind == IR_LABELADDR);
+	if ((exp1->kind == IR_INTEGER) || (exp1->kind == IR_LABELADDR) ||
+		(exp2->kind == IR_INTEGER) || (exp2->kind == IR_LABELADDR) || (
+			((exp1->kind == IR_REGISTER) || (exp1->kind == IR_VAR_LOCATION) ||
+				(exp1->kind == IR_MEMORY)
+			) &&
+			((exp2->kind == IR_REGISTER) || (exp2->kind == IR_VAR_LOCATION) ||
+				(exp2->kind == IR_MEMORY)
+			)
+		))
+		return true;
+	else if (exp1->kind == IR_BINARYOP)
+		return canSwapExps(ToBinaryOpExpression(exp1)->left, exp2) &&
+			canSwapExps(ToBinaryOpExpression(exp1)->right, exp2);
+	else if (exp2->kind == IR_BINARYOP)
+		return canSwapExps(exp1, ToBinaryOpExpression(exp2)->left) &&
+			canSwapExps(exp1, ToBinaryOpExpression(exp2)->right);
+	else
+		return false;
 }
 
 void IRTransformer::canonicalizeMemoryExp(Expression &exp)
@@ -47,6 +59,7 @@ void growStatementSequence(std::shared_ptr<StatementSequence> sequence, Statemen
 
 /**
  * left and right can be overwritten
+ * 
  * collected_statements is like a return value
  */
 void IRTransformer::pullStatementsOutOfTwoOperands(Expression &left,

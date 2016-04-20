@@ -7,6 +7,8 @@
 
 namespace IR {
 
+bool canSwapExps(Expression exp1, Expression exp2);
+
 class IRTransformer: public DebugPrinter {
 private:
 	IREnvironment *ir_env;
@@ -54,7 +56,6 @@ public:
 		DebugPrinter("canonicalize.log"),
 		ir_env(_ir_env){}
 
-	void expandInlineCalls(Code code, AbstractFrame *frame);
 	/**
 	 * Either parentExpression or parentStatement (or both) must be null
 	 */

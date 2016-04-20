@@ -1,5 +1,5 @@
 project(compiler)
-add_definitions(-DDEBUG)
+#add_definitions(-DDEBUG)
 set(CMAKE_CXX_FLAGS "-std=c++11 -Wall")
 
 find_package(FLEX)

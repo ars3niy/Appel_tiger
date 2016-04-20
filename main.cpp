@@ -126,17 +126,17 @@ void TranslateProgram(bool assemble)
 #endif
 	
 	for (Semantic::Function func: translator.getFunctions())
-		if (func.body != NULL) {
+		if (func.implementation.body != NULL) {
 			code.push_back(Asm::Instructions());
 			chunks.push_back(CodeInfo());
-			assembler.translateFunctionBody(func.body, func.label,
-				func.frame, code.back());
+			assembler.translateFunctionBody(func.implementation.body, func.implementation.label,
+				func.implementation.frame, code.back());
 #ifdef DEBUG
-			Optimize::PrintLivenessInfo(f, code.back(), func.frame);
+			Optimize::PrintLivenessInfo(f, code.back(), func.implementation.frame);
 #endif
 			chunks.back().code = &code.back();
-			chunks.back().frame = func.frame;
-			chunks.back().funclabel = func.label;
+			chunks.back().frame = func.implementation.frame;
+			chunks.back().funclabel = func.implementation.label;
 		}
 	code.push_back(Asm::Instructions());
 	assembler.translateProgram(program_body, body_frame, code.back());

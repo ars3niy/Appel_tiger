@@ -1,5 +1,6 @@
 #include "intermediate.h"
 #include "errormsg.h"
+#include "frame.h"
 #include <stdio.h>
 
 namespace IR {
@@ -65,6 +66,12 @@ VirtualRegister::VirtualRegister(int _index) : index(_index)
 	prespilled_location = NULL;
 }
 
+MoveStatement::MoveStatement(Expression _to, Expression _from)  :
+	StatementClass(IR_MOVE), to(_to), from(_from)
+{
+	if (to->kind == IR_VAR_LOCATION)
+		ToVarLocationExp(to)->variable->assign();
+}
 
 Label *LabelFactory::addLabel(const std::string &name)
 {
@@ -216,109 +223,256 @@ Statement IREnvironment::codeToCondJump(Code code,
 	return nullptr;
 }
 
-void walkExpression(Expression &exp, Expression parentExpression,
+bool walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
+
+bool walkExpression(Expression &exp, Expression parentExpression,
 	Statement parentStatement, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
 {
 	switch (exp->kind) {
-	case IR_REGISTER:
-		if (callbacks.doLabelAddr)
-			callbacks.doLabelAddr(exp, parentExpression, parentStatement, arg);
-		break;
-	case IR_LABELADDR:
+	case IR_INTEGER:
 		if (callbacks.doInt)
-			callbacks.doInt(exp, parentExpression, parentStatement, arg);
-		break;
+			return callbacks.doInt(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
+	case IR_LABELADDR:
+		if (callbacks.doLabelAddr)
+			return callbacks.doLabelAddr(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
+	case IR_REGISTER:
+		if (callbacks.doRegister)
+			return callbacks.doRegister(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
 	case IR_BINARYOP: {
 		auto binop = ToBinaryOpExpression(exp);
-		walkExpression(binop->left, exp, nullptr, callbacks, arg);
-		walkExpression(binop->right, exp, nullptr, callbacks, arg);
+		if (! walkExpression(binop->left, exp, nullptr, callbacks, arg))
+			return false;
+		if (! walkExpression(binop->right, exp, nullptr, callbacks, arg))
+			return false;
 		if (callbacks.doBinOp)
-			callbacks.doBinOp(exp, parentExpression, parentStatement, arg);
-		break;
+			return callbacks.doBinOp(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
 	}
 	case IR_MEMORY:
-		walkExpression(ToMemoryExpression(exp)->address, exp, nullptr, callbacks, arg);
+		if (! walkExpression(ToMemoryExpression(exp)->address, exp,
+				nullptr, callbacks, arg))
+			return false;
 		if (callbacks.doMemory)
-			callbacks.doMemory(exp, parentExpression, parentStatement, arg);
-		break;
+			return callbacks.doMemory(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
 	case IR_VAR_LOCATION:
-		walkExpression(ToMemoryExpression(exp)->address, exp, nullptr, callbacks, arg);
 		if (callbacks.doVarLocation)
-			callbacks.doVarLocation(exp, parentExpression, parentStatement, arg);
-		break;
+			return callbacks.doVarLocation(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
 	case IR_FUN_CALL: {
 		auto call = ToCallExpression(exp);
-		walkExpression(call->function, exp, nullptr, callbacks, arg);
+		if (! walkExpression(call->function, exp, nullptr, callbacks, arg))
+			return false;
 		for (Expression &fun_arg: call->arguments)
-			walkExpression(fun_arg, exp, nullptr, callbacks, arg);
+			if (! walkExpression(fun_arg, exp, nullptr, callbacks, arg))
+				return false;
 		if (callbacks.doCall)
-			callbacks.doCall(exp, parentExpression, parentStatement, arg);
-		break;
+			return callbacks.doCall(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
 	}
 	case IR_STAT_EXP_SEQ: {
 		auto seq = ToStatExpSequence(exp);
-		walkStatement(seq->stat, callbacks, arg);
-		walkExpression(seq->exp, exp, nullptr, callbacks, arg);
+		if (! walkStatement(seq->stat, callbacks, arg))
+			return false;
+		if (! walkExpression(seq->exp, exp, nullptr, callbacks, arg))
+			return false;
 		if (callbacks.doStatExpSeq)
-			callbacks.doStatExpSeq(exp, parentExpression, parentStatement, arg);
-		break;
+			return callbacks.doStatExpSeq(exp, parentExpression, parentStatement, arg);
+		else
+			return true;
 	}
-	default: ;
+	default:
+		return true;
 	}
 }
 
-void walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
+bool walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
 {
 	switch (statm->kind) {
 	case IR_MOVE: {
 		auto move = ToMoveStatement(statm);
-		walkExpression(move->from, nullptr, statm, callbacks, arg);
-		walkExpression(move->to, nullptr, statm, callbacks, arg);
+		if (! walkExpression(move->from, nullptr, statm, callbacks, arg))
+			return false;
+		if (! walkExpression(move->to, nullptr, statm, callbacks, arg))
+			return false;
 		if (callbacks.doMove)
-			callbacks.doMove(statm, arg);
-		break;
+			return callbacks.doMove(statm, arg);
+		else
+			return true;
 	}
 	case IR_EXP_IGNORE_RESULT: {
 		auto expstatm = ToExpressionStatement(statm);
-		walkExpression(expstatm->exp, nullptr, statm, callbacks, arg);
+		if (! walkExpression(expstatm->exp, nullptr, statm, callbacks, arg))
+			return false;
 		if (callbacks.doExpIgnoreRes)
-			callbacks.doExpIgnoreRes(statm, arg);
-		break;
+			return callbacks.doExpIgnoreRes(statm, arg);
+		else
+			return true;
 	}
 	case IR_JUMP:
-		walkExpression(ToJumpStatement(statm)->dest, nullptr, statm, callbacks, arg);
+		if (! walkExpression(ToJumpStatement(statm)->dest, nullptr, statm, callbacks, arg))
+			return false;
 		if (callbacks.doJump)
-			callbacks.doJump(statm, arg);
-		break;
+			return callbacks.doJump(statm, arg);
+		else
+			return true;
 	case IR_COND_JUMP: {
 		auto condjump = ToCondJumpStatement(statm);
-		walkExpression(condjump->left, nullptr, statm, callbacks, arg);
-		walkExpression(condjump->right, nullptr, statm, callbacks, arg);
+		if (! walkExpression(condjump->left, nullptr, statm, callbacks, arg))
+			return false;
+		if (! walkExpression(condjump->right, nullptr, statm, callbacks, arg))
+			return false;
 		if (callbacks.doCondJump)
-			callbacks.doCondJump(statm, arg);
-		break;
+			return callbacks.doCondJump(statm, arg);
+		else
+			return true;
 	}
 	case IR_STAT_SEQ:
 		for (Statement element: ToStatementSequence(statm)->statements)
-			walkStatement(element, callbacks, arg);
+			if (! walkStatement(element, callbacks, arg))
+				return false;
 		if (callbacks.doSequence)
-			callbacks.doSequence(statm, arg);
-		break;
-	default: ;
+			return callbacks.doSequence(statm, arg);
+		else
+			return true;
+	default:
+		return true;
 	}
 }
 
-void walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
+bool walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
 {
-	if (code->kind == IR::CODE_EXPRESSION) {
-		std::shared_ptr<IR::ExpressionCode> exp_code =
-			std::static_pointer_cast<IR::ExpressionCode>(code);
-		walkExpression(exp_code->exp, nullptr, nullptr, callbacks, arg);
+	if (code->kind == CODE_EXPRESSION) {
+		std::shared_ptr<ExpressionCode> exp_code =
+			std::static_pointer_cast<ExpressionCode>(code);
+		return walkExpression(exp_code->exp, nullptr, nullptr, callbacks, arg);
 	} else {
-		std::shared_ptr<IR::StatementCode> statm_code =
-			std::static_pointer_cast<IR::StatementCode>(code);
-		walkStatement(statm_code->statm, callbacks, arg);
+		std::shared_ptr<StatementCode> statm_code =
+			std::static_pointer_cast<StatementCode>(code);
+		return walkStatement(statm_code->statm, callbacks, arg);
 	}
+}
+
+Label *IREnvironment::copyLabel(Label *label)
+{
+	if (label == NULL)
+		return NULL;
+	
+	auto found = label_copies.find(label->getIndex());
+	if (found != label_copies.end())
+		return found->second;
+	
+	Label *newlabel = addLabel(label->getName() + "._" + IntToStr(copy_count));
+	label_copies.insert(std::make_pair(label->getIndex(), newlabel));
+	return newlabel;
+}
+
+Expression IREnvironment::CopyExpression(Expression exp)
+{
+	if (! exp)
+		return nullptr;
+	switch (exp->kind) {
+	case IR_INTEGER:
+		return std::make_shared<IntegerExpression>(
+			std::static_pointer_cast<IntegerExpression>(exp)->value);
+	case IR_LABELADDR:
+		return std::make_shared<LabelAddressExpression>(copyLabel(
+			std::static_pointer_cast<LabelAddressExpression>(exp)->label));
+	case IR_REGISTER:
+		return std::make_shared<RegisterExpression>(
+			std::static_pointer_cast<RegisterExpression>(exp)->reg);
+	case IR_BINARYOP: {
+		auto binop = ToBinaryOpExpression(exp);
+		return std::make_shared<BinaryOpExpression>(
+			binop->operation, CopyExpression(binop->left), CopyExpression(binop->right));
+	}
+	case IR_MEMORY:
+		return std::make_shared<MemoryExpression>(ToMemoryExpression(exp)->address);
+	case IR_VAR_LOCATION:
+		return std::make_shared<VarLocationExp>(ToVarLocationExp(exp)->variable);
+	case IR_FUN_CALL: {
+		auto call = ToCallExpression(exp);
+		auto copy = std::make_shared<CallExpression>(CopyExpression(call->function),
+			CopyExpression(call->callee_parentfp));
+		for (Expression fun_arg: call->arguments)
+			copy->addArgument(CopyExpression(fun_arg));
+	}
+	case IR_STAT_EXP_SEQ: {
+		auto seq = ToStatExpSequence(exp);
+		return std::make_shared<StatExpSequence>(CopyStatement(seq->stat),
+			CopyExpression(seq->exp));
+	}
+	default:
+		return nullptr;
+	}
+}
+
+Statement IREnvironment::CopyStatement(Statement statm)
+{
+	switch (statm->kind) {
+	case IR_MOVE: {
+		auto move = ToMoveStatement(statm);
+		return std::make_shared<MoveStatement>(CopyExpression(move->to),
+			CopyExpression(move->from));
+	}
+	case IR_EXP_IGNORE_RESULT:
+		return std::make_shared<ExpressionStatement>(CopyExpression(
+			std::static_pointer_cast<ExpressionStatement>(statm)->exp));
+	case IR_JUMP: {
+		auto jump = ToJumpStatement(statm);
+		auto copy = std::make_shared<JumpStatement>(jump->dest);
+		for (Label *label: jump->possible_results)
+			copy->addPossibleResult(copyLabel(label));
+		return copy;
+	}
+	case IR_COND_JUMP: {
+		auto condjump = ToCondJumpStatement(statm);
+		return std::make_shared<CondJumpStatement>(condjump->comparison,
+			condjump->left, condjump->right, condjump->true_dest, condjump->false_dest);
+	}
+	case IR_LABEL:
+		return std::make_shared<LabelPlacementStatement>(
+			copyLabel(ToLabelPlacementStatement(statm)->label));
+	case IR_STAT_SEQ: {
+		auto seq = ToStatementSequence(statm);
+		auto copy = std::make_shared<StatementSequence>();
+		for (Statement substatm: seq->statements)
+			copy->addStatement(CopyStatement(substatm));
+		return copy;
+	}
+	default:
+		return nullptr;
+	}
+}
+
+Code IREnvironment::CopyCode(Code code)
+{
+	copy_count++;
+	Code result = nullptr;
+	switch (code->kind) {
+		case CODE_EXPRESSION:
+			result = std::make_shared<ExpressionCode>(
+				CopyExpression(std::static_pointer_cast<ExpressionCode>(code)->exp));
+			break;
+		case CODE_STATEMENT:
+			result = std::make_shared<StatementCode>(
+				CopyStatement(std::static_pointer_cast<StatementCode>(code)->statm));
+			break;
+		case CODE_JUMP_WITH_PATCHES:
+			Error::fatalError("Won't copy jump with patches");
+	}
+	label_copies.clear();
+	return result;
 }
 
 }

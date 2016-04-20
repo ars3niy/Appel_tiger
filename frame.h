@@ -11,6 +11,10 @@ class AbstractFrameManager;
 
 class VarLocation: public DebugPrinter {
 private:
+	/**
+	 * Unique within all frames
+	 */
+	int id;
 	AbstractFrame *owner_frame;
 	/**
 	 * null if this variable is in the memory from the beginning
@@ -24,7 +28,7 @@ private:
 	 * assignment can be removed by a speciall read-only prespilled-spilling
 	 * logic of the assembler.
 	 * If the register is not read-only, it will be actually spilled for sure
-	 * and only ever used as a memory location. 
+	 * and only ever used as a memory location.
 	 */
 	VirtualRegister *reg;
 	int offset;
@@ -36,28 +40,13 @@ private:
 	 * anything
 	 */
 	bool predefined;
+	bool is_assigned = false;
 public:
 	VarLocation(AbstractFrame *_frame, int _size, int _offset,
-			const std::string &_name, bool _predefined) :
-		DebugPrinter("translator.log"),
-		owner_frame(_frame),
-		reg(NULL),
-		offset(_offset),
-		size(_size),
-		name(_name),
-		predefined(_predefined),
-		read_only(false) {}
+			const std::string &_name, bool _predefined);
 		
 	VarLocation(AbstractFrame *_frame, int _size, IR::VirtualRegister *_reg,
-			bool _predefined) :
-		DebugPrinter("translator.log"),
-		owner_frame(_frame),
-		reg(_reg),
-		offset(-1),
-		size(_size),
-		name(_reg->getName()),
-		predefined(_predefined),
-		read_only(false) {}
+			bool _predefined);
 	
 	/**
 	 * If true, it means that the variable is assigned only once before
@@ -66,12 +55,17 @@ public:
 	 * is the parameter was passed in a register.
 	 */
 	bool read_only;
+	IR::Expression constant_value = nullptr;
+	int getId() {return id;}
+	int getSize() {return size;}
 	bool isPredefined() {return predefined;}
 	bool isRegister() {return reg != NULL;}
 	VirtualRegister *getRegister() {return reg;}
 	IR::Expression createCode(AbstractFrame *currentFrame);
 	void prespillRegister();
 	AbstractFrame *getOwnerFrame() {return owner_frame;}
+	void assign() {is_assigned = true;}
+	bool isAssigned() {return is_assigned;}
 };
 
 class AbstractFrame: public DebugPrinter {
@@ -93,6 +87,7 @@ private:
 	int nvariable = 0;
 	VarLocation *parent_fp_parameter;
 	VirtualRegister *framepointer;
+	bool has_children = false;
 public:
 	AbstractFrame(AbstractFrameManager *_framemanager,
 		const std::string &_name, int _id, AbstractFrame *_parent);
@@ -105,6 +100,7 @@ public:
 	const std::list<VarLocation *> &getParameters() {return parameters;}
 	const std::list<VarLocation *> &getVariables() {return variables;}
 	
+	int getNewVarId();
 	void addParentFpParameter();
 	VirtualRegister *getFramePointer() {return framepointer;}
 	const std::string &getName() {return name;}
@@ -117,6 +113,7 @@ public:
 	void addFunctionCall() {calls_others = true;}
 	bool callsFunctions() {return calls_others;}
 	int getVariableCount() {return variables.size();}
+	bool hasChildren() {return has_children;}
 };
 
 class DummyFrame: public AbstractFrame {
@@ -152,6 +149,7 @@ private:
 	IREnvironment *IR_env;
 	ParentFpHandler *parent_fp_handler;
 	std::list<AbstractFrame *>frames;
+	int variable_count = 0;
 protected:
 	virtual AbstractFrame *createFrame(AbstractFrame *parent, const std::string &name) = 0;
 public:
@@ -172,6 +170,8 @@ public:
 	
 	AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name);
 	
+	int getNewVarId() {return variable_count++;}
+	
 	void setFrameParentFpNotificationHandler(ParentFpHandler *handler)
 	{
 		parent_fp_handler = handler;
@@ -182,6 +182,20 @@ public:
 		if (parent_fp_handler != NULL)
 			parent_fp_handler->notifyFrameWithParentFp(frame);
 	}
+};
+
+class Function {
+public:
+	Code body;
+	AbstractFrame *frame;
+	Label *label;
+	bool is_exported = false;
+	bool is_referenced = false;
+	bool is_called = false;
+	enum {UNKNOWN, PROCESSING, YES, NO} inlined = UNKNOWN;
+	
+	Function(IR::Code _body, IR::AbstractFrame *_frame, IR::Label *_label) :
+		body(_body), frame(_frame), label(_label) {}
 };
 
 class DummyFrameManager: public AbstractFrameManager {

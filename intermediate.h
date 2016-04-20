@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <vector>
 #include <memory>
+#include <map>
 #include "debugprint.h"
 #include "errormsg.h"
 
@@ -191,7 +192,7 @@ class VarLocationExp: public ExpressionClass {
 public:
 	VarLocation *variable;
 	
-    VarLocationExp(VarLocation *_variable) : ExpressionClass(IR_MEMORY),
+    VarLocationExp(VarLocation *_variable) : ExpressionClass(IR_VAR_LOCATION),
 		variable(_variable) {}
 };
 
@@ -249,9 +250,7 @@ class MoveStatement: public StatementClass {
 public:
 	Expression to, from;
 	
-    MoveStatement(Expression _to, Expression _from) :
-		StatementClass(IR_MOVE), to(_to), from(_from)
-	{}
+    MoveStatement(Expression _to, Expression _from);
 };
 
 class ExpressionStatement: public StatementClass {
@@ -376,35 +375,32 @@ private:
 
 class CodeWalkCallbacks {
 public:
-	void (*doInt)(Expression &exp, Expression parent_exp,
+	bool (*doInt)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doLabelAddr)(Expression &exp, Expression parent_exp,
+	bool (*doLabelAddr)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doRegister)(Expression &exp, Expression parent_exp,
+	bool (*doRegister)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doBinOp)(Expression &exp, Expression parent_exp,
+	bool (*doBinOp)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doMemory)(Expression &exp, Expression parent_exp,
+	bool (*doMemory)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doVarLocation)(Expression &exp, Expression parent_exp,
+	bool (*doVarLocation)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doCall)(Expression &exp, Expression parent_exp,
+	bool (*doCall)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
-	void (*doStatExpSeq)(Expression &exp, Expression parent_exp,
+	bool (*doStatExpSeq)(Expression &exp, Expression parent_exp,
 		Statement parent_statm, CodeWalker *arg) = NULL;
 	
-	void (*doMove)(Statement &statm, CodeWalker *arg) = NULL;
-	void (*doExpIgnoreRes)(Statement &statm, CodeWalker *arg) = NULL;
-	void (*doJump)(Statement &statm, CodeWalker *arg) = NULL;
-	void (*doCondJump)(Statement &statm, CodeWalker *arg) = NULL;
-	void (*doSequence)(Statement &statm, CodeWalker *arg) = NULL;
-	void (*doLabelPlacement)(Statement &statm, CodeWalker *arg) = NULL;
+	bool (*doMove)(Statement &statm, CodeWalker *arg) = NULL;
+	bool (*doExpIgnoreRes)(Statement &statm, CodeWalker *arg) = NULL;
+	bool (*doJump)(Statement &statm, CodeWalker *arg) = NULL;
+	bool (*doCondJump)(Statement &statm, CodeWalker *arg) = NULL;
+	bool (*doSequence)(Statement &statm, CodeWalker *arg) = NULL;
+	bool (*doLabelPlacement)(Statement &statm, CodeWalker *arg) = NULL;
 };
 
-void walkExpression(Expression &exp, Expression parentExpression,
-	Statement parentStatement, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
-void walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
-void walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
+bool walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
 
 struct Blob {
 	Label *label;
@@ -416,6 +412,12 @@ private:
 	LabelFactory labels;
 	RegisterFactory registers;
 	std::list<Blob >blobs;
+	int copy_count = 0;
+	std::map<int, Label *> label_copies;
+	
+	Label *copyLabel(Label *label);
+	Expression CopyExpression(Expression exp);
+	Statement CopyStatement(Statement statm);
 public:
 	Label *addLabel() {return labels.addLabel();}
 	Label *addLabel(const std::string &name) {return labels.addLabel(name);}
@@ -429,6 +431,7 @@ public:
 	Statement codeToStatement(Code code);
 	Statement codeToCondJump(Code code, std::list<Label**> &replace_true,
 		std::list<Label**> &replace_false);
+	Code CopyCode(Code code);
 };
 
 void PrintCode(FILE *out, Code code, int indent = 0);

@@ -69,20 +69,16 @@ public:
 	Type *return_type;
 	std::list<FunctionArgument> arguments;
 	Syntax::Tree raw_body;
-	IR::Code body;
-	IR::AbstractFrame *frame;
-	IR::Label *label;
-	bool is_exported = false;
-	bool is_called = false;
-	enum {UNKNOWN, YES, NO} inlined = UNKNOWN;
+	IR::Function implementation;
 
-	Function(int _id, const std::string &_name, Type *_return_type,
+	Function(const std::string &_name, Type *_return_type,
 		Syntax::Tree _raw, IR::Code _body,
 		IR::AbstractFrame *_frame, IR::Label *_label) :
 		Declaration(DECL_FUNCTION), 
-		id(_id), name(_name), return_type(_return_type), 
-		raw_body(_raw), body(_body), frame(_frame), label(_label)
+		id(_frame ? _frame->getId() : -1), name(_name), return_type(_return_type), 
+		raw_body(_raw), implementation(_body, _frame, _label)
 	{}
+	
 	FunctionArgument *addArgument(const std::string &name, Type *type,
 		IR::VarLocation *impl)
 	{

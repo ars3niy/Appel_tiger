@@ -2,6 +2,32 @@
 
 namespace IR {
 
+VarLocation::VarLocation(AbstractFrame *_frame, int _size, int _offset,
+		const std::string &_name, bool _predefined) :
+	DebugPrinter("translator.log"),
+	id(_frame->getNewVarId()),
+	owner_frame(_frame),
+	reg(NULL),
+	offset(_offset),
+	size(_size),
+	name(_name),
+	predefined(_predefined),
+	read_only(false)
+{}
+
+VarLocation::VarLocation(AbstractFrame *_frame, int _size, IR::VirtualRegister *_reg,
+		bool _predefined) :
+	DebugPrinter("translator.log"),
+	id(_frame->getNewVarId()),
+	owner_frame(_frame),
+	reg(_reg),
+	offset(-1),
+	size(_size),
+	name(_reg->getName()),
+	predefined(_predefined),
+	read_only(false)
+{}
+
 void VarLocation::prespillRegister()
 {
 	if (reg != NULL)
@@ -98,6 +124,11 @@ Expression VarLocation::createCode(AbstractFrame *calling_frame)
 	return result;
 }
 
+int AbstractFrame::getNewVarId()
+{
+	return framemanager->getNewVarId();
+}
+
 VarLocation *AbstractFrame::addMemoryVariable(const std::string &name, int size)
 {
 	VarLocation *result = createMemoryVariable(name, size);
@@ -108,8 +139,12 @@ VarLocation *AbstractFrame::addMemoryVariable(const std::string &name, int size)
 VarLocation* AbstractFrame::addVariable(const std::string &name,
 	int size)
 {
-	VarLocation *impl = new VarLocation(this, size,
-		framemanager->getIREnvironment()->addRegister(this->name + "::" + name), false);
+	VirtualRegister *reg;
+	if (name == "")
+		reg = framemanager->getIREnvironment()->addRegister();
+	else
+		reg = framemanager->getIREnvironment()->addRegister(this->name + "::" + name);
+	VarLocation *impl = new VarLocation(this, size, reg, false);
 	variables.push_back(impl);
 	nvariable++;
 	return impl;
@@ -150,6 +185,8 @@ AbstractFrame::AbstractFrame(AbstractFrameManager *_framemanager,
 	framemanager(_framemanager), name(_name), id(_id), parent(_parent),
 	calls_others(false), parent_fp_parameter(NULL)
 {
+	if (_parent != NULL)
+		_parent->has_children = true;
 	framepointer = framemanager->getIREnvironment()->addRegister("fp");
 }
 
