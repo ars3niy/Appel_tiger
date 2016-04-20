@@ -137,6 +137,16 @@ public:
 		IR::Label *last_loop_exit, IR::AbstractFrame *currentFrame,
 		bool expect_comparison);
 	virtual void notifyFrameWithParentFp(IR::AbstractFrame *frame);
+	
+	class RegSpiller: public IR::CodeWalker {
+	public:
+		std::map<int, IR::VarLocation *> spilled_locations;
+		IR::AbstractFrame *frame;
+		RegSpiller(IR::AbstractFrame *_frame) : frame(_frame) {}
+	};
+	static void prespillRegister(IR::Expression &exp, IR::Expression parent_exp,
+		IR::Statement parent_statm, IR::CodeWalker *arg);
+	
 	void prespillRegisters(IR::Code code, IR::AbstractFrame *frame);
 	void addParentFpToCalls();
 };
@@ -311,71 +321,71 @@ TranslatorPrivate::TranslatorPrivate(IR::IREnvironment *ir_inv,
 	
 	undefined_variable = new Variable("undefined", type_environment->getErrorType(),
 		NULL, NULL);
-	functions.push_back(Function("print", type_environment->getVoidType(),
+	functions.push_back(Function(-1, "print", type_environment->getVoidType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__print")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("print", &(functions.back()));
 
-	functions.push_back(Function("flush", type_environment->getVoidType(),
+	functions.push_back(Function(-1, "flush", type_environment->getVoidType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__flush")));
 	func_and_var_names.add("flush", &(functions.back()));
 
-	functions.push_back(Function("getchar", type_environment->getStringType(),
+	functions.push_back(Function(-1, "getchar", type_environment->getStringType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getchar")));
 	func_and_var_names.add("getchar", &(functions.back()));
 
-	functions.push_back(Function("ord", type_environment->getIntType(),
+	functions.push_back(Function(-1, "ord", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__ord")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("ord", &(functions.back()));
 
-	functions.push_back(Function("chr", type_environment->getStringType(),
+	functions.push_back(Function(-1, "chr", type_environment->getStringType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__chr")));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("chr", &(functions.back()));
 
-	functions.push_back(Function("size", type_environment->getIntType(),
+	functions.push_back(Function(-1, "size", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__size")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	func_and_var_names.add("size", &(functions.back()));
 
-	functions.push_back(Function("substring", type_environment->getStringType(),
+	functions.push_back(Function(-1, "substring", type_environment->getStringType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__substring")));
 	functions.back().addArgument("s", type_environment->getStringType(), NULL);
 	functions.back().addArgument("first", type_environment->getIntType(), NULL);
 	functions.back().addArgument("n", type_environment->getIntType(), NULL);
 	func_and_var_names.add("substring", &(functions.back()));
 
-	functions.push_back(Function("concat", type_environment->getStringType(),
+	functions.push_back(Function(-1, "concat", type_environment->getStringType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__concat")));
 	functions.back().addArgument("s1", type_environment->getStringType(), NULL);
 	functions.back().addArgument("s2", type_environment->getStringType(), NULL);
 	func_and_var_names.add("concat", &(functions.back()));
 
-	functions.push_back(Function("not", type_environment->getIntType(),
+	functions.push_back(Function(-1, "not", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__not")));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("not", &(functions.back()));
 
-	functions.push_back(Function("exit", type_environment->getVoidType(),
+	functions.push_back(Function(-1, "exit", type_environment->getVoidType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("exit")));
 	functions.back().addArgument("i", type_environment->getIntType(), NULL);
 	func_and_var_names.add("exit", &(functions.back()));
 
-	functions.push_back(Function("getmem", type_environment->getIntType(),
+	functions.push_back(Function(-1, "getmem", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem")));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
 	//func_and_var_names.add("getmem", &(functions.back()));
 	getmem_func = &(functions.back());
 
-	functions.push_back(Function("getmem_fill", type_environment->getIntType(),
+	functions.push_back(Function(-1, "getmem_fill", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__getmem_fill")));
 	functions.back().addArgument("elemcount", type_environment->getIntType(), NULL);
 	functions.back().addArgument("value", type_environment->getIntType(), NULL);
 	//func_and_var_names.add("getmem_fill", &(functions.back()));
 	getmem_fill_func = &(functions.back());
 
-	functions.push_back(Function("strcmp", type_environment->getIntType(),
+	functions.push_back(Function(-1, "strcmp", type_environment->getIntType(),
 		NULL, NULL, framemanager->rootFrame(), IRenvironment->addLabel("__strcmp")));
 	functions.back().addArgument("size", type_environment->getIntType(), NULL);
 	strcmp_func = &(functions.back());
@@ -490,36 +500,6 @@ void TranslatorPrivate::processVariableDeclaration(
 	new_vars.push_back(&(variables.back()));
 }
 
-// void TranslatorPrivate::prependPrologue(IR::Code& translated,
-// 	IR::AbstractFrame* func_frame)
-// {
-// 	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
-// 	
-// 	for (const IR::AbstractFrame::ParameterMovement &move:
-// 			func_frame->getMovementPrologue()) {
-// 		ToStatementSequence(sequence)->addStatement(std::make_shared<IR::MoveStatement>(
-// 			move.where_store->createCode(func_frame),
-// 			move.parameter->createCode(func_frame)
-// 		));
-// 	}
-// 	
-// 	switch (translated->kind) {
-// 		case IR::CODE_EXPRESSION:
-// 			std::static_pointer_cast<IR::ExpressionCode>(translated)->exp =
-// 				std::make_shared<IR::StatExpSequence>(sequence,
-// 					std::static_pointer_cast<IR::ExpressionCode>(translated)->exp);
-// 			break;
-// 		case IR::CODE_STATEMENT:
-// 		case IR::CODE_JUMP_WITH_PATCHES:
-// 			ToStatementSequence(sequence)->addStatement(
-// 				std::static_pointer_cast<IR::StatementCode>(translated)->statm);
-// 			std::static_pointer_cast<IR::StatementCode>(translated)->statm = sequence;
-// 			break;
-// 	}
-// 	
-// }
-
-
 void TranslatorPrivate::processFunctionDeclarationBatch(
 	std::list<Syntax::Tree>::iterator begin,
 	std::list<Syntax::Tree>::iterator end, IR::AbstractFrame *currentFrame)
@@ -544,7 +524,7 @@ void TranslatorPrivate::processFunctionDeclarationBatch(
 			function_label->appendToName(std::string("_") + declaration->name->name);
 		} else
 			function_label = IRenvironment->addLabel(declaration->name->name.c_str());
-		functions.push_back(Function(declaration->name->name, return_type,
+		functions.push_back(Function(declaration->id, declaration->name->name, return_type,
 			declaration->body, NULL,
 			framemanager->newFrame(currentFrame, function_label->getName()),
 			function_label));
@@ -1077,11 +1057,12 @@ bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condit
 	}
 	
 	sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(inner_true_label));
-	IR::VirtualRegister *value_storage;
+	IR::Expression value_storage = nullptr;
 	if (type->basetype != TYPE_VOID) {
-		value_storage = IRenvironment->addRegister();
+		value_storage = currentFrame->addVariable(type_environment->getTypeSize(type))->
+			createCode(currentFrame);
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
-			std::make_shared<IR::RegisterExpression>(value_storage),
+			value_storage,
 			IRenvironment->codeToExpression(action_code)));
 	} else
 		sequence->addStatement(IRenvironment->codeToStatement(action_code));
@@ -1096,7 +1077,7 @@ bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condit
 	if (elseaction) {
 		if (type->basetype != TYPE_VOID)
 			sequence->addStatement(std::make_shared<IR::MoveStatement>(
-				std::make_shared<IR::RegisterExpression>(value_storage),
+				value_storage,
 				IRenvironment->codeToExpression(elseaction_code)));
 		else
 			sequence->addStatement(IRenvironment->codeToStatement(elseaction_code));
@@ -1107,7 +1088,7 @@ bool TranslatorPrivate::translateIf_IfElse_Then_MaybeElse(Syntax::IfElse *condit
 		translated = std::make_shared<IR::StatementCode>(sequence);
 	} else {
 		translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::StatExpSequence>(
-			sequence, std::make_shared<IR::RegisterExpression>(value_storage)));
+			sequence, value_storage));
 	}
 	return true;
 	//if ((actionType->basetype != TYPE_VOID) && (actionType->basetype != TYPE_ERROR))
@@ -1187,9 +1168,11 @@ void TranslatorPrivate::translateIfElse(
 			IR::Label *true_label = IRenvironment->addLabel();
 			IR::Label *false_label = IRenvironment->addLabel();
 			IR::Label *finish_label = IRenvironment->addLabel();
-			IR::VirtualRegister *value_storage = NULL;
+			IR::Expression value_storage = NULL;
 			if (type->basetype != TYPE_VOID)
-				value_storage = IRenvironment->addRegister();
+				value_storage = currentFrame->addVariable(
+					type_environment->getTypeSize(type))->
+					createCode(currentFrame);
 			std::list<IR::Label**> replace_true, replace_false;
 			IR::Statement condition_jump = IRenvironment->codeToCondJump(
 				condition_code, replace_true, replace_false);
@@ -1200,7 +1183,7 @@ void TranslatorPrivate::translateIfElse(
 			calculation->addStatement(std::make_shared<IR::LabelPlacementStatement>(true_label));
 			if (type->basetype != TYPE_VOID) {
 				calculation->addStatement(std::make_shared<IR::MoveStatement>(
-					std::make_shared<IR::RegisterExpression>(value_storage),
+					value_storage,
 					IRenvironment->codeToExpression(action_code)));
 			} else {
 				calculation->addStatement(IRenvironment->codeToStatement(action_code));
@@ -1210,7 +1193,7 @@ void TranslatorPrivate::translateIfElse(
 			calculation->addStatement(std::make_shared<IR::LabelPlacementStatement>(false_label));
 			if (type->basetype != TYPE_VOID) {
 				calculation->addStatement(std::make_shared<IR::MoveStatement>(
-					std::make_shared<IR::RegisterExpression>(value_storage),
+					value_storage,
 					IRenvironment->codeToExpression(elseaction_code)));
 			} else {
 				calculation->addStatement(IRenvironment->codeToStatement(elseaction_code));
@@ -1220,7 +1203,7 @@ void TranslatorPrivate::translateIfElse(
 				translated = std::make_shared<IR::StatementCode>(calculation);
 			} else {
 				translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::StatExpSequence>(
-					calculation, std::make_shared<IR::RegisterExpression>(value_storage)));
+					calculation, value_storage));
 			}
 		} else
 			translated = ErrorPlaceholderCode();
@@ -1290,11 +1273,12 @@ void TranslatorPrivate::translateFor(
 // 		expression->variable->name.c_str(),
 // 		expression->linenumber,
 // 		variables_extra_info.isAccessedByAddress(expression) ? "accessed" : "not accessed");
+	Type *var_type = from_type;
 	variables.push_back(Variable(
 		expression->variable->name,
 		type_environment->getLoopIntType(), NULL, currentFrame->addVariable(
 			expression->variable->name,
-			type_environment->getTypeSize(from_type)
+			type_environment->getTypeSize(var_type)
 		)));
 	Variable *loopvar = &(variables.back());
 	func_and_var_names.add(expression->variable->name, loopvar);
@@ -1302,35 +1286,32 @@ void TranslatorPrivate::translateFor(
 		currentFrame, false);
 	if ((from_type->basetype == TYPE_INT) && (to_type->basetype == TYPE_INT)) {
 		std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
-		IR::VirtualRegister *upper_bound = IRenvironment->addRegister();
+		IR::Expression upper_bound = currentFrame->addVariable(
+			type_environment->getTypeSize(var_type))->createCode(currentFrame);
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
-			std::make_shared<IR::RegisterExpression>(upper_bound),
+			upper_bound,
 			IRenvironment->codeToExpression(to_code)));
 		IR::Expression loopvar_expression = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			loopvar_expression,
 			IRenvironment->codeToExpression(from_code)));
 		IR::Label *loop_label = IRenvironment->addLabel();
-		loopvar_expression = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(std::make_shared<IR::CondJumpStatement>(IR::OP_LESSEQUAL,
 			loopvar_expression,
-			std::make_shared<IR::RegisterExpression>(upper_bound),
+			upper_bound,
 			loop_label, exit_label));
 		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(loop_label));
 		sequence->addStatement(IRenvironment->codeToStatement(action_code));
 		IR::Label *proceed_label = IRenvironment->addLabel();
-		loopvar_expression = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(std::make_shared<IR::CondJumpStatement>(IR::OP_LESS,
 			loopvar_expression,
-			std::make_shared<IR::RegisterExpression>(upper_bound),
+			upper_bound,
 			proceed_label, exit_label));
 		sequence->addStatement(std::make_shared<IR::LabelPlacementStatement>(proceed_label));
-		loopvar_expression = loopvar->implementation->createCode(currentFrame);
-		IR::Expression loopvar_expression2 = loopvar->implementation->createCode(currentFrame);
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
 			loopvar_expression,
 			std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
-				loopvar_expression2,
+				loopvar_expression,
 				std::make_shared<IR::IntegerExpression>(1)
 			)
 		));
@@ -1416,6 +1397,7 @@ void TranslatorPrivate::makeCallCode(Function *function,
 {
 	std::shared_ptr<IR::CallExpression> call = std::make_shared<IR::CallExpression>(
 		std::make_shared<IR::LabelAddressExpression>(function->label), nullptr);
+	function->is_called = true;
 	auto call_list = calls_to_frames.find(function->frame->getId());
 	if (call_list == calls_to_frames.end()) {
 		auto ret = calls_to_frames.insert(std::make_pair(
@@ -1503,7 +1485,8 @@ void TranslatorPrivate::translateRecordInstantiation(
 	}
 	RecordType *record = (RecordType *)type;
 	
-	IR::VirtualRegister *record_address = IRenvironment->addRegister();
+	IR::Expression record_address = currentFrame->addVariable(
+		type_environment->getTypeSize(record))->createCode(currentFrame);
 	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 	std::list<IR::Code> alloc_argument;
 	alloc_argument.push_back(std::make_shared<IR::ExpressionCode>(
@@ -1511,7 +1494,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 	IR::Code alloc_code;
 	makeCallCode(getmem_func, alloc_argument, alloc_code, currentFrame);
 	sequence->addStatement(std::make_shared<IR::MoveStatement>(
-		std::make_shared<IR::RegisterExpression>(record_address),
+		record_address,
 		IRenvironment->codeToExpression(alloc_code)));
 		
 	RecordType::FieldsList::iterator record_field = record->field_list.begin();
@@ -1543,7 +1526,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 			} else {
 				sequence->addStatement(std::make_shared<IR::MoveStatement>(
 					std::make_shared<IR::MemoryExpression>(std::make_shared<IR::BinaryOpExpression>(IR::OP_PLUS,
-						std::make_shared<IR::RegisterExpression>(record_address),
+						record_address,
 						std::make_shared<IR::IntegerExpression>((*record_field).offset)
 					)), IRenvironment->codeToExpression(value_code)
 				));
@@ -1552,7 +1535,7 @@ void TranslatorPrivate::translateRecordInstantiation(
 		record_field++;
 	}
 	translated = std::make_shared<IR::ExpressionCode>(std::make_shared<IR::StatExpSequence>(sequence,
-		std::make_shared<IR::RegisterExpression>(record_address)));
+		record_address));
 }
 
 const char *NODETYPENAMES[] = {
@@ -1670,6 +1653,21 @@ void TranslatorPrivate::translateExpression(Syntax::Tree expression,
 	}
 }
 
+void TranslatorPrivate::prespillRegister(IR::Expression &exp, IR::Expression parent_exp,
+	IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	// Don't need to spill the register if its value is ignored
+	RegSpiller *param = dynamic_cast<RegSpiller *>(arg);
+	if (!parent_statm || (parent_statm->kind != IR::IR_EXP_IGNORE_RESULT)) {
+		auto spill = param->spilled_locations.find(
+			ToRegisterExpression(exp)->reg->getIndex());
+		if (spill != param->spilled_locations.end()) {
+			assert (spill->second->getOwnerFrame()->getId() == param->frame->getId());
+			exp = spill->second->createCode(param->frame);
+		}
+	}
+}
+
 void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *frame)
 {
 	std::list<IR::VarLocation *> to_spill;
@@ -1688,14 +1686,15 @@ void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *fram
 
 	std::shared_ptr<IR::StatementSequence> sequence =
 		std::make_shared<IR::StatementSequence>();
-	std::map<int, IR::VarLocation *> spilled_locations;
+		
+	RegSpiller spill_param(frame);
 	
 	for (IR::VarLocation *var: to_spill) {
 		assert (var->isRegister());
 		IR::VirtualRegister *reg = var->getRegister();
 		assert (reg->isPrespilled());
 		if (! var->read_only)
-			spilled_locations.insert(std::make_pair(
+			spill_param.spilled_locations.insert(std::make_pair(
 				reg->getIndex(), reg->getPrespilledLocation()));
 		if (var->isPredefined())
 			sequence->addStatement(std::make_shared<IR::MoveStatement>(
@@ -1703,19 +1702,21 @@ void TranslatorPrivate::prespillRegisters(IR::Code code, IR::AbstractFrame *fram
 				std::make_shared<IR::RegisterExpression>(reg)));
 	}
 	
+	IR::CodeWalkCallbacks callbacks;
+	callbacks.doRegister = prespillRegister;
+	
+	if (! spill_param.spilled_locations.empty())
+		IR::walkCode(code, callbacks, &spill_param);
+	
 	if (code->kind == IR::CODE_EXPRESSION) {
 		std::shared_ptr<IR::ExpressionCode> exp_code =
 			std::static_pointer_cast<IR::ExpressionCode>(code);
-		if (! spilled_locations.empty())
-			frame->prespillRegisters(exp_code->exp,	spilled_locations);
 		if (! sequence->statements.empty())
 			exp_code->exp = std::make_shared<IR::StatExpSequence>(
 				sequence, exp_code->exp);
 	} else {
 		std::shared_ptr<IR::StatementCode> statm_code =
 			std::static_pointer_cast<IR::StatementCode>(code);
-		if (! spilled_locations.empty())
-			frame->prespillRegisters(statm_code->statm, spilled_locations);
 		
 		if (! sequence->statements.empty()) {
 			sequence->addStatement(statm_code->statm);
@@ -1788,6 +1789,15 @@ void Translator::translateProgram(Syntax::Tree expression,
 	IR::Code code;
 	frame = impl->framemanager->newFrame(impl->framemanager->rootFrame(), ".global");
 	impl->translateExpression(expression, code, type, NULL, frame, false);
+	for (Semantic::Function &fcn: impl->functions)
+		if (fcn.body)
+			impl->IRtransformer->expandInlineCalls(fcn.body, fcn.frame);
+	impl->IRtransformer->expandInlineCalls(code, frame);
+	for (Semantic::Function &fcn: impl->functions)
+		if (fcn.body && ! fcn.is_exported &&
+				(! fcn.is_called || (fcn.inlined == Function::YES)))
+			fcn.body = nullptr;
+			
 	impl->addParentFpToCalls();
 	for (Semantic::Function &fcn: impl->functions)
 		if (fcn.body)

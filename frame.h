@@ -90,6 +90,7 @@ protected:
 private:
 	std::list<VarLocation *>variables;
 	std::list<VarLocation *>parameters;
+	int nvariable = 0;
 	VarLocation *parent_fp_parameter;
 	VirtualRegister *framepointer;
 public:
@@ -99,6 +100,7 @@ public:
 	
 	VarLocation *addMemoryVariable(const std::string &name, int size);
 	VarLocation *addVariable(const std::string &name, int size);
+	VarLocation *addVariable(int size) {return addVariable("", size);}
 	VarLocation *addParameter(const std::string &name, int size);
 	const std::list<VarLocation *> &getParameters() {return parameters;}
 	const std::list<VarLocation *> &getVariables() {return variables;}
@@ -112,10 +114,9 @@ public:
 	VarLocation *getParentFpForUs() {return parent_fp_parameter;}
 	VarLocation *getParentFpForChildren();
 	
-	void prespillRegisters(Expression &exp, const std::map<int, VarLocation*> &spills);
-	void prespillRegisters(Statement statm, const std::map<int, VarLocation*> &spills);
-	
 	void addFunctionCall() {calls_others = true;}
+	bool callsFunctions() {return calls_others;}
+	int getVariableCount() {return variables.size();}
 };
 
 class DummyFrame: public AbstractFrame {

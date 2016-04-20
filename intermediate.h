@@ -96,6 +96,7 @@ enum ExpressionKind {
 	IR_REGISTER, // pseudo-register from list
 	IR_BINARYOP, // two expressions and an operation
 	IR_MEMORY,   // expression for address
+	IR_VAR_LOCATION,
 	IR_FUN_CALL, // expression for function, list of expressions for arguments
 	IR_STAT_EXP_SEQ, // statement, expression
 	IR_EXPR_MAX
@@ -186,6 +187,14 @@ public:
 		address(_address) {}
 };
 
+class VarLocationExp: public ExpressionClass {
+public:
+	VarLocation *variable;
+	
+    VarLocationExp(VarLocation *_variable) : ExpressionClass(IR_MEMORY),
+		variable(_variable) {}
+};
+
 class CallExpression: public ExpressionClass {
 public:
 	Expression function;
@@ -218,13 +227,14 @@ static inline std::shared_ptr<type> To ## type(Expression e) \
 	return std::static_pointer_cast<type>(e); \
 }
 
-DECLARE_EXPRESSION_CONVERSION(IntegerExpression, IR_INTEGER);
-DECLARE_EXPRESSION_CONVERSION(LabelAddressExpression, IR_LABELADDR);
-DECLARE_EXPRESSION_CONVERSION(RegisterExpression, IR_REGISTER);
-DECLARE_EXPRESSION_CONVERSION(BinaryOpExpression, IR_BINARYOP);
-DECLARE_EXPRESSION_CONVERSION(MemoryExpression, IR_MEMORY);
-DECLARE_EXPRESSION_CONVERSION(CallExpression, IR_FUN_CALL);
-DECLARE_EXPRESSION_CONVERSION(StatExpSequence, IR_STAT_EXP_SEQ);
+DECLARE_EXPRESSION_CONVERSION(IntegerExpression, IR_INTEGER)
+DECLARE_EXPRESSION_CONVERSION(LabelAddressExpression, IR_LABELADDR)
+DECLARE_EXPRESSION_CONVERSION(RegisterExpression, IR_REGISTER)
+DECLARE_EXPRESSION_CONVERSION(BinaryOpExpression, IR_BINARYOP)
+DECLARE_EXPRESSION_CONVERSION(MemoryExpression, IR_MEMORY)
+DECLARE_EXPRESSION_CONVERSION(VarLocationExp, IR_VAR_LOCATION)
+DECLARE_EXPRESSION_CONVERSION(CallExpression, IR_FUN_CALL)
+DECLARE_EXPRESSION_CONVERSION(StatExpSequence, IR_STAT_EXP_SEQ)
 
 #undef DECLARE_EXPRESSION_CONVERSION
 
@@ -309,12 +319,12 @@ static inline std::shared_ptr<type> To ## type(Statement s) \
 	return std::static_pointer_cast<type>(s); \
 }
 
-DECLARE_STATEMENT_CONVERSION(MoveStatement, IR_MOVE);
-DECLARE_STATEMENT_CONVERSION(ExpressionStatement, IR_EXP_IGNORE_RESULT);
-DECLARE_STATEMENT_CONVERSION(JumpStatement, IR_JUMP);
-DECLARE_STATEMENT_CONVERSION(CondJumpStatement, IR_COND_JUMP);
-DECLARE_STATEMENT_CONVERSION(StatementSequence, IR_STAT_SEQ);
-DECLARE_STATEMENT_CONVERSION(LabelPlacementStatement, IR_LABEL);
+DECLARE_STATEMENT_CONVERSION(MoveStatement, IR_MOVE)
+DECLARE_STATEMENT_CONVERSION(ExpressionStatement, IR_EXP_IGNORE_RESULT)
+DECLARE_STATEMENT_CONVERSION(JumpStatement, IR_JUMP)
+DECLARE_STATEMENT_CONVERSION(CondJumpStatement, IR_COND_JUMP)
+DECLARE_STATEMENT_CONVERSION(StatementSequence, IR_STAT_SEQ)
+DECLARE_STATEMENT_CONVERSION(LabelPlacementStatement, IR_LABEL)
 
 #undef DECLARE_STATEMENT_CONVERSION
 
@@ -357,6 +367,44 @@ public:
 
 void putLabels(const std::list<Label**> &replace_true, 
 	const std::list<Label**> &replace_false, Label *truelabel, Label *falselabel);
+
+// for dynamic_cast
+class CodeWalker {
+private:
+	virtual void __dummy() {}
+};
+
+class CodeWalkCallbacks {
+public:
+	void (*doInt)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doLabelAddr)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doRegister)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doBinOp)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doMemory)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doVarLocation)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doCall)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	void (*doStatExpSeq)(Expression &exp, Expression parent_exp,
+		Statement parent_statm, CodeWalker *arg) = NULL;
+	
+	void (*doMove)(Statement &statm, CodeWalker *arg) = NULL;
+	void (*doExpIgnoreRes)(Statement &statm, CodeWalker *arg) = NULL;
+	void (*doJump)(Statement &statm, CodeWalker *arg) = NULL;
+	void (*doCondJump)(Statement &statm, CodeWalker *arg) = NULL;
+	void (*doSequence)(Statement &statm, CodeWalker *arg) = NULL;
+	void (*doLabelPlacement)(Statement &statm, CodeWalker *arg) = NULL;
+};
+
+void walkExpression(Expression &exp, Expression parentExpression,
+	Statement parentStatement, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
+void walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
+void walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg);
 
 struct Blob {
 	Label *label;

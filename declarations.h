@@ -64,6 +64,7 @@ public:
 
 class Function: public Declaration {
 public:
+	int id;
 	std::string name;
 	Type *return_type;
 	std::list<FunctionArgument> arguments;
@@ -71,12 +72,15 @@ public:
 	IR::Code body;
 	IR::AbstractFrame *frame;
 	IR::Label *label;
+	bool is_exported = false;
+	bool is_called = false;
+	enum {UNKNOWN, YES, NO} inlined = UNKNOWN;
 
-	Function(const std::string &_name, Type *_return_type,
+	Function(int _id, const std::string &_name, Type *_return_type,
 		Syntax::Tree _raw, IR::Code _body,
 		IR::AbstractFrame *_frame, IR::Label *_label) :
 		Declaration(DECL_FUNCTION), 
-		name(_name), return_type(_return_type), 
+		id(_id), name(_name), return_type(_return_type), 
 		raw_body(_raw), body(_body), frame(_frame), label(_label)
 	{}
 	FunctionArgument *addArgument(const std::string &name, Type *type,

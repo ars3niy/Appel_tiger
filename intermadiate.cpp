@@ -216,4 +216,109 @@ Statement IREnvironment::codeToCondJump(Code code,
 	return nullptr;
 }
 
+void walkExpression(Expression &exp, Expression parentExpression,
+	Statement parentStatement, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
+{
+	switch (exp->kind) {
+	case IR_REGISTER:
+		if (callbacks.doLabelAddr)
+			callbacks.doLabelAddr(exp, parentExpression, parentStatement, arg);
+		break;
+	case IR_LABELADDR:
+		if (callbacks.doInt)
+			callbacks.doInt(exp, parentExpression, parentStatement, arg);
+		break;
+	case IR_BINARYOP: {
+		auto binop = ToBinaryOpExpression(exp);
+		walkExpression(binop->left, exp, nullptr, callbacks, arg);
+		walkExpression(binop->right, exp, nullptr, callbacks, arg);
+		if (callbacks.doBinOp)
+			callbacks.doBinOp(exp, parentExpression, parentStatement, arg);
+		break;
+	}
+	case IR_MEMORY:
+		walkExpression(ToMemoryExpression(exp)->address, exp, nullptr, callbacks, arg);
+		if (callbacks.doMemory)
+			callbacks.doMemory(exp, parentExpression, parentStatement, arg);
+		break;
+	case IR_VAR_LOCATION:
+		walkExpression(ToMemoryExpression(exp)->address, exp, nullptr, callbacks, arg);
+		if (callbacks.doVarLocation)
+			callbacks.doVarLocation(exp, parentExpression, parentStatement, arg);
+		break;
+	case IR_FUN_CALL: {
+		auto call = ToCallExpression(exp);
+		walkExpression(call->function, exp, nullptr, callbacks, arg);
+		for (Expression &fun_arg: call->arguments)
+			walkExpression(fun_arg, exp, nullptr, callbacks, arg);
+		if (callbacks.doCall)
+			callbacks.doCall(exp, parentExpression, parentStatement, arg);
+		break;
+	}
+	case IR_STAT_EXP_SEQ: {
+		auto seq = ToStatExpSequence(exp);
+		walkStatement(seq->stat, callbacks, arg);
+		walkExpression(seq->exp, exp, nullptr, callbacks, arg);
+		if (callbacks.doStatExpSeq)
+			callbacks.doStatExpSeq(exp, parentExpression, parentStatement, arg);
+		break;
+	}
+	default: ;
+	}
+}
+
+void walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
+{
+	switch (statm->kind) {
+	case IR_MOVE: {
+		auto move = ToMoveStatement(statm);
+		walkExpression(move->from, nullptr, statm, callbacks, arg);
+		walkExpression(move->to, nullptr, statm, callbacks, arg);
+		if (callbacks.doMove)
+			callbacks.doMove(statm, arg);
+		break;
+	}
+	case IR_EXP_IGNORE_RESULT: {
+		auto expstatm = ToExpressionStatement(statm);
+		walkExpression(expstatm->exp, nullptr, statm, callbacks, arg);
+		if (callbacks.doExpIgnoreRes)
+			callbacks.doExpIgnoreRes(statm, arg);
+		break;
+	}
+	case IR_JUMP:
+		walkExpression(ToJumpStatement(statm)->dest, nullptr, statm, callbacks, arg);
+		if (callbacks.doJump)
+			callbacks.doJump(statm, arg);
+		break;
+	case IR_COND_JUMP: {
+		auto condjump = ToCondJumpStatement(statm);
+		walkExpression(condjump->left, nullptr, statm, callbacks, arg);
+		walkExpression(condjump->right, nullptr, statm, callbacks, arg);
+		if (callbacks.doCondJump)
+			callbacks.doCondJump(statm, arg);
+		break;
+	}
+	case IR_STAT_SEQ:
+		for (Statement element: ToStatementSequence(statm)->statements)
+			walkStatement(element, callbacks, arg);
+		if (callbacks.doSequence)
+			callbacks.doSequence(statm, arg);
+		break;
+	default: ;
+	}
+}
+
+void walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
+{
+	if (code->kind == IR::CODE_EXPRESSION) {
+		std::shared_ptr<IR::ExpressionCode> exp_code =
+			std::static_pointer_cast<IR::ExpressionCode>(code);
+		walkExpression(exp_code->exp, nullptr, nullptr, callbacks, arg);
+	} else {
+		std::shared_ptr<IR::StatementCode> statm_code =
+			std::static_pointer_cast<IR::StatementCode>(code);
+		walkStatement(statm_code->statm, callbacks, arg);
+	}
+}
+
 }

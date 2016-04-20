@@ -4,6 +4,10 @@
 
 namespace IR {
 
+void IRTransformer::expandInlineCalls(IR::Code code, AbstractFrame *frame)
+{
+}
+
 bool isNop(Statement statm)
 {
 	return (statm->kind == IR_EXP_IGNORE_RESULT) &&

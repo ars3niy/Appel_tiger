@@ -111,6 +111,7 @@ VarLocation* AbstractFrame::addVariable(const std::string &name,
 	VarLocation *impl = new VarLocation(this, size,
 		framemanager->getIREnvironment()->addRegister(this->name + "::" + name), false);
 	variables.push_back(impl);
+	nvariable++;
 	return impl;
 }
 
@@ -141,78 +142,6 @@ VarLocation *AbstractFrame::getParentFpForChildren() {
 		return parent_fp_parameter->getRegister()->getPrespilledLocation();
 	} else
 		return parent_fp_parameter;
-}
-
-void AbstractFrame::prespillRegisters(Expression &exp,
-	const std::map<int, VarLocation *> &spills)
-{
-	switch (exp->kind) {
-	case IR_REGISTER: {
-		auto spill = spills.find(ToRegisterExpression(exp)->reg->getIndex());
-		if (spill != spills.end()) {
-			assert (spill->second->getOwnerFrame()->getId() == getId());
-			exp = spill->second->createCode(this);
-		}
-		break;
-	}
-	case IR_BINARYOP: {
-		auto binop = ToBinaryOpExpression(exp);
-		prespillRegisters(binop->left, spills);
-		prespillRegisters(binop->right, spills);
-		break;
-	}
-	case IR_MEMORY:
-		prespillRegisters(ToMemoryExpression(exp)->address, spills);
-		break;
-	case IR_FUN_CALL: {
-		auto call = ToCallExpression(exp);
-		prespillRegisters(call->function, spills);
-		for (Expression &arg: call->arguments)
-			prespillRegisters(arg, spills);
-		break;
-	}
-	case IR_STAT_EXP_SEQ: {
-		auto seq = ToStatExpSequence(exp);
-		prespillRegisters(seq->stat, spills);
-		prespillRegisters(seq->exp, spills);
-		break;
-	}
-	default: ;
-	}
-}
-
-void AbstractFrame::prespillRegisters(Statement statm,
-	const std::map<int, VarLocation *> &spills)
-{
-	switch (statm->kind) {
-	case IR_MOVE: {
-		auto move = ToMoveStatement(statm);
-		prespillRegisters(move->from, spills);
-		prespillRegisters(move->to, spills);
-		break;
-	}
-	case IR_EXP_IGNORE_RESULT: {
-		auto expstatm = ToExpressionStatement(statm);
-		// Don't need to spill the register if its value is ignored
-		if (expstatm->exp->kind != IR_REGISTER)
-			prespillRegisters(expstatm->exp, spills);
-		break;
-	}
-	case IR_JUMP:
-		prespillRegisters(ToJumpStatement(statm)->dest, spills);
-		break;
-	case IR_COND_JUMP: {
-		auto condjump = ToCondJumpStatement(statm);
-		prespillRegisters(condjump->left, spills);
-		prespillRegisters(condjump->right, spills);
-		break;
-	}
-	case IR_STAT_SEQ:
-		for (Statement element: ToStatementSequence(statm)->statements)
-			prespillRegisters(element, spills);
-		break;
-	default: ;
-	}
 }
 
 AbstractFrame::AbstractFrame(AbstractFrameManager *_framemanager,
