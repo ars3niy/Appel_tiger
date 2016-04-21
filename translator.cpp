@@ -1343,9 +1343,13 @@ void TranslatorPrivate::translateFor(
 		std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 		IR::Expression upper_bound = std::make_shared<IR::VarLocationExp>(
 			currentFrame->addVariable(type_environment->getTypeSize(var_type)));
-		sequence->addStatement(std::make_shared<IR::MoveStatement>(
-			upper_bound,
-			IRenvironment->codeToExpression(to_code)));
+		std::shared_ptr<IR::MoveStatement> init_upper =
+			std::make_shared<IR::MoveStatement>(nullptr,
+			IRenvironment->codeToExpression(to_code));
+		// now upper_bound isn't considered having been assigned to, because
+		// this assignment was initialization
+		init_upper->to = upper_bound;
+		sequence->addStatement(init_upper);
 		IR::Expression loopvar_expression = std::make_shared<IR::VarLocationExp>(
 			loopvar->implementation);
 		sequence->addStatement(std::make_shared<IR::MoveStatement>(
