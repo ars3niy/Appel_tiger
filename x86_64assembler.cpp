@@ -399,7 +399,7 @@ X86_64Assembler::X86_64Assembler(IR::IREnvironment *ir_env)
 		std::make_shared<IR::JumpStatement>(exp_register));
 }
 
-int powerof2(int x)
+int powerof2(IR::IntegerExpression::Signed x)
 {
 	if (x <= 0)
 		return -1;
@@ -424,7 +424,8 @@ bool mul_to_shl(bool int_at_front, bool other_is_reg,
 	else
 		int_element = &elements.back();
 	assert (! int_element->value_storage);
-	int value = IR::ToIntegerExpression(int_element->expression)->value;
+	IR::IntegerExpression::Signed value =
+		IR::ToIntegerExpression(int_element->expression)->getSigned();
 	bool negative = false;
 	if (value < 0) {
 		negative = true;
@@ -497,7 +498,8 @@ bool div_X_int_to_shr(const Instructions &templ, IR::IREnvironment *ir_env,
 	Instructions &result, const std::list<TemplateChildInfo> &elements)
 {
 	assert (! elements.back().value_storage);
-	int value = IR::ToIntegerExpression(elements.back().expression)->value;
+	IR::IntegerExpression::Signed value =
+		IR::ToIntegerExpression(elements.back().expression)->getSigned();
 	bool negative = false;
 	if (value < 0) {
 		negative = true;
@@ -547,10 +549,13 @@ bool can_divide_by_const(const IR::Expression expression)
 	std::shared_ptr<IR::BinaryOpExpression> bin_op = IR::ToBinaryOpExpression(expression);
 	if ((bin_op->operation != IR::OP_DIV) || (bin_op->right->kind != IR::IR_INTEGER))
 		return false;
-	int value = IR::ToIntegerExpression(bin_op->right)->value;
-	int power = powerof2(abs(value));
+	IR::IntegerExpression::Signed value =
+		IR::ToIntegerExpression(bin_op->right)->getSigned();
+	if (value < 0)
+		value = -value;
+	int power = powerof2(value);
 	DebugPrinter dbg("assembler.log");
-	dbg.debug("Checking if we can divide by %d: shift power = %d", value, power);
+	dbg.debug("Checking if we can divide by l%d: shift power = %d", value, power);
 	return power >= 0;
 // 	assert (! elements.back().value_storage);
 // 	int value = IR::ToIntegerExpression(elements.back().expression)->value;
@@ -823,7 +828,7 @@ void X86_64Assembler::makeOperand(IR::Expression expression,
 {
 	switch (expression->kind) {
 		case IR::IR_INTEGER:
-			notation = "$" + IntToStr(IR::ToIntegerExpression(expression)->value);
+			notation = "$" + IntToStr(IR::ToIntegerExpression(expression)->getSigned());
 			break;
 		case IR::IR_LABELADDR:
 			notation = "$" + IR::ToLabelAddressExpression(expression)->label->getName();
@@ -850,14 +855,16 @@ void X86_64Assembler::makeOperand(IR::Expression expression,
 						if (binop->left->kind == IR::IR_INTEGER) {
 							std::shared_ptr<IR::MemoryExpression> base =
 								std::make_shared<IR::MemoryExpression>(binop->right);
-							int offset = IR::ToIntegerExpression(binop->left)->value;
+							IR::IntegerExpression::Signed offset =
+								IR::ToIntegerExpression(binop->left)->getSigned();
 							makeOperand(base, add_inputs, notation);
 							if (offset != 0)
 								notation = IntToStr(offset) + notation;
 						} else if (binop->right->kind == IR::IR_INTEGER) {
 							std::shared_ptr<IR::MemoryExpression> base =
 								std::make_shared<IR::MemoryExpression>(binop->left);
-							int offset = IR::ToIntegerExpression(binop->right)->value;
+							IR::IntegerExpression::Signed offset =
+								IR::ToIntegerExpression(binop->right)->getSigned();
 							makeOperand(base, add_inputs, notation);
 							if (offset != 0)
 								notation = IntToStr(offset) + notation;
@@ -867,7 +874,8 @@ void X86_64Assembler::makeOperand(IR::Expression expression,
 						if (binop->right->kind == IR::IR_INTEGER) {
 							std::shared_ptr<IR::MemoryExpression> base =
 								std::make_shared<IR::MemoryExpression>(binop->left);
-							int offset = -IR::ToIntegerExpression(binop->right)->value;
+							IR::IntegerExpression::Signed offset =
+								-IR::ToIntegerExpression(binop->right)->getSigned();
 							makeOperand(base, add_inputs, notation);
 							if (offset != 0)
 								notation = IntToStr(offset) + notation;

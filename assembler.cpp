@@ -6,10 +6,10 @@
 
 namespace Asm {
 
-std::string IntToStr(int x)
+std::string IntToStr(IR::IntegerExpression::Signed x)
 {
 	char buf[30];
-	sprintf(buf, "%d", x);
+	sprintf(buf, "%ld", x);
 	return std::string(buf);
 }
 
@@ -265,9 +265,9 @@ bool Assembler::MatchExpression(IR::Expression expression, IR::Expression templ,
 		case IR::IR_INTEGER:
 			if (children != NULL)
 				children->push_back(TemplateChildInfo(NULL, expression));
-			return (IR::ToIntegerExpression(templ)->value == 0) ||
-				(IR::ToIntegerExpression(templ)->value ==
-				IR::ToIntegerExpression(expression)->value);
+			return (IR::ToIntegerExpression(templ)->getSigned() == 0) ||
+				(IR::ToIntegerExpression(templ)->getSigned() ==
+				IR::ToIntegerExpression(expression)->getSigned());
 		case IR::IR_LABELADDR:
 			if (children != NULL)
 				children->push_back(TemplateChildInfo(NULL, expression));
@@ -459,7 +459,7 @@ std::shared_ptr<Template> Assembler::FindStatementTemplate(IR::Statement stateme
 struct TemplateInput {
 	IR::ExpressionKind kind;
 	union {
-		int ivalue;
+		IR::IntegerExpression::Signed ivalue;
 		IR::Label *label;
 		IR::VirtualRegister *reg;
 	};
@@ -500,7 +500,7 @@ void Template::implement(IR::IREnvironment *ir_env, Instructions &result,
 			switch (element.expression->kind) {
 			case IR::IR_INTEGER:
 				input_pool[ind].ivalue =
-					IR::ToIntegerExpression(element.expression)->value;
+					IR::ToIntegerExpression(element.expression)->getSigned();
 				break;
 			case IR::IR_LABELADDR:
 				input_pool[ind].label =
@@ -598,7 +598,7 @@ void Template::implement(IR::IREnvironment *ir_env, Instructions &result,
 
 					switch (input_pool[elem_index].kind) {
 					case IR::IR_INTEGER: {
-						int v = input_pool[elem_index].ivalue;
+						IR::IntegerExpression::Signed v = input_pool[elem_index].ivalue;
 						if ((argstart > 0) && (s[argstart-1] == '-')) {
 							argstart--;
 							v = -v;

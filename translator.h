@@ -23,8 +23,8 @@ public:
 	void translateProgram(Syntax::Tree expression,
 		IR::Statement &result, IR::AbstractFrame *&frame);
 	void printFunctions(FILE *out);
-	void canonicalizeProgram(IR::Statement &statement);
-	void canonicalizeFunctions();
+	void canonicalizeProgramAndFunctions(IR::Statement &program_body,
+		IR::AbstractFrame *body_frame);
 	const std::list<Function> &getFunctions();
 };
 

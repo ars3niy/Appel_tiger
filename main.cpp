@@ -106,8 +106,7 @@ void TranslateProgram(bool assemble)
 	fclose(f);
 #endif
 	
-	translator.canonicalizeFunctions();
-	translator.canonicalizeProgram(program_body);
+	translator.canonicalizeProgramAndFunctions(program_body, body_frame);
 	timer.print("Canonicalize");
 	
 #ifdef DEBUG

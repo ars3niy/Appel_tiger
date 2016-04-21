@@ -69,7 +69,7 @@ VirtualRegister::VirtualRegister(int _index) : index(_index)
 MoveStatement::MoveStatement(Expression _to, Expression _from)  :
 	StatementClass(IR_MOVE), to(_to), from(_from)
 {
-	if (to->kind == IR_VAR_LOCATION)
+	if (to && (to->kind == IR_VAR_LOCATION))
 		ToVarLocationExp(to)->variable->assign();
 }
 
@@ -197,7 +197,7 @@ Statement IREnvironment::codeToCondJump(Code code,
 				std::shared_ptr<LabelAddressExpression> dest =
 					std::make_shared<IR::LabelAddressExpression>(nullptr);
 				result = std::make_shared<JumpStatement>(dest, dest->label);
-				if (ToIntegerExpression(bool_exp)->value) {
+				if (ToIntegerExpression(bool_exp)->getSigned()) {
 					replace_true.push_back(& dest->label);
 					replace_true.push_back(& ToJumpStatement(result)->possible_results.front());
 				} else {
@@ -337,8 +337,13 @@ bool walkStatement(Statement &statm, const CodeWalkCallbacks &callbacks, CodeWal
 		else
 			return true;
 	}
+	case IR_LABEL:
+		if (callbacks.doLabelPlacement)
+			return callbacks.doLabelPlacement(statm, arg);
+		else
+			return true;
 	case IR_STAT_SEQ:
-		for (Statement element: ToStatementSequence(statm)->statements)
+		for (Statement &element: ToStatementSequence(statm)->statements)
 			if (! walkStatement(element, callbacks, arg))
 				return false;
 		if (callbacks.doSequence)
@@ -363,20 +368,6 @@ bool walkCode(Code code, const CodeWalkCallbacks &callbacks, CodeWalker *arg)
 	}
 }
 
-Label *IREnvironment::copyLabel(Label *label)
-{
-	if (label == NULL)
-		return NULL;
-	
-	auto found = label_copies.find(label->getIndex());
-	if (found != label_copies.end())
-		return found->second;
-	
-	Label *newlabel = addLabel(label->getName() + "._" + IntToStr(copy_count));
-	label_copies.insert(std::make_pair(label->getIndex(), newlabel));
-	return newlabel;
-}
-
 Expression IREnvironment::CopyExpression(Expression exp)
 {
 	if (! exp)
@@ -384,10 +375,10 @@ Expression IREnvironment::CopyExpression(Expression exp)
 	switch (exp->kind) {
 	case IR_INTEGER:
 		return std::make_shared<IntegerExpression>(
-			std::static_pointer_cast<IntegerExpression>(exp)->value);
+			std::static_pointer_cast<IntegerExpression>(exp)->getSigned());
 	case IR_LABELADDR:
-		return std::make_shared<LabelAddressExpression>(copyLabel(
-			std::static_pointer_cast<LabelAddressExpression>(exp)->label));
+		return std::make_shared<LabelAddressExpression>(
+			std::static_pointer_cast<LabelAddressExpression>(exp)->label);
 	case IR_REGISTER:
 		return std::make_shared<RegisterExpression>(
 			std::static_pointer_cast<RegisterExpression>(exp)->reg);
@@ -397,7 +388,8 @@ Expression IREnvironment::CopyExpression(Expression exp)
 			binop->operation, CopyExpression(binop->left), CopyExpression(binop->right));
 	}
 	case IR_MEMORY:
-		return std::make_shared<MemoryExpression>(ToMemoryExpression(exp)->address);
+		return std::make_shared<MemoryExpression>(CopyExpression(
+			ToMemoryExpression(exp)->address));
 	case IR_VAR_LOCATION:
 		return std::make_shared<VarLocationExp>(ToVarLocationExp(exp)->variable);
 	case IR_FUN_CALL: {
@@ -406,6 +398,7 @@ Expression IREnvironment::CopyExpression(Expression exp)
 			CopyExpression(call->callee_parentfp));
 		for (Expression fun_arg: call->arguments)
 			copy->addArgument(CopyExpression(fun_arg));
+		return copy;
 	}
 	case IR_STAT_EXP_SEQ: {
 		auto seq = ToStatExpSequence(exp);
@@ -430,19 +423,20 @@ Statement IREnvironment::CopyStatement(Statement statm)
 			std::static_pointer_cast<ExpressionStatement>(statm)->exp));
 	case IR_JUMP: {
 		auto jump = ToJumpStatement(statm);
-		auto copy = std::make_shared<JumpStatement>(jump->dest);
+		auto copy = std::make_shared<JumpStatement>(CopyExpression(jump->dest));
 		for (Label *label: jump->possible_results)
-			copy->addPossibleResult(copyLabel(label));
+			copy->addPossibleResult(label);
 		return copy;
 	}
 	case IR_COND_JUMP: {
 		auto condjump = ToCondJumpStatement(statm);
 		return std::make_shared<CondJumpStatement>(condjump->comparison,
-			condjump->left, condjump->right, condjump->true_dest, condjump->false_dest);
+			condjump->left, condjump->right, condjump->true_dest,
+			condjump->false_dest);
 	}
 	case IR_LABEL:
 		return std::make_shared<LabelPlacementStatement>(
-			copyLabel(ToLabelPlacementStatement(statm)->label));
+			ToLabelPlacementStatement(statm)->label);
 	case IR_STAT_SEQ: {
 		auto seq = ToStatementSequence(statm);
 		auto copy = std::make_shared<StatementSequence>();
@@ -457,7 +451,6 @@ Statement IREnvironment::CopyStatement(Statement statm)
 
 Code IREnvironment::CopyCode(Code code)
 {
-	copy_count++;
 	Code result = nullptr;
 	switch (code->kind) {
 		case CODE_EXPRESSION:

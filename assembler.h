@@ -7,7 +7,7 @@
 
 namespace Asm {
 
-std::string IntToStr(int x);
+std::string IntToStr(IR::IntegerExpression::Signed x);
 
 //typedef std::string Instruction;
 

@@ -8,6 +8,7 @@
 namespace IR {
 
 bool canSwapExps(Expression exp1, Expression exp2);
+void EvaluateExpression(Expression &exp);
 
 class IRTransformer: public DebugPrinter {
 private:
@@ -31,6 +32,7 @@ private:
 		std::list<Statement> statements;
 		Label *start_label;
 		bool used_in_trace;
+		bool arrivable;
 	};
 	
 	struct BlockSequence {

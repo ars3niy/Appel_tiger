@@ -139,6 +139,7 @@ private:
 		std::map<int, IR::Function *> func_by_labelid;
 		IR::IREnvironment *IR_env;
 		IR::AbstractFrame *caller_frame = NULL;
+		int expansion_count = 0;
 		InlineExpander(IR::IREnvironment *_ir_env) : IR_env(_ir_env) {}
 	};
 	InlineExpander inline_param;
@@ -1395,15 +1396,14 @@ void TranslatorPrivate::translateScope(
 	std::shared_ptr<IR::StatementSequence> sequence = std::make_shared<IR::StatementSequence>();
 	for (Variable *newvar: new_vars)
 		if (newvar->type->basetype != TYPE_ERROR) {
-			IR::Code var_code = std::make_shared<IR::ExpressionCode>(
-				newvar->implementation->createCode(currentFrame));
-			sequence->addStatement(std::make_shared<IR::MoveStatement>(
-				IRenvironment->codeToExpression(var_code),
-				IRenvironment->codeToExpression(newvar->value)
-			));
-			// This way, this assignment won't count in determining whether the
-			// variable is ever assigned anything else
-			assert (! newvar->implementation->isAssigned());
+			IR::Expression var_expr = std::make_shared<IR::VarLocationExp>(
+				newvar->implementation);
+			auto init_statm = std::make_shared<IR::MoveStatement>(
+				nullptr, IRenvironment->codeToExpression(newvar->value));
+			// This way, this assignment won'n count in making the variable
+			// "ever assigned"
+			sequence->addStatement(init_statm);
+			init_statm->to = var_expr;
 		}
 	translateSequence(expression->action->expressions, translated, type,
 		NULL, currentFrame, sequence);
@@ -1854,30 +1854,97 @@ bool ShouldInline(IR::Function *func)
 	return true;
 }
 
-class ParamReplacement: public IR::CodeWalker {
+class InlineReplacement: public IR::CodeWalker {
 public:
-	std::map<int, IR::Expression> replacements;
+	std::map<int, IR::Expression> param_replacement;
+	std::map<int, IR::Label *> label_replacement;
+	std::string label_suffix;
+	IR::IREnvironment *ir_env;
+	
+	InlineReplacement(IR::IREnvironment *_ir_env) : ir_env(_ir_env) {}
+	IR::Label *copyLabel(IR::Label *source);
 };
+
+IR::Label *InlineReplacement::copyLabel(IR::Label *source)
+{
+	auto existing = label_replacement.find(source->getIndex());
+	if (existing != label_replacement.end())
+		return existing->second;
+	else {
+		IR::Label *newlabel = ir_env->addLabel(source->getName() + label_suffix);
+		label_replacement[source->getIndex()] = newlabel;
+		return newlabel;
+	}
+}
 
 bool ReplaceParameter(IR::Expression &exp,
 	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
 {
-	ParamReplacement *param = dynamic_cast<ParamReplacement *>(arg);
-	auto replacement = param->replacements.find(IR::ToVarLocationExp(exp)->variable->getId());
-	if (replacement != param->replacements.end())
+	InlineReplacement *param = dynamic_cast<InlineReplacement *>(arg);
+	auto replacement = param->param_replacement.find(IR::ToVarLocationExp(exp)->variable->getId());
+	if (replacement != param->param_replacement.end())
 		exp = replacement->second;
 	return true;
 }
 
+bool ReplaceLabel(IR::Expression &exp,
+	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	// Only replace a label in expression when it's a direct destination
+	// of unconditional jump.
+	if (parent_statm && (parent_statm->kind == IR::IR_JUMP)) {
+		auto label_exp = IR::ToLabelAddressExpression(exp);
+		label_exp->label = dynamic_cast<InlineReplacement *>(arg)->
+			copyLabel(label_exp->label);
+	}
+	return true;
+}
+
+bool ReplaceJumpLabels(IR::Statement &statm, IR::CodeWalker *arg)
+{
+	InlineReplacement *param = dynamic_cast<InlineReplacement *>(arg);
+	for (IR::Label *&label: IR::ToJumpStatement(statm)->possible_results)
+		label = param->copyLabel(label);
+	return true;
+}
+
+bool ReplaceCondJumpLabels(IR::Statement &statm, IR::CodeWalker *arg)
+{
+	InlineReplacement *param = dynamic_cast<InlineReplacement *>(arg);
+	auto cond_jump = IR::ToCondJumpStatement(statm);
+	cond_jump->true_dest = param->copyLabel(cond_jump->true_dest);
+	cond_jump->false_dest = param->copyLabel(cond_jump->false_dest);
+	return true;
+}
+
+bool ReplaceLabelPlacement(IR::Statement &statm, IR::CodeWalker *arg)
+{
+	auto label_statm = IR::ToLabelPlacementStatement(statm);
+	label_statm->label = dynamic_cast<InlineReplacement *>(arg)->
+			copyLabel(label_statm->label);
+	return true;
+}
+
 IR::Code ExpandInlineCall(IR::IREnvironment *IR_env, IR::AbstractFrame *caller_frame,
-	std::shared_ptr<IR::CallExpression> exp, IR::Function *func)
+	std::shared_ptr<IR::CallExpression> exp, IR::Function *func,
+	const std::string &expansion_suffix)
 {
 	IR::Code body = IR_env->CopyCode(func->body);
 	std::shared_ptr<IR::StatementSequence> prestatements =
 		std::make_shared<IR::StatementSequence>();
 	
-	ParamReplacement replacements;
+	InlineReplacement replacements(IR_env);
+	replacements.label_suffix = expansion_suffix;
 	auto passed_param = exp->arguments.begin();
+	for (IR::VarLocation *local: func->frame->getVariables()) {
+		IR::VarLocation *duplicate = caller_frame->addVariable(local->getName() +
+			expansion_suffix, local->getSize());
+		if (local->isAssigned())
+			duplicate->assign();
+		replacements.param_replacement[local->getId()] =
+			std::make_shared<IR::VarLocationExp>(duplicate);
+	}
+		
 	for (IR::VarLocation *param: func->frame->getParameters()) {
 		bool can_substitute = false;
 		if (! param->isAssigned())
@@ -1900,18 +1967,23 @@ IR::Code ExpandInlineCall(IR::IREnvironment *IR_env, IR::AbstractFrame *caller_f
 		if (can_substitute)
 			replacement = *passed_param;
 		else {
-			IR::VarLocation *save_param = caller_frame->addVariable(param->getSize());
+			IR::VarLocation *save_param = caller_frame->addVariable(
+				param->getName() + expansion_suffix, param->getSize());
 			replacement = std::make_shared<IR::VarLocationExp>(save_param);
 			prestatements->addStatement(std::make_shared<IR::MoveStatement>(
 				replacement, *passed_param));
 		}
-		replacements.replacements[param->getId()] = replacement;
+		replacements.param_replacement[param->getId()] = replacement;
 		
 		++passed_param;
 	}
 	
 	IR::CodeWalkCallbacks callbacks;
 	callbacks.doVarLocation = ReplaceParameter;
+	callbacks.doLabelAddr = ReplaceLabel;
+	callbacks.doJump = ReplaceJumpLabels;
+	callbacks.doCondJump = ReplaceCondJumpLabels;
+	callbacks.doLabelPlacement = ReplaceLabelPlacement;
 	walkCode(body, callbacks, &replacements);
 	
 	if (prestatements->statements.empty())
@@ -1958,7 +2030,8 @@ bool TranslatorPrivate::maybeInlineCall(IR::Expression &exp,
 	if (! parent_statm || (parent_statm->kind != IR::IR_EXP_IGNORE_RESULT)) {
 		if (func->inlined == IR::Function::YES)
 			exp = param->IR_env->codeToExpression(ExpandInlineCall(
-				param->IR_env, param->caller_frame, call_exp, func));
+				param->IR_env, param->caller_frame, call_exp, func,
+				"_" + IntToStr(param->expansion_count++)));
 	}
 	return true;
 }
@@ -1979,7 +2052,7 @@ bool TranslatorPrivate::maybeInlineExpIgnoreCall(IR::Statement &statm,
 		return true;
 	if (func->inlined == IR::Function::YES) {
 		IR::Code code = ExpandInlineCall(param->IR_env, param->caller_frame,
-			call_exp, func);
+			call_exp, func, "_" + IntToStr(param->expansion_count++));
 		if ((code->kind == IR::CODE_EXPRESSION) || (code->kind == IR::CODE_JUMP_WITH_PATCHES))
 			exp_statm->exp = param->IR_env->codeToExpression(code);
 		else
@@ -2027,8 +2100,36 @@ void TranslatorPrivate::expandInlineCalls(IR::Code code, IR::AbstractFrame *fram
 bool TranslatorPrivate::implementVarLocation(IR::Expression &exp,
 	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
 {
-	exp = IR::ToVarLocationExp(exp)->variable->createCode(
-		dynamic_cast<FrameParam *>(arg)->frame);
+	IR::VarLocation *var = IR::ToVarLocationExp(exp)->variable;
+	if (var->only_value && (var->only_value->kind == IR::IR_INTEGER)) {
+		DebugPrinter dbg("translator.log");
+		// This will replace assignment destination with the constant
+		// in variable initialization statement. What should be done instead
+		// is removing that statement, which maybeRemoveDummyAssignment will do
+		dbg.debug("Replacing variable %s with constant", var->getName().c_str());
+		exp = var->only_value;
+	} else
+		exp = var->createCode(dynamic_cast<FrameParam *>(arg)->frame);
+	return true;
+}
+
+bool ReevaluateOperations(IR::Expression &exp,
+	IR::Expression parent_exp, IR::Statement parent_statm, IR::CodeWalker *arg)
+{
+	IR::EvaluateExpression(exp);
+	return true;
+}
+
+bool maybeRemoveDummyAssignment(IR::Statement &statm, IR::CodeWalker *arg)
+{
+	std::shared_ptr<IR::MoveStatement> move = IR::ToMoveStatement(statm);
+	if ((move->to->kind != IR::IR_REGISTER) && (move->to->kind != IR::IR_MEMORY) &&
+			(move->to->kind != IR::IR_VAR_LOCATION)) {
+		// Assignment destination for variable initialization got replaced with
+		// the value. Remove the assignment instead.
+		statm = std::make_shared<IR::ExpressionStatement>(
+			std::make_shared<IR::IntegerExpression>(0));
+	}
 	return true;
 }
 
@@ -2036,6 +2137,8 @@ void TranslatorPrivate::implementVarLocations(IR::Code code, IR::AbstractFrame *
 {
 	IR::CodeWalkCallbacks callbacks;
 	callbacks.doVarLocation = implementVarLocation;
+	callbacks.doBinOp = ReevaluateOperations;
+	callbacks.doMove = maybeRemoveDummyAssignment;
 	FrameParam param(frame);
 	IR::walkCode(code, callbacks, &param);
 }
@@ -2106,11 +2209,14 @@ void Translator::translateProgram(Syntax::Tree expression,
 	impl->translateExpression(expression, code, type, NULL, frame, false);
 	if (Error::getErrorCount() > 0)
 		return;
+	for (Semantic::Function &func: impl->functions)
+		func.raw_body = nullptr;
 	
 	for (Semantic::Function &fcn: impl->functions)
 		if (fcn.implementation.body)
 			impl->expandInlineCalls(fcn.implementation.body, fcn.implementation.frame);
 	impl->expandInlineCalls(code, frame);
+	result = impl->IRenvironment->codeToStatement(code);
 	
 	for (Semantic::Function &fcn: impl->functions)
 		if (fcn.implementation.body && ! fcn.implementation.is_exported &&
@@ -2119,22 +2225,6 @@ void Translator::translateProgram(Syntax::Tree expression,
 					  (fcn.implementation.inlined == IR::Function::YES)))
 			fcn.implementation.body = nullptr;
 
-	for (Semantic::Function &fcn: impl->functions)
-		if (fcn.implementation.body)
-			impl->implementVarLocations(fcn.implementation.body,
-				fcn.implementation.frame);
-	impl->implementVarLocations(code, frame);
-	
-	impl->addParentFpToCalls();
-	for (Semantic::Function &fcn: impl->functions)
-		if (fcn.implementation.body)
-			impl->prespillRegisters(fcn.implementation.body,
-				fcn.implementation.frame);
-	impl->prespillRegisters(code, frame);
-	result = impl->IRenvironment->codeToStatement(code);
-
-	for (Semantic::Function &func: impl->functions)
-		func.raw_body = nullptr;
 }
 
 void Translator::printFunctions(FILE *out)
@@ -2146,14 +2236,8 @@ void Translator::printFunctions(FILE *out)
 		}
 }
 
-void Translator::canonicalizeProgram(IR::Statement &statement)
-{
-	impl->IRtransformer->canonicalizeStatement(statement);
-	if (statement->kind == IR::IR_STAT_SEQ)
-		impl->IRtransformer->arrangeJumps(IR::ToStatementSequence(statement));
-}
-
-void Translator::canonicalizeFunctions()
+void Translator::canonicalizeProgramAndFunctions(IR::Statement &program_body,
+	IR::AbstractFrame *body_frame)
 {
 	for (Function &func: impl->functions) {
 		if (func.implementation.body == NULL)
@@ -2170,7 +2254,10 @@ void Translator::canonicalizeFunctions()
 			case IR::CODE_STATEMENT: {
 				IR::StatementCode *statm_code = std::static_pointer_cast<IR::StatementCode>(
 					func.implementation.body).get();
-				canonicalizeProgram(statm_code->statm);
+				impl->IRtransformer->canonicalizeStatement(statm_code->statm);
+				if (statm_code->statm->kind == IR::IR_STAT_SEQ)
+					impl->IRtransformer->arrangeJumps(
+						IR::ToStatementSequence(statm_code->statm));
 				break;
 			}
 			case IR::CODE_JUMP_WITH_PATCHES: {
@@ -2182,6 +2269,33 @@ void Translator::canonicalizeFunctions()
 			}
 		}
 	}
+	
+	IR::Statement body = program_body;
+	impl->IRtransformer->canonicalizeStatement(body);
+	if (body->kind == IR::IR_STAT_SEQ)
+		impl->IRtransformer->arrangeJumps(IR::ToStatementSequence(body));
+	
+	for (IR::VarLocation *var: impl->framemanager->getVariables())
+		if (var->only_value) {
+			IR::EvaluateExpression(var->only_value);
+			if (var->only_value->kind == IR::IR_INTEGER)
+				impl->debug("Variable %s is a constant", var->getName().c_str());
+		}
+
+	for (Semantic::Function &fcn: impl->functions)
+		if (fcn.implementation.body)
+			impl->implementVarLocations(fcn.implementation.body,
+				fcn.implementation.frame);
+	IR::Code body_code = std::make_shared<IR::StatementCode>(body);
+	impl->implementVarLocations(body_code, body_frame);
+	
+	impl->addParentFpToCalls();
+	for (Semantic::Function &fcn: impl->functions)
+		if (fcn.implementation.body)
+			impl->prespillRegisters(fcn.implementation.body,
+				fcn.implementation.frame);
+	impl->prespillRegisters(body_code, body_frame);
+	program_body = impl->IRenvironment->codeToStatement(body_code);
 }
 
 const std::list< Function >& Translator::getFunctions()

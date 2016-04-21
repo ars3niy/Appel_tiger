@@ -151,10 +151,16 @@ public:
 };
 
 class IntegerExpression: public ExpressionClass {
+private:
+	int64_t value;
 public:
-	int value;
+	typedef int64_t Signed;
+	typedef uint64_t Unsigned;
 	
-	IntegerExpression(int _value) : ExpressionClass(IR_INTEGER), value(_value) {}
+	Signed getSigned() {return value;}
+	Unsigned getUnsigned() {return (uint64_t)value;}
+	
+	IntegerExpression(int64_t _value) : ExpressionClass(IR_INTEGER), value(_value) {}
 };
 
 class LabelAddressExpression: public ExpressionClass {

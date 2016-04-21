@@ -1,6 +1,7 @@
 #include "intermediate.h"
 #include "syntaxtree.h"
 #include "debugprint.h"
+#include "frame.h"
 #include <stdarg.h>
 #include <map>
 
@@ -86,7 +87,7 @@ void PrintExpression(FILE *out, Expression exp, int indent, const char *prefix =
 	}
 	switch (exp->kind) {
 	case IR_INTEGER:
-		fprintf(out, "%d\n", ToIntegerExpression(exp)->value);
+		fprintf(out, "%ld\n", ToIntegerExpression(exp)->getSigned());
 		break;
 	case IR_LABELADDR:
 		if (ToLabelAddressExpression(exp)->label == NULL)
@@ -103,6 +104,9 @@ void PrintExpression(FILE *out, Expression exp, int indent, const char *prefix =
 				fprintf(out, "Register %d\n", ToRegisterExpression(exp)->reg->getIndex());
 			else
 				fprintf(out, "Register %s\n", ToRegisterExpression(exp)->reg->getName().c_str());
+		break;
+	case IR_VAR_LOCATION:
+		fprintf(out, "Variable %s\n", ToVarLocationExp(exp)->variable->getName().c_str());
 		break;
 	case IR_BINARYOP: 
 		fprintf(out, "%s\n", BINARYOPNAMES[ToBinaryOpExpression(exp)->operation]);

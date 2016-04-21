@@ -55,8 +55,9 @@ public:
 	 * is the parameter was passed in a register.
 	 */
 	bool read_only;
-	IR::Expression constant_value = nullptr;
+	IR::Expression only_value = nullptr;
 	int getId() {return id;}
+	const std::string &getName() {return name;}
 	int getSize() {return size;}
 	bool isPredefined() {return predefined;}
 	bool isRegister() {return reg != NULL;}
@@ -150,6 +151,7 @@ private:
 	ParentFpHandler *parent_fp_handler;
 	std::list<AbstractFrame *>frames;
 	int variable_count = 0;
+	std::list<VarLocation *>variables;
 protected:
 	virtual AbstractFrame *createFrame(AbstractFrame *parent, const std::string &name) = 0;
 public:
@@ -171,6 +173,8 @@ public:
 	AbstractFrame *newFrame(AbstractFrame *parent, const std::string &name);
 	
 	int getNewVarId() {return variable_count++;}
+	void addVariable(VarLocation *var) {variables.push_back(var);}
+	const std::list<VarLocation *>getVariables() {return variables;}
 	
 	void setFrameParentFpNotificationHandler(ParentFpHandler *handler)
 	{

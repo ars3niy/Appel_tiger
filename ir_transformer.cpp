@@ -1,6 +1,7 @@
 #include "ir_transformer.h"
 #include "errormsg.h"
 #include <map>
+#include <set>
 
 namespace IR {
 
@@ -99,27 +100,39 @@ void IRTransformer::pullStatementsOutOfTwoOperands(Expression &left,
 	collected_statements = pre_statements;
 }
 
-void IRTransformer::canonicalizeBinaryOpExp(Expression &exp)
+void EvaluateExpression(Expression &exp)
 {
+	if (exp->kind == IR_VAR_LOCATION) {
+		VarLocation *var = ToVarLocationExp(exp)->variable;
+		if (var->only_value && (var->only_value->kind == IR_INTEGER))
+			exp = var->only_value;
+		return;
+	}
+	
+	if (exp->kind != IR_BINARYOP)
+		return;
 	std::shared_ptr<BinaryOpExpression> op_exp = ToBinaryOpExpression(exp);
-	std::shared_ptr<StatementSequence> pre_statements;
-	
-	pullStatementsOutOfTwoOperands(op_exp->left, op_exp->right, pre_statements);
-	
 	std::shared_ptr<IntegerExpression> left_const = nullptr, right_const = nullptr;
+	
+	// Would need this during canonicalization but will need when
+	// re-evaluating expressions after substituting constant values for variables
+	EvaluateExpression(op_exp->left);
+	EvaluateExpression(op_exp->right);
 	if (op_exp->left->kind == IR_INTEGER)
 		left_const = ToIntegerExpression(op_exp->left);
 	if (op_exp->right->kind == IR_INTEGER)
 		right_const = ToIntegerExpression(op_exp->right);
 	
+	
 	switch (op_exp->operation) {
 	case OP_PLUS:
-		if (left_const && (left_const->value == 0))
+		if (left_const && (left_const->getSigned() == 0))
 			exp = op_exp->right;
-		else if (right_const &&	(right_const->value == 0))
+		else if (right_const &&	(right_const->getSigned() == 0))
 			exp = op_exp->left;
 		else if (left_const && right_const)
-			exp = std::make_shared<IntegerExpression>(left_const->value + right_const->value);
+			exp = std::make_shared<IntegerExpression>(
+				left_const->getSigned() + right_const->getSigned());
 		else if (
 			((op_exp->left->kind == IR_INTEGER) || (op_exp->left->kind == IR_LABELADDR) ||
 				(op_exp->left->kind == IR_REGISTER)) &&
@@ -132,18 +145,20 @@ void IRTransformer::canonicalizeBinaryOpExp(Expression &exp)
 		}
 		break;
 	case OP_MINUS:
-		if (right_const &&	(right_const->value == 0))
+		if (right_const &&	(right_const->getSigned() == 0))
 			exp = op_exp->left;
 		else if (left_const && right_const)
-			exp = std::make_shared<IntegerExpression>(left_const->value - right_const->value);
+			exp = std::make_shared<IntegerExpression>(
+				left_const->getSigned() - right_const->getSigned());
 		break;
 	case OP_MUL:
-		if (left_const && (left_const->value == 1))
+		if (left_const && (left_const->getSigned() == 1))
 			exp = op_exp->right;
-		else if (right_const &&	(right_const->value == 1))
+		else if (right_const &&	(right_const->getSigned() == 1))
 			exp = op_exp->left;
 		else if (left_const && right_const)
-			exp = std::make_shared<IntegerExpression>(left_const->value * right_const->value);
+			exp = std::make_shared<IntegerExpression>(
+				left_const->getSigned() * right_const->getSigned());
 		else if (
 			((op_exp->left->kind == IR_INTEGER) || (op_exp->left->kind == IR_LABELADDR) ||
 				(op_exp->left->kind == IR_REGISTER)) &&
@@ -156,18 +171,28 @@ void IRTransformer::canonicalizeBinaryOpExp(Expression &exp)
 		}
 		break;
 	case OP_DIV:
-		if (right_const && (right_const->value == 0))
+		if (right_const && (right_const->getSigned() == 0))
 			Error::warning("Division by zero", op_exp->position);
-		if (right_const &&	(right_const->value == 1))
+		if (right_const &&	(right_const->getSigned() == 1))
 			exp = op_exp->left;
 		else if (left_const && right_const) {
-			if (right_const->value != 0)
-				exp = std::make_shared<IntegerExpression>(left_const->value / right_const->value);
+			if (right_const->getSigned() != 0)
+				exp = std::make_shared<IntegerExpression>(
+					left_const->getSigned() / right_const->getSigned());
 		}
 		break;
 	default: ;
 	}
+}
+
+void IRTransformer::canonicalizeBinaryOpExp(Expression &exp)
+{
+	std::shared_ptr<BinaryOpExpression> op_exp = ToBinaryOpExpression(exp);
+	std::shared_ptr<StatementSequence> pre_statements;
 	
+	pullStatementsOutOfTwoOperands(op_exp->left, op_exp->right, pre_statements);
+	
+	EvaluateExpression(exp);
 	if (! pre_statements->statements.empty())
 		exp = std::make_shared<StatExpSequence>(pre_statements, exp);
 }
@@ -289,6 +314,7 @@ void IRTransformer::canonicalizeExpression(Expression &exp,
 		case IR_INTEGER:
 		case IR_LABELADDR:
 		case IR_REGISTER:
+		case IR_VAR_LOCATION:
 			break;
 		case IR_BINARYOP:
 			subexpressions.push_back(& ToBinaryOpExpression(exp)->left);
@@ -318,6 +344,7 @@ void IRTransformer::canonicalizeExpression(Expression &exp,
 		case IR_INTEGER:
 		case IR_LABELADDR:
 		case IR_REGISTER:
+		case IR_VAR_LOCATION:
 			break;
 		
 		case IR_MEMORY:
@@ -356,7 +383,8 @@ void IRTransformer::canonicalizeMoveStatement(Statement &statm)
 			pre_statements->addStatement(move_statm);
 			statm = pre_statements;
 		}
-	} else if (move_statm->to->kind == IR_REGISTER) {
+	} else if ((move_statm->to->kind == IR_REGISTER) ||
+			(move_statm->to->kind == IR_VAR_LOCATION)) {
 		if (move_statm->from->kind == IR_STAT_EXP_SEQ) {
 			std::shared_ptr<StatementSequence> sequence = std::make_shared<StatementSequence>();
 			std::shared_ptr<StatExpSequence> stat_exp_seq = ToStatExpSequence(move_statm->from);
@@ -364,6 +392,14 @@ void IRTransformer::canonicalizeMoveStatement(Statement &statm)
 			move_statm->from = stat_exp_seq->exp;
 			growStatementSequence(sequence, move_statm);
 			statm = sequence;
+		}
+		if (move_statm->to->kind == IR_VAR_LOCATION) {
+			VarLocation *var = ToVarLocationExp(move_statm->to)->variable;
+			if (! var->isAssigned() && (move_statm->from->kind == IR_INTEGER)) {
+				debug("Variable %s is never reassigned after initialization",
+					var->getName().c_str());
+				var->only_value = move_statm->from;
+			}
 		}
 	} else
 		Error::fatalError("canonicalizeMoveStatement: strange destination");
@@ -401,11 +437,69 @@ void IRTransformer::canonicalizeCondJumpStatement(Statement &statm)
 	std::shared_ptr<StatementSequence> pre_statements;
 	
 	pullStatementsOutOfTwoOperands(cjump_statm->left, cjump_statm->right, pre_statements);
+	Statement jump_replacement = cjump_statm;
+	if ((cjump_statm->left->kind == IR_INTEGER) && (cjump_statm->right->kind == IR_INTEGER)) {
+		bool is_true;
+		switch (cjump_statm->comparison) {
+			case OP_EQUAL:
+				is_true = ToIntegerExpression(cjump_statm->left)->getSigned() ==
+					ToIntegerExpression(cjump_statm->right)->getSigned();
+				break;
+			case OP_NONEQUAL:
+				is_true = ToIntegerExpression(cjump_statm->left)->getSigned() !=
+					ToIntegerExpression(cjump_statm->right)->getSigned();
+				break;
+			case OP_LESS:
+				is_true = ToIntegerExpression(cjump_statm->left)->getSigned() <
+					ToIntegerExpression(cjump_statm->right)->getSigned();
+				break;
+			case OP_ULESS:
+				is_true = ToIntegerExpression(cjump_statm->left)->getUnsigned() ==
+					ToIntegerExpression(cjump_statm->right)->getUnsigned();
+				break;
+			case OP_GREATER:
+				is_true = ToIntegerExpression(cjump_statm->left)->getSigned() >
+					ToIntegerExpression(cjump_statm->right)->getSigned();
+				break;
+			case OP_UGREATER:
+				is_true = ToIntegerExpression(cjump_statm->left)->getUnsigned() >
+					ToIntegerExpression(cjump_statm->right)->getUnsigned();
+				break;
+			case OP_LESSEQUAL:
+				is_true = ToIntegerExpression(cjump_statm->left)->getSigned() <=
+					ToIntegerExpression(cjump_statm->right)->getSigned();
+				break;
+			case OP_ULESSEQUAL:
+				is_true = ToIntegerExpression(cjump_statm->left)->getUnsigned() <=
+					ToIntegerExpression(cjump_statm->right)->getUnsigned();
+				break;
+			case OP_GREATEQUAL:
+				is_true = ToIntegerExpression(cjump_statm->left)->getSigned() >=
+					ToIntegerExpression(cjump_statm->right)->getSigned();
+				break;
+			case OP_UGREATEQUAL:
+				is_true = ToIntegerExpression(cjump_statm->left)->getUnsigned() >=
+					ToIntegerExpression(cjump_statm->right)->getUnsigned();
+				break;
+			default:
+				is_true = true;
+		}
+		if (is_true) {
+			jump_replacement = std::make_shared<JumpStatement>(
+				std::make_shared<LabelAddressExpression>(cjump_statm->true_dest),
+				cjump_statm->true_dest);
+		} else {
+			jump_replacement = std::make_shared<JumpStatement>(
+				std::make_shared<LabelAddressExpression>(cjump_statm->false_dest),
+				cjump_statm->false_dest);
+		}
+	}
 	
 	if (! pre_statements->statements.empty()) {
-		pre_statements->addStatement(cjump_statm);
+		pre_statements->addStatement(jump_replacement);
 		statm = pre_statements;
-	}
+	} else
+		statm = jump_replacement;
 }
 
 void IRTransformer::doChildrenAndMergeChildStatSequences(std::shared_ptr<StatementSequence> statm)
@@ -484,6 +578,7 @@ void IRTransformer::splitToBlocks(std::shared_ptr<StatementSequence> sequence,
 			sequence->statements.insert(statm, label_statm);
 			new_block.statements.push_back(label_statm);
 		}
+		debug("Block starting with %s", new_block.start_label->getName().c_str());
 		while ((statm != sequence->statements.end()) &&
 				((*statm)->kind != IR_LABEL) && ((*statm)->kind != IR_JUMP) &&
 				((*statm)->kind != IR_COND_JUMP)) {
@@ -498,11 +593,13 @@ void IRTransformer::splitToBlocks(std::shared_ptr<StatementSequence> sequence,
 			} else {
 				next_label = ToLabelPlacementStatement(*statm)->label;
 			}
+			debug("Proceeds to %s without jump", next_label->getName().c_str());
 			std::shared_ptr<JumpStatement> jump_to_next = std::make_shared<JumpStatement>(
 				std::make_shared<LabelAddressExpression>(next_label), next_label);
 			sequence->statements.insert(statm, jump_to_next);
 			new_block.statements.push_back(jump_to_next);
 		} else {
+			debug("Jumps");
 			new_block.statements.push_back(*statm);
 			statm++;
 		}
@@ -512,9 +609,48 @@ void IRTransformer::splitToBlocks(std::shared_ptr<StatementSequence> sequence,
 void IRTransformer::arrangeBlocksForPrettyJumps(BlockSequence &blocks,
 		BlockOrdering &new_order)
 {
-	new_order.clear();
+	if (blocks.blocks.empty())
+		return;
+	std::map<int, StatementBlock *> blocks_by_labelid;
 	for (StatementBlock &block: blocks.blocks)
-		new_order.push_back(&block);
+		blocks_by_labelid.insert(std::make_pair(
+			block.start_label->getIndex(), &block));
+	new_order.clear();
+	blocks.blocks.front().used_in_trace = true;
+	new_order.push_back(&blocks.blocks.front());
+	for (auto b = new_order.begin(); b != new_order.end(); b++) {
+		Statement jump_statement = (*b)->statements.back();
+		if (jump_statement->kind == IR_JUMP) {
+			for (IR::Label *label: ToJumpStatement(jump_statement)->possible_results)
+				if (label->getIndex() != blocks.finish_label->getIndex()) {
+					StatementBlock *next = blocks_by_labelid.at(label->getIndex());
+					if (! next->used_in_trace) {
+						next->used_in_trace = true;
+						new_order.push_back(next);
+					}
+				}
+		} else {
+			IR::Label *label = ToCondJumpStatement(jump_statement)->true_dest;
+			if (label->getIndex() != blocks.finish_label->getIndex()) {
+				StatementBlock *next = blocks_by_labelid.at(label->getIndex());
+				if (! next->used_in_trace) {
+					next->used_in_trace = true;
+					new_order.push_back(next);
+				}
+			}
+			label = ToCondJumpStatement(jump_statement)->false_dest;
+			if (label->getIndex() != blocks.finish_label->getIndex()) {
+				StatementBlock *next = blocks_by_labelid.at(label->getIndex());
+				if (! next->used_in_trace) {
+					next->used_in_trace = true;
+					new_order.push_back(next);
+				}
+			}
+		}
+	}
+// 	for (StatementBlock &block: blocks.blocks)
+// 		if (block.arrivable)
+// 			new_order.push_back(&block);
 	return;
 	
 	BlockOrdering remaining_blocks;

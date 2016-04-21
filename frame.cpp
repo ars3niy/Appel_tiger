@@ -146,6 +146,7 @@ VarLocation* AbstractFrame::addVariable(const std::string &name,
 		reg = framemanager->getIREnvironment()->addRegister(this->name + "::" + name);
 	VarLocation *impl = new VarLocation(this, size, reg, false);
 	variables.push_back(impl);
+	framemanager->addVariable(impl);
 	nvariable++;
 	return impl;
 }
